@@ -1,0 +1,3 @@
+For Drain parser details, see IBM Drain : https://github.com/logpai/logparser/tree/main/logparser/Drain
+On GitHub, only a subset of the dataset is used. You should use the full datasets (HDFS and BGL).
+
