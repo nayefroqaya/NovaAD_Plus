@@ -56,6 +56,191 @@ RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
 
 
+
+
+def main():
+
+    # ---------------- Device setup ----------------
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.enabled = True
+
+    # ---------------- Display options ----------------
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.width", None)
+    pd.set_option("display.max_colwidth", None)
+
+    # ---------------- Project configuration ----------------
+    DATASET = 'SP_150MB'
+    DATASETS_FOLDER = 'datasets'
+    Round = '1'
+    mode = 'M'
+    Mix_or_stable = '0'
+
+    # ---------------- Spark session ----------------
+    spark = SparkSession.builder \
+        .appName("LogAnomalyPipeline") \
+        .getOrCreate()
+
+    from pyspark.storagelevel import StorageLevel
+    from pyspark.sql.functions import col
+
+    # ---------------- Paths ----------------
+    DOC_TOPIC_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_doc_topic_df.pkl'
+    SENTIMENT_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_sentiment_df.pkl'
+    PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_pre_final_global_features.pkl'
+
+    # ---------------- Initialize classes ----------------
+    logdata_read_obj = LogdataRead()
+    features_extracting_obj = FeaturesExtractor()
+    features_engineering_obj = FeaturesEngineering()
+    anomaly_detection_obj = AnomalyDetector()
+    model_evaluation_obj = ModelEvaluation()
+    utilities_obj = Utilities()
+
+    # ---------------- Process normal data ----------------
+    print(f"{GRAY}Processing normal data portion in the dataset...{RESET}")
+
+    if Mix_or_stable == '0' and DATASET == 'S_BGL':
+        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Stable_Splitted_Datasets")
+    elif Mix_or_stable == '1' and DATASET == 'S_BGL':
+        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Mix_Splitted_Datasets")
+    else:
+        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Splitted_Datasets")
+
+    # ---------------- Load PKL splits (Pandas → Spark) ----------------
+    train_df = spark.createDataFrame(
+        pd.read_pickle(os.path.join(save_path, "train_df.pkl"))
+    ).cache()
+
+    val_df = spark.createDataFrame(
+        pd.read_pickle(os.path.join(save_path, "val_df.pkl"))
+    ).cache()
+
+    test_df = spark.createDataFrame(
+        pd.read_pickle(os.path.join(save_path, "test_df.pkl"))
+    ).cache()
+
+    train_df.count()
+    val_df.count()
+    test_df.count()
+
+    # ---------------- Merge datasets ----------------
+    final_train_with_test_with_val = utilities_obj.processing_data_portion(
+        train_df, val_df, test_df, spark
+    ).persist(StorageLevel.MEMORY_AND_DISK)
+
+    final_train_with_test_with_val.count()
+
+    # ---------------- Features Extracting ----------------
+    print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
+
+    number_component, best_topic_number = \
+        features_extracting_obj.features_extracting_configuring_tuning(
+            features_extracting_obj,
+            DOC_TOPIC_DF_PATH,
+            SENTIMENT_DF_PATH,
+            DATASET,
+            PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
+            final_train_with_test_with_val
+        )
+
+    # ---------------- Load feature PKL → Spark ----------------
+    final_train_with_test_with_val = spark.createDataFrame(
+        pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)
+    ).persist(StorageLevel.MEMORY_AND_DISK)
+
+    final_train_with_test_with_val.count()
+
+    # ---------------- Features Engineering ----------------
+    print(f"{GRAY}Aggregating and transforming features...{RESET}")
+
+    sequences_df, x_sequences_df, y_sequences_df = \
+        features_engineering_obj.features_aggregation_transformation(
+            final_train_with_test_with_val,
+            DATASET
+        )
+
+    sequences_df = sequences_df.persist(StorageLevel.MEMORY_AND_DISK)
+    x_sequences_df = x_sequences_df.cache()
+
+    sequences_df.count()
+    x_sequences_df.count()
+
+    # ---------------- Prepare datasets ----------------
+    print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
+
+    x_train_normal_labelled = x_sequences_df.filter(col("Temp_label") == 0)
+    X_train_all_data = x_sequences_df.filter(col("Temp_label") != 888)
+    x_unlabeled_from_train = x_sequences_df.filter(col("Temp_label") == 999)
+
+    labelled_df_from_train = sequences_df.filter(col("Temp_label") == 0)
+    ground_truth_labeled_data_from_train = labelled_df_from_train.select("Label")
+
+    labelled_df_from_train_all_data = sequences_df.filter(col("Temp_label") != 888)
+    ground_truth_train_all_data = labelled_df_from_train_all_data.select("Label")
+
+    unlabeled_df_from_train = sequences_df.filter(col("Temp_label") == 999)
+    ground_truth_unlabeled_data_from_train = unlabeled_df_from_train.select("Label")
+
+    unlabeled_df_from_test = sequences_df.filter(col("Temp_label") == 888)
+    ground_truth_unlabeled_data_from_test = unlabeled_df_from_test.select("Label")
+
+    labeled_df_from_val = sequences_df.filter(col("Temp_label") == 777)
+    ground_truth_labeled_data_from_val = labeled_df_from_val.select("Label")
+
+    # ---------------- Novelty detection ----------------
+    print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
+
+    X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
+        features_engineering_obj.novelty_detection_label_establishment(
+            sequences_df,
+            x_train_normal_labelled,
+            x_unlabeled_from_train,
+            ground_truth_unlabeled_data_from_train
+        )
+
+    # ---------------- Anomaly Detection ----------------
+    print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
+
+    y_test_truth, y_test_pred, fit_time, predict_time = \
+        anomaly_detection_obj.anomaly_detector(
+            X_train, y_train, X_test,
+            y_test_truth, X_val, y_val_truth, mode
+        )
+
+    # ---------------- Model Evaluation ----------------
+    print(f"{GRAY}Evaluating model performance...{RESET}")
+
+    model_evaluation_obj.evaluation(
+        Round,
+        X_train,
+        y_train,
+        number_component,
+        y_test_truth,
+        y_test_pred,
+        DATASET,
+        X_test
+    )
+
+    print(f"Model training completed in {fit_time:.2f} minutes")
+    print(f"Prediction completed in {predict_time:.2f} minutes")
+
+    # ---------------- Cleanup ----------------
+    sequences_df.unpersist()
+    x_sequences_df.unpersist()
+    final_train_with_test_with_val.unpersist()
+    train_df.unpersist()
+    val_df.unpersist()
+    test_df.unpersist()
+
+    spark.stop()
+
+
+
+
+
+'''
 # ====================== Main ======================
 def main():
     # ---------------- Project configuration ----------------
@@ -217,10 +402,12 @@ def main():
     print(f"{GRAY}Evaluating model performance...{RESET}")
     model_evaluation_obj.evaluation(number_component, y_test_truth, y_test_pred, DATASET, x_test)
 
+
     # ---------------- Stop Spark ----------------
     spark.catalog.clearCache()
     spark.stop()
 
-
+'''
 if __name__ == "__main__":
     main()
+
