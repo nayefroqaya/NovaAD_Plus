@@ -155,6 +155,7 @@ def main():
     train_df.count()
     val_df.count()
     test_df.count()
+    exit()
 
     # ---------------- Merge datasets ----------------
     final_train_with_test_with_val = utilities_obj.processing_data_portion(
