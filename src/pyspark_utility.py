@@ -6,7 +6,11 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType
-
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col, to_timestamp
+from pyspark.storagelevel import StorageLevel
+import os
+import numpy as np
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
@@ -39,92 +43,124 @@ class Utilities:
 
     def dataset_splitting(ALL_DATASET_CSV_PATH, dataset, round, Mix_or_stable, spark):
 
-
         print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
-        df_features = (spark.read.option("header", True).option("inferSchema", True).option("escape", "\\").csv(
-            ALL_DATASET_CSV_PATH))
+
+        # -------------------------------------------------
+        # Load dataset (CSV path OR Spark DataFrame)
+        # -------------------------------------------------
+        if isinstance(All_dataset_path_as_csv, DataFrame):
+            df_features = All_dataset_path_as_csv
+        else:
+            df_features = (
+                spark.read
+                .option("header", True)
+                .option("inferSchema", True)
+                .option("escape", "\\")
+                .csv(All_dataset_path_as_csv)
+            )
+
+        df_features = df_features.cache()
+        df_features.count()
+
+        # -------------------------------------------------
+        # Clean data (must return Spark DataFrame)
+        # -------------------------------------------------
         df_features = Utilities.clean_up_df(df_features)
 
-        df_features = df_features.withColumn("Timestamp",
-            F.coalesce(F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS"),
-                F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss")))
+        # -------------------------------------------------
+        # Standardize timestamps
+        # -------------------------------------------------
+        df_features = df_features.withColumn(
+            "Timestamp",
+            to_timestamp(col("Timestamp"), "yyyy-MM-dd HH:mm:ss.SSS")
+        )
 
-        df_features = df_features.orderBy(["Node_block_id", "Timestamp"])
-        df_features = df_features.select("Timestamp", "Date", "Time", "Content", "processed_EventTemplate",
-            "Node_block_id", "Label")
+        # -------------------------------------------------
+        # Sort and select columns
+        # -------------------------------------------------
+        df_features = (
+            df_features
+            .orderBy("Node_block_id", "Timestamp")
+            .select(
+                "Timestamp", "Date", "Time", "Content", "Original_Label",
+                "EventId", "EventTemplate", "processed_EventTemplate",
+                "Node_block_id", "Label"
+            )
+        )
 
-        # Get unique IDs
-        unique_ids_df = df_features.select("Node_block_id").distinct()
+        print(GREEN + "[INFO] Dataset timestamps standardized and sorted." + RESET)
 
-        # -------------------------
-        # Dataset-specific splitting
-        # -------------------------
-        if dataset == 'HDFS':
+        # -------------------------------------------------
+        # Train / Val / Test split by Node_block_id
+        # -------------------------------------------------
+        unique_ids = (
+            df_features
+            .select("Node_block_id")
+            .distinct()
+            .rdd
+            .map(lambda x: x[0])
+            .collect()
+        )
 
-            # 2️⃣ Shuffle using random value
-            unique_ids_df = unique_ids_df.withColumn("rand_val", F.rand())
+        total_ids = len(unique_ids)
 
-            # 3️⃣ Assign row number after shuffling
-            window = Window.orderBy("rand_val")
-            unique_ids_df = unique_ids_df.withColumn("row_num", F.row_number().over(window))
+        if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB',
+                       'TH_1G', 'TH_2G', 'S_BGL']:
 
-            # 4️⃣ Compute split sizes
-            total_ids = unique_ids_df.count()
-
+            shuffled_ids = np.random.permutation(unique_ids)
             train_size = int(0.6 * total_ids)
             val_size = int(0.1 * total_ids)
 
-            train_end = train_size
-            val_end = train_size + val_size
-
-            # 5️⃣ Create splits using row_num ranges
-            train_ids_df = unique_ids_df.filter(F.col("row_num") <= train_end).select("Node_block_id")
-
-            val_ids_df = unique_ids_df.filter((F.col("row_num") > train_end) & (F.col("row_num") <= val_end)).select(
-                "Node_block_id")
-
-            test_ids_df = unique_ids_df.filter(F.col("row_num") > val_end).select("Node_block_id")
-
-
-
-        elif dataset in ['BGL', 'TH_1G','TH_2G', 'SP_100MB', 'SP_150MB' ]:
-            # 2️⃣ Shuffle using random value
-            unique_ids_df = unique_ids_df.withColumn("rand_val", F.rand())
-
-            # 3️⃣ Assign row number after shuffling
-            window = Window.orderBy("rand_val")
-            unique_ids_df = unique_ids_df.withColumn("row_num", F.row_number().over(window))
-
-            # 4️⃣ Compute split sizes
-            total_ids = unique_ids_df.count()
-
-            train_size = int(0.6 * total_ids)
-            val_size = int(0.1 * total_ids)
-
-            train_end = train_size
-            val_end = train_size + val_size
-
-            # 5️⃣ Create splits using row_num ranges
-            train_ids_df = unique_ids_df.filter(F.col("row_num") <= train_end).select("Node_block_id")
-
-            val_ids_df = unique_ids_df.filter((F.col("row_num") > train_end) & (F.col("row_num") <= val_end)).select(
-                "Node_block_id")
-
-            test_ids_df = unique_ids_df.filter(F.col("row_num") > val_end).select("Node_block_id")
-
+            train_ids = shuffled_ids[:train_size]
+            val_ids = shuffled_ids[train_size:train_size + val_size]
+            test_ids = shuffled_ids[train_size + val_size:]
 
         else:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
 
-        # -------------------------
-        # Join splits with original dataset
-        # -------------------------
-        train_df = df_features.join(train_ids_df, on="Node_block_id", how="inner").withColumn("Type_ds", F.lit("Train"))
-        val_df = df_features.join(val_ids_df, on="Node_block_id", how="inner").withColumn("Type_ds",
-                                                                                          F.lit("Validation"))
-        test_df = df_features.join(test_ids_df, on="Node_block_id", how="inner").withColumn("Type_ds", F.lit("Test"))
+        # -------------------------------------------------
+        # Create split DataFrames
+        # -------------------------------------------------
+        train_df = df_features.filter(col("Node_block_id").isin(list(train_ids)))
+        train_df = train_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Train")
+
+        val_df = df_features.filter(col("Node_block_id").isin(list(val_ids)))
+        val_df = val_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Validation")
+
+        test_df = df_features.filter(col("Node_block_id").isin(list(test_ids)))
+        test_df = test_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Test")
+
+        # -------------------------------------------------
+        # Persist splits
+        # -------------------------------------------------
+        train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
+        val_df = val_df.persist(StorageLevel.MEMORY_AND_DISK)
+        test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
+
+        train_count = train_df.count()
+        val_count = val_df.count()
+        test_count = test_df.count()
+
+        print(GREEN + f"[INFO] Dataset split complete. Sizes -> "
+              f"Train: {train_count}, Validation: {val_count}, Test: {test_count}" + RESET)
+
+        # -------------------------------------------------
+        # Print block statistics (Spark equivalent)
+        # -------------------------------------------------
+        def print_stats(df, name):
+            blocks = df.select("Node_block_id", "Label").distinct()
+            normal = blocks.filter(col("Label") == "Normal").count()
+            anomaly = blocks.filter(col("Label") == "Anomaly").count()
+            print(f" Normal seq {name} : {normal}")
+            print(f" Anomaly seq {name} : {anomaly}")
+
+        print_stats(train_df, "Train")
+        print_stats(test_df, "Test")
 
         return train_df, val_df, test_df, df_features
+
+
+
 
 
     @staticmethod
