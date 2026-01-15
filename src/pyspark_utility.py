@@ -63,7 +63,7 @@ class Utilities:
         df_features.count()
 
         # -------------------------------------------------
-        # Clean data (must return Spark DataFrame)
+        # Clean data (Spark version required)
         # -------------------------------------------------
         df_features = Utilities.clean_up_df(df_features)
 
@@ -91,7 +91,7 @@ class Utilities:
         print(GREEN + "[INFO] Dataset timestamps standardized and sorted." + RESET)
 
         # -------------------------------------------------
-        # Train / Val / Test split by Node_block_id
+        # Train / Validation / Test split by Node_block_id
         # -------------------------------------------------
         unique_ids = (
             df_features
@@ -119,16 +119,16 @@ class Utilities:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
 
         # -------------------------------------------------
-        # Create split DataFrames
+        # Create split DataFrames (FIXED string column)
         # -------------------------------------------------
         train_df = df_features.filter(col("Node_block_id").isin(list(train_ids)))
-        train_df = train_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Train")
+        train_df = train_df.withColumn("Type_ds", lit("Train"))
 
         val_df = df_features.filter(col("Node_block_id").isin(list(val_ids)))
-        val_df = val_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Validation")
+        val_df = val_df.withColumn("Type_ds", lit("Validation"))
 
         test_df = df_features.filter(col("Node_block_id").isin(list(test_ids)))
-        test_df = test_df.withColumn("Type_ds", col("Node_block_id") * 0 + "Test")
+        test_df = test_df.withColumn("Type_ds", lit("Test"))
 
         # -------------------------------------------------
         # Persist splits
@@ -141,11 +141,15 @@ class Utilities:
         val_count = val_df.count()
         test_count = test_df.count()
 
-        print(GREEN + f"[INFO] Dataset split complete. Sizes -> "
-              f"Train: {train_count}, Validation: {val_count}, Test: {test_count}" + RESET)
+        print(
+            GREEN +
+            f"[INFO] Dataset split complete. Sizes -> "
+            f"Train: {train_count}, Validation: {val_count}, Test: {test_count}"
+            + RESET
+        )
 
         # -------------------------------------------------
-        # Print block statistics (Spark equivalent)
+        # Block-level statistics (Spark equivalent)
         # -------------------------------------------------
         def print_stats(df, name):
             blocks = df.select("Node_block_id", "Label").distinct()
@@ -158,7 +162,6 @@ class Utilities:
         print_stats(test_df, "Test")
 
         return train_df, val_df, test_df, df_features
-
 
 
 
