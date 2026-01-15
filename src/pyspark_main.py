@@ -13,6 +13,7 @@ from pyspark_utility import Utilities
 from pyspark.storagelevel import StorageLevel
 from pyspark.sql.functions import col
 import psutil
+import pandas as pd
 
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
