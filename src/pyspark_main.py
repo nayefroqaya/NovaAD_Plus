@@ -123,7 +123,7 @@ def main():
     PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_pre_final_global_features.pkl'
 
     # ---------------- Initialize classes ----------------
-    logdata_read_obj = LogdataRead()
+    #logdata_read_obj = LogdataRead()
     features_extracting_obj = FeaturesExtractor()
     features_engineering_obj = FeaturesEngineering()
     anomaly_detection_obj = AnomalyDetector()
