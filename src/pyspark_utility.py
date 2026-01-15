@@ -9,6 +9,8 @@ from pyspark.sql.types import StructType, StructField, StringType
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, to_timestamp
 from pyspark.storagelevel import StorageLevel
+from pyspark.sql.functions import col, to_timestamp, lit
+
 import os
 import numpy as np
 # Suppress warnings
