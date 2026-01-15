@@ -10,6 +10,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, to_timestamp
 from pyspark.storagelevel import StorageLevel
 from pyspark.sql.functions import col, to_timestamp, lit
+import pandas as pd
 
 import os
 import numpy as np
@@ -43,128 +44,141 @@ class Utilities:
 
     @staticmethod
 
-    def dataset_splitting(All_dataset_path_as_csv, dataset, round, Mix_or_stable, spark):
+    def dataset_splitting(
+        spark,
+        pkl_path,
+        dataset,
+        round_id,
+        Mix_or_stable
+    ):
+        """
+        PKL (Pandas) → Spark → Split → Parquet
+        """
 
-        print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+        print(f"[INFO] Loading PKL dataset: {pkl_path}")
 
-        # -------------------------------------------------
-        # Load dataset (CSV path OR Spark DataFrame)
-        # -------------------------------------------------
-        if isinstance(All_dataset_path_as_csv, DataFrame):
-            df_features = All_dataset_path_as_csv
-        else:
-            df_features = (
-                spark.read
-                .option("header", True)
-                .option("inferSchema", True)
-                .option("escape", "\\")
-                .csv(All_dataset_path_as_csv)
-            )
+        # ==========================================================
+        # 1. LOAD PKL USING PANDAS (ONLY PLACE WHERE PANDAS IS USED)
+        # ==========================================================
+        pdf = pd.read_pickle(pkl_path)
 
-        df_features = df_features.cache()
-        df_features.count()
+        # Optional cleanup if you had it before
+        pdf = pdf.dropna().reset_index(drop=True)
 
-        # -------------------------------------------------
-        # Clean data (Spark version required)
-        # -------------------------------------------------
-        df_features = Utilities.clean_up_df(df_features)
+        # ==========================================================
+        # 2. CONVERT TO SPARK DATAFRAME
+        # ==========================================================
+        df_features = spark.createDataFrame(pdf)
 
-        # -------------------------------------------------
-        # Standardize timestamps
-        # -------------------------------------------------
-        df_features = df_features.withColumn(
-            "Timestamp",
-            to_timestamp(col("Timestamp"), "yyyy-MM-dd HH:mm:ss.SSS")
-        )
-
-        # -------------------------------------------------
-        # Sort and select columns
-        # -------------------------------------------------
+        # ==========================================================
+        # 3. TIMESTAMP STANDARDIZATION
+        # ==========================================================
         df_features = (
             df_features
+            .withColumn("Timestamp", F.to_timestamp("Timestamp"))
             .orderBy("Node_block_id", "Timestamp")
-            .select(
-                "Timestamp", "Date", "Time", "Content", "Original_Label",
-                "EventId", "EventTemplate", "processed_EventTemplate",
-                "Node_block_id", "Label"
-            )
         )
 
-        print(GREEN + "[INFO] Dataset timestamps standardized and sorted." + RESET)
+        df_features = df_features.select(
+            "Timestamp",
+            "Date",
+            "Time",
+            "Content",
+            "Original_Label",
+            "EventId",
+            "EventTemplate",
+            "processed_EventTemplate",
+            "Node_block_id",
+            "Label"
+        )
 
-        # -------------------------------------------------
-        # Train / Validation / Test split by Node_block_id
-        # -------------------------------------------------
-        unique_ids = (
+        print("[INFO] Timestamp standardized and sorted")
+
+        # ==========================================================
+        # 4. SPLIT BY Node_block_id (NO OVERLAP)
+        # ==========================================================
+        node_ids = (
             df_features
             .select("Node_block_id")
             .distinct()
             .rdd
-            .map(lambda x: x[0])
+            .map(lambda r: r[0])
             .collect()
         )
 
-        total_ids = len(unique_ids)
+        np.random.shuffle(node_ids)
 
-        if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB',
-                       'TH_1G', 'TH_2G', 'S_BGL']:
+        total = len(node_ids)
+        train_end = int(0.6 * total)
+        val_end = train_end + int(0.1 * total)
 
-            shuffled_ids = np.random.permutation(unique_ids)
-            train_size = int(0.6 * total_ids)
-            val_size = int(0.1 * total_ids)
+        train_ids = node_ids[:train_end]
+        val_ids   = node_ids[train_end:val_end]
+        test_ids  = node_ids[val_end:]
 
-            train_ids = shuffled_ids[:train_size]
-            val_ids = shuffled_ids[train_size:train_size + val_size]
-            test_ids = shuffled_ids[train_size + val_size:]
-
-        else:
-            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
-
-        # -------------------------------------------------
-        # Create split DataFrames (FIXED string column)
-        # -------------------------------------------------
-        train_df = df_features.filter(col("Node_block_id").isin(list(train_ids)))
-        train_df = train_df.withColumn("Type_ds", lit("Train"))
-
-        val_df = df_features.filter(col("Node_block_id").isin(list(val_ids)))
-        val_df = val_df.withColumn("Type_ds", lit("Validation"))
-
-        test_df = df_features.filter(col("Node_block_id").isin(list(test_ids)))
-        test_df = test_df.withColumn("Type_ds", lit("Test"))
-
-        # -------------------------------------------------
-        # Persist splits
-        # -------------------------------------------------
-        train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
-        val_df = val_df.persist(StorageLevel.MEMORY_AND_DISK)
-        test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
-
-        train_count = train_df.count()
-        val_count = val_df.count()
-        test_count = test_df.count()
-
-        print(
-            GREEN +
-            f"[INFO] Dataset split complete. Sizes -> "
-            f"Train: {train_count}, Validation: {val_count}, Test: {test_count}"
-            + RESET
+        # ==========================================================
+        # 5. CREATE SPLITS
+        # ==========================================================
+        train_df = (
+            df_features
+            .filter(F.col("Node_block_id").isin(train_ids))
+            .withColumn("Type_ds", F.lit("Train"))
+            .persist(StorageLevel.MEMORY_AND_DISK)
         )
 
-        # -------------------------------------------------
-        # Block-level statistics (Spark equivalent)
-        # -------------------------------------------------
-        def print_stats(df, name):
-            blocks = df.select("Node_block_id", "Label").distinct()
-            normal = blocks.filter(col("Label") == "Normal").count()
-            anomaly = blocks.filter(col("Label") == "Anomaly").count()
-            print(f" Normal seq {name} : {normal}")
-            print(f" Anomaly seq {name} : {anomaly}")
+        val_df = (
+            df_features
+            .filter(F.col("Node_block_id").isin(val_ids))
+            .withColumn("Type_ds", F.lit("Validation"))
+            .persist(StorageLevel.MEMORY_AND_DISK)
+        )
 
-        print_stats(train_df, "Train")
-        print_stats(test_df, "Test")
+        test_df = (
+            df_features
+            .filter(F.col("Node_block_id").isin(test_ids))
+            .withColumn("Type_ds", F.lit("Test"))
+            .persist(StorageLevel.MEMORY_AND_DISK)
+        )
+
+        # Materialize cache
+        train_df.count()
+        val_df.count()
+        test_df.count()
+
+        # ==========================================================
+        # 6. SAVE AS PARQUET (SPARK-NATIVE)
+        # ==========================================================
+        if dataset == "S_BGL" and Mix_or_stable == "0":
+            suffix = "Stable"
+        elif dataset == "S_BGL" and Mix_or_stable == "1":
+            suffix = "Mix"
+        else:
+            suffix = "Default"
+
+        save_path = f"../datasets/{dataset}/{round_id}_{dataset}_{suffix}_Splitted_Datasets"
+        os.makedirs(save_path, exist_ok=True)
+
+        train_df.write.mode("overwrite").parquet(os.path.join(save_path, "train_df"))
+        val_df.write.mode("overwrite").parquet(os.path.join(save_path, "val_df"))
+        test_df.write.mode("overwrite").parquet(os.path.join(save_path, "test_df"))
+
+        print(f"[INFO] Saved splits to {save_path}")
+
+        # ==========================================================
+        # 7. STATS (BLOCK-LEVEL)
+        # ==========================================================
+        def block_stats(df, name):
+            blocks = df.select("Node_block_id", "Label").dropDuplicates()
+            normal = blocks.filter(F.col("Label") == "Normal").count()
+            anomaly = blocks.filter(F.col("Label") == "Anomaly").count()
+            print(f"{name} → Normal: {normal}, Anomaly: {anomaly}")
+
+        block_stats(train_df, "Train")
+        block_stats(test_df, "Test")
+
+        print("[INFO] Dataset splitting complete")
 
         return train_df, val_df, test_df, df_features
-
 
 
 
