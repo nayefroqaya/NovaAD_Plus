@@ -10,6 +10,9 @@ from pyspark_features_engineering import FeaturesEngineering
 from pyspark_features_extracting import FeaturesExtractor
 from pyspark_model_evaluation import ModelEvaluation
 from pyspark_utility import Utilities
+from pyspark.storagelevel import StorageLevel
+from pyspark.sql.functions import col
+import psutil
 
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
@@ -19,6 +22,7 @@ if not hasattr(np, "unicode_"):
 # ---------------------------
 # Initialize Spark Session
 # ---------------------------
+'''
 spark = (SparkSession.builder.appName("SentimentAnalysisPySpark")  # Memory tuning
          .config("spark.executor.memory", "32g").config("spark.driver.memory", "32g").config(
     "spark.executor.memoryOverhead", "6g").config("spark.driver.memoryOverhead", "6g")
@@ -45,6 +49,34 @@ spark = (SparkSession.builder.appName("SentimentAnalysisPySpark")  # Memory tuni
          .getOrCreate())
 
 print(f"[INFO] Spark initialized with {spark.sparkContext.defaultParallelism} parallel tasks")
+'''
+
+# -----------------------------
+# Determine free RAM safely
+# -----------------------------
+available_gb = psutil.virtual_memory().available / (1024 ** 3)
+spark_memory_gb = max(4, int(available_gb * 0.8))  # use 80% of available RAM, at least 4 GB
+
+print(f"Setting Spark memory to {spark_memory_gb} GB")
+
+# -----------------------------
+# Initialize Spark
+# -----------------------------
+spark = (
+    SparkSession.builder
+    .appName("SentimentAnalysisPySpark")
+    .master("local[*]")  # use all CPU cores
+    .config("spark.driver.memory", f"{spark_memory_gb}g")
+    .config("spark.executor.memory", f"{spark_memory_gb}g")
+    .config("spark.memory.fraction", "0.6")
+    .config("spark.memory.storageFraction", "0.3")
+    .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+    .config("spark.sql.adaptive.enabled", "true")
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+    .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128MB")
+    .config("spark.sql.shuffle.partitions", "200")
+    .getOrCreate()
+)
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
@@ -61,8 +93,8 @@ YELLOW = colorama.Fore.YELLOW
 def main():
 
     # ---------------- Device setup ----------------
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.backends.cudnn.enabled = True
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #torch.backends.cudnn.enabled = True
 
     # ---------------- Display options ----------------
     pd.set_option("display.max_columns", None)
@@ -82,8 +114,7 @@ def main():
         .appName("LogAnomalyPipeline") \
         .getOrCreate()
 
-    from pyspark.storagelevel import StorageLevel
-    from pyspark.sql.functions import col
+
 
     # ---------------- Paths ----------------
     DOC_TOPIC_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_doc_topic_df.pkl'
