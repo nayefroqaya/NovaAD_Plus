@@ -41,7 +41,7 @@ class Utilities:
 
     @staticmethod
 
-    def dataset_splitting(ALL_DATASET_CSV_PATH, dataset, round, Mix_or_stable, spark):
+    def dataset_splitting(All_dataset_path_as_csv, dataset, round, Mix_or_stable, spark):
 
         print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
 
