@@ -6,12 +6,7 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, udf
-from pyspark.sql.types import StringType
-import numpy as np
-import os
-from datetime import datetime
+
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
@@ -44,105 +39,7 @@ class Utilities:
 
     def dataset_splitting(All_dataset_path_as_csv, dataset, round, Mix_or_stable, spark):
 
-        # ---------------- Load features ----------------
-        if Mix_or_stable == '0' and dataset == 'S_BGL':  # Stable
-            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
-            df_features = spark.read.csv('../datasets/S_BGL/stable_equal_subset.csv', header=True, escape='"', inferSchema=True)
-        elif Mix_or_stable == '1' and dataset == 'S_BGL':  # Mix
-            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
-            df_features = spark.read.csv('../datasets/S_BGL/50_50_mixed_subset.csv', header=True, escape='"', inferSchema=True)
-        else:
-            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
-            df_features = spark.read.csv(All_dataset_path_as_csv, header=True, escape='"', inferSchema=True)
 
-        df_features = Utilities.clean_up_df(df_features, spark)
-
-        # ---------------- Standardize timestamps ----------------
-        def update_timestamp(original_timestamp):
-            desired_format = '%Y-%m-%d %H:%M:%S.%f'
-            try:
-                datetime.strptime(str(original_timestamp), desired_format)
-                return str(original_timestamp)
-            except ValueError:
-                original_format = '%Y-%m-%d %H:%M:%S'
-                parsed_timestamp = datetime.strptime(str(original_timestamp), original_format)
-                return parsed_timestamp.strftime(desired_format)
-
-        update_timestamp_udf = udf(update_timestamp, StringType())
-        df_features = df_features.withColumn("Timestamp", update_timestamp_udf(col("Timestamp")))
-
-        # ---------------- Sort by Node_block_id and Timestamp ----------------
-        df_features = df_features.orderBy(["Node_block_id", "Timestamp"])
-        df_features = df_features.select("Timestamp", "Date", "Time", "Content", "Original_Label",
-                                         "EventId", "EventTemplate", "processed_EventTemplate",
-                                         "Node_block_id", "Label")
-        df_features.cache()
-        df_features.count()
-        print(GREEN + "[INFO] Dataset timestamps standardized and sorted." + RESET)
-
-        # ---------------- Split Node_block_ids ----------------
-        unique_ids = [row["Node_block_id"] for row in df_features.select("Node_block_id").distinct().collect()]
-        total_ids = len(unique_ids)
-
-        if dataset in ['HDFS', 'BGL','HDO','SP_100MB','SP_150MB', 'TH_1G', 'TH_2G', 'S_BGL']:
-            shuffled_ids = np.random.permutation(unique_ids)
-            train_size, val_size = int(0.6 * total_ids), int(0.1 * total_ids)
-            train_ids, val_ids, test_ids = shuffled_ids[:train_size], shuffled_ids[train_size:train_size + val_size], shuffled_ids[train_size + val_size:]
-        else:
-            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
-
-        # ---------------- Check for overlaps ----------------
-        set_train, set_val, set_test = set(train_ids), set(val_ids), set(test_ids)
-        intersections = {
-            "train_val": set_train.intersection(set_val),
-            "train_test": set_train.intersection(set_test),
-            "val_test": set_val.intersection(set_test)
-        }
-        for k, v in intersections.items():
-            print(YELLOW + f"[CHECK] Intersection {k}: {v}" + RESET)
-        if all(len(v) == 0 for v in intersections.values()):
-            print(GREEN + "[INFO] No overlaps found between train, validation, and test sets." + RESET)
-        else:
-            raise ValueError("[ERROR] Overlaps detected between dataset splits!")
-
-        # ---------------- Create split DataFrames ----------------
-        train_df = df_features.filter(col("Node_block_id").isin(train_ids)).withColumn("Type_ds", lit("Train"))
-        val_df = df_features.filter(col("Node_block_id").isin(val_ids)).withColumn("Type_ds", lit("Validation"))
-        test_df = df_features.filter(col("Node_block_id").isin(test_ids)).withColumn("Type_ds", lit("Test"))
-
-        # ---------------- Save splits ----------------
-        if Mix_or_stable == '0' and dataset == 'S_BGL':
-            save_path = os.path.join(f"../datasets/{dataset}", f"{round}_{dataset}_'Stable'_Splitted_Datasets")
-        elif Mix_or_stable == '1' and dataset == 'S_BGL':
-            save_path = os.path.join(f"../datasets/{dataset}", f"{round}_{dataset}_'Mix'_Splitted_Datasets")
-        else:
-            save_path = os.path.join(f"../datasets/{dataset}", f"{round}_{dataset}_Splitted_Datasets")
-        os.makedirs(save_path, exist_ok=True)
-
-        # Save Spark DataFrames as Parquet (or pickles if needed)
-        train_df.write.mode("overwrite").parquet(os.path.join(save_path, "train_df.parquet"))
-        val_df.write.mode("overwrite").parquet(os.path.join(save_path, "val_df.parquet"))
-        test_df.write.mode("overwrite").parquet(os.path.join(save_path, "test_df.parquet"))
-
-        # ---------------- Display split info ----------------
-        df_block_train = train_df.dropDuplicates(["Node_block_id"])
-        df3 = df_block_train.filter(col("Label") == "Normal")
-        df4 = df_block_train.filter(col("Label") == "Anomaly")
-        print(f" Normal seq Train : {df3.count()}")
-        print(f" Anomaly seq Train : {df4.count()}")
-
-        df_block_test = test_df.dropDuplicates(["Node_block_id"])
-        df3 = df_block_test.filter(col("Label") == "Normal")
-        df4 = df_block_test.filter(col("Label") == "Anomaly")
-        print(f" Normal seq Test : {df3.count()}")
-        print(f" Anomaly seq Test : {df4.count()}")
-
-        return train_df, val_df, test_df, df_features
-
-
-
-
-        '''
         print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
         df_features = (spark.read.option("header", True).option("inferSchema", True).option("escape", "\\").csv(
             ALL_DATASET_CSV_PATH))
@@ -190,7 +87,7 @@ class Utilities:
 
 
 
-        elif dataset in ['BGL', 'TH']:
+        elif dataset in ['BGL', 'TH_1G','TH_2G', 'SP_100MB', 'SP_150MB' ]:
             # 2️⃣ Shuffle using random value
             unique_ids_df = unique_ids_df.withColumn("rand_val", F.rand())
 
@@ -228,7 +125,7 @@ class Utilities:
         test_df = df_features.join(test_ids_df, on="Node_block_id", how="inner").withColumn("Type_ds", F.lit("Test"))
 
         return train_df, val_df, test_df, df_features
-        '''
+
 
     @staticmethod
     def processing_data_portion(train_df: DataFrame, validate_df: DataFrame, test_df: DataFrame, df_features: DataFrame,

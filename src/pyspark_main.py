@@ -157,9 +157,17 @@ def main():
         save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_'Stable'_Splitted_Datasets")
     elif Mix_or_stable == '1' and DATASET == 'S_BGL':
         save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_'Mix'_Splitted_Datasets")
+    #else:
+    #    save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Splitted_Datasets")
     else:
-        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Splitted_Datasets")
+        print(GREEN + f"[INFO] Preparing dataset '{DATASET}'..." + RESET)
 
+        if isinstance(ALL_DATASET_CSV_PATH, str):
+            # CSV path case
+            df_features = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, escape='"', inferSchema=True)
+        else:
+            # Spark DataFrame already loaded
+            df_features = ALL_DATASET_CSV_PATH
     # ---------------- Load PKL splits into Spark ----------------
     train_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "train_df.pkl"))).cache()
     val_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "val_df.pkl"))).cache()
