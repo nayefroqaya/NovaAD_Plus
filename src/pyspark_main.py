@@ -4,6 +4,7 @@ import os
 import warnings
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
+from pyspark.sql import DataFrame
 
 from pyspark_anomaly_detection import AnomalyDetector
 from pyspark_features_engineering import FeaturesEngineering
@@ -162,12 +163,11 @@ def main():
     else:
         print(GREEN + f"[INFO] Preparing dataset '{DATASET}'..." + RESET)
 
-        if isinstance(ALL_DATASET_CSV_PATH, str):
-            # CSV path case
-            df_features = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, escape='"', inferSchema=True)
-        else:
-            # Spark DataFrame already loaded
+        if isinstance(ALL_DATASET_CSV_PATH, DataFrame):
             df_features = ALL_DATASET_CSV_PATH
+        else:
+            df_features = (spark.read.option("header", True).option("inferSchema", True).option("escape", "\\").csv(
+                ALL_DATASET_CSV_PATH))
     # ---------------- Load PKL splits into Spark ----------------
     train_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "train_df.pkl"))).cache()
     val_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "val_df.pkl"))).cache()
