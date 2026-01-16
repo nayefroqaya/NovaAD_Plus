@@ -152,6 +152,8 @@ def main():
     train_df.count();
     validate_df.count();
     test_df.count()
+    exit()
+
 
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':

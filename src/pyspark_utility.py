@@ -43,143 +43,173 @@ class Utilities:
         return df_features
 
     @staticmethod
+    def dataset_splitting(all_data_df, dataset, round, Mix_or_stable, spark):
 
-    def dataset_splitting(
-        spark,
-        pkl_path,
-        dataset,
-        round_id,
-        Mix_or_stable
-    ):
-        """
-        PKL (Pandas) → Spark → Split → Parquet
-        """
+        # =============================
+        # Load dataset (already loaded)
+        # =============================
+        if Mix_or_stable == '0' and dataset == 'S_BGL':  # Stable
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = spark.read.option("header", True).csv(
+                "../datasets/S_BGL/stable_equal_subset.csv"
+            )
 
-        print(f"[INFO] Loading PKL dataset: {pkl_path}")
+        elif Mix_or_stable == '1' and dataset == 'S_BGL':  # Mix
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = spark.read.option("header", True).csv(
+                "../datasets/S_BGL/50_50_mixed_subset.csv"
+            )
 
-        # ==========================================================
-        # 1. LOAD PKL USING PANDAS (ONLY PLACE WHERE PANDAS IS USED)
-        # ==========================================================
-        pdf = pd.read_pickle(pkl_path)
+        else:
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = all_data_df
 
-        # Optional cleanup if you had it before
-        pdf = pdf.dropna().reset_index(drop=True)
+        df_features.printSchema()
+        print(f"[INFO] Row count: {df_features.count()}")
 
-        # ==========================================================
-        # 2. CONVERT TO SPARK DATAFRAME
-        # ==========================================================
-        df_features = spark.createDataFrame(pdf)
+        # =============================
+        # Clean data
+        # =============================
+        df_features = Utilities.clean_up_df(df_features)
 
-        # ==========================================================
-        # 3. TIMESTAMP STANDARDIZATION
-        # ==========================================================
-        df_features = (
-            df_features
-            .withColumn("Timestamp", F.to_timestamp("Timestamp"))
-            .orderBy("Node_block_id", "Timestamp")
+        # =============================
+        # Timestamp standardization
+        # =============================
+        def update_timestamp(original_timestamp,
+                             desired_format='%Y-%m-%d %H:%M:%S.%f'):
+            try:
+                datetime.strptime(str(original_timestamp), desired_format)
+                return str(original_timestamp)
+            except ValueError:
+                parsed_timestamp = datetime.strptime(
+                    str(original_timestamp), '%Y-%m-%d %H:%M:%S'
+                )
+                return parsed_timestamp.strftime(desired_format)
+
+        update_timestamp_udf = F.udf(update_timestamp, StringType())
+
+        df_features = df_features.withColumn(
+            "Timestamp",
+            update_timestamp_udf(F.col("Timestamp"))
+        )
+
+        df_features = df_features.orderBy(
+            F.col("Node_block_id"),
+            F.col("Timestamp")
         )
 
         df_features = df_features.select(
-            "Timestamp",
-            "Date",
-            "Time",
-            "Content",
-            "Original_Label",
-            "EventId",
-            "EventTemplate",
-            "processed_EventTemplate",
-            "Node_block_id",
-            "Label"
+            'Timestamp', 'Date', 'Time', 'Content', 'Original_Label',
+            'EventId', 'EventTemplate', 'processed_EventTemplate',
+            'Node_block_id', 'Label'
         )
 
-        print("[INFO] Timestamp standardized and sorted")
+        df_features.printSchema()
+        print(GREEN + "[INFO] Dataset timestamps standardized and sorted." + RESET)
 
-        # ==========================================================
-        # 4. SPLIT BY Node_block_id (NO OVERLAP)
-        # ==========================================================
-        node_ids = (
-            df_features
-            .select("Node_block_id")
-            .distinct()
-            .rdd
-            .map(lambda r: r[0])
-            .collect()
-        )
+        # =============================
+        # Dataset splitting
+        # =============================
+        unique_ids_df = df_features.select("Node_block_id").distinct()
+        total_ids = unique_ids_df.count()
 
-        np.random.shuffle(node_ids)
+        if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB',
+                       'TH_1G', 'TH_2G', 'S_BGL']:
 
-        total = len(node_ids)
-        train_end = int(0.6 * total)
-        val_end = train_end + int(0.1 * total)
+            shuffled_ids_df = unique_ids_df.orderBy(F.rand())
 
-        train_ids = node_ids[:train_end]
-        val_ids   = node_ids[train_end:val_end]
-        test_ids  = node_ids[val_end:]
+            train_size = int(0.6 * total_ids)
+            val_size = int(0.1 * total_ids)
 
-        # ==========================================================
-        # 5. CREATE SPLITS
-        # ==========================================================
+            train_ids = shuffled_ids_df.limit(train_size)
+            val_ids = shuffled_ids_df.subtract(train_ids).limit(val_size)
+            test_ids = shuffled_ids_df.subtract(train_ids).subtract(val_ids)
+
+        else:
+            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
+
+        # =============================
+        # Check for overlaps
+        # =============================
+        train_set = set(r[0] for r in train_ids.collect())
+        val_set = set(r[0] for r in val_ids.collect())
+        test_set = set(r[0] for r in test_ids.collect())
+
+        print(YELLOW + f"[CHECK] Intersection train_val: {train_set & val_set}" + RESET)
+        print(YELLOW + f"[CHECK] Intersection train_test: {train_set & test_set}" + RESET)
+        print(YELLOW + f"[CHECK] Intersection val_test: {val_set & test_set}" + RESET)
+
+        if train_set & val_set or train_set & test_set or val_set & test_set:
+            raise ValueError("[ERROR] Overlaps detected between dataset splits!")
+        else:
+            print(GREEN + "[INFO] No overlaps found between train, validation, and test sets." + RESET)
+
+        # =============================
+        # Create split DataFrames
+        # =============================
         train_df = (
-            df_features
-            .filter(F.col("Node_block_id").isin(train_ids))
+            df_features.join(train_ids, "Node_block_id", "inner")
             .withColumn("Type_ds", F.lit("Train"))
-            .persist(StorageLevel.MEMORY_AND_DISK)
         )
 
         val_df = (
-            df_features
-            .filter(F.col("Node_block_id").isin(val_ids))
+            df_features.join(val_ids, "Node_block_id", "inner")
             .withColumn("Type_ds", F.lit("Validation"))
-            .persist(StorageLevel.MEMORY_AND_DISK)
         )
 
         test_df = (
-            df_features
-            .filter(F.col("Node_block_id").isin(test_ids))
+            df_features.join(test_ids, "Node_block_id", "inner")
             .withColumn("Type_ds", F.lit("Test"))
-            .persist(StorageLevel.MEMORY_AND_DISK)
         )
 
-        # Materialize cache
-        train_df.count()
-        val_df.count()
-        test_df.count()
+        # =============================
+        # Save datasets
+        # =============================
+        if Mix_or_stable == '0' and dataset == 'S_BGL':
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Stable_Splitted_Datasets"
 
-        # ==========================================================
-        # 6. SAVE AS PARQUET (SPARK-NATIVE)
-        # ==========================================================
-        if dataset == "S_BGL" and Mix_or_stable == "0":
-            suffix = "Stable"
-        elif dataset == "S_BGL" and Mix_or_stable == "1":
-            suffix = "Mix"
+        elif Mix_or_stable == '1' and dataset == 'S_BGL':
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Mix_Splitted_Datasets"
+
         else:
-            suffix = "Default"
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Splitted_Datasets"
 
-        save_path = f"../datasets/{dataset}/{round_id}_{dataset}_{suffix}_Splitted_Datasets"
         os.makedirs(save_path, exist_ok=True)
 
         train_df.write.mode("overwrite").parquet(os.path.join(save_path, "train_df"))
         val_df.write.mode("overwrite").parquet(os.path.join(save_path, "val_df"))
         test_df.write.mode("overwrite").parquet(os.path.join(save_path, "test_df"))
 
-        print(f"[INFO] Saved splits to {save_path}")
+        # =============================
+        # Display split info
+        # =============================
+        print(
+            GREEN +
+            f"[INFO] Dataset split complete. Sizes -> "
+            f"Train: {train_df.count()}, "
+            f"Validation: {val_df.count()}, "
+            f"Test: {test_df.count()}" +
+            RESET
+        )
 
-        # ==========================================================
-        # 7. STATS (BLOCK-LEVEL)
-        # ==========================================================
-        def block_stats(df, name):
-            blocks = df.select("Node_block_id", "Label").dropDuplicates()
-            normal = blocks.filter(F.col("Label") == "Normal").count()
-            anomaly = blocks.filter(F.col("Label") == "Anomaly").count()
-            print(f"{name} → Normal: {normal}, Anomaly: {anomaly}")
+        # =============================
+        # Block-level statistics
+        # =============================
+        df_block_train = train_df.dropDuplicates(['Node_block_id'])
+        df3 = df_block_train.filter(F.col("Label") == "Normal")
+        df4 = df_block_train.filter(F.col("Label") == "Anomaly")
 
-        block_stats(train_df, "Train")
-        block_stats(test_df, "Test")
+        print(' Normal seq Train : ' + str(df3.count()))
+        print(' Anomaly seq Train : ' + str(df4.count()))
 
-        print("[INFO] Dataset splitting complete")
+        df_block_test = test_df.dropDuplicates(['Node_block_id'])
+        df3 = df_block_test.filter(F.col("Label") == "Normal")
+        df4 = df_block_test.filter(F.col("Label") == "Anomaly")
+
+        print(' Normal seq Test : ' + str(df3.count()))
+        print(' Anomaly seq Test : ' + str(df4.count()))
 
         return train_df, val_df, test_df, df_features
-
 
 
     @staticmethod
