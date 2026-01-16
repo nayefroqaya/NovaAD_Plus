@@ -181,6 +181,7 @@ class Utilities:
         val_df.write.mode("overwrite").parquet(os.path.join(save_path, "val_df"))
         test_df.write.mode("overwrite").parquet(os.path.join(save_path, "test_df"))
 
+
         # =============================
         # Display split info
         # =============================
@@ -260,8 +261,10 @@ class Utilities:
         # 6️⃣ Mark test set (Temp_label = 888)
         df_test_labeled = test_df.withColumn("Temp_label", F.lit(888))
 
-        # 7️⃣ Combine all
-        final_dataset = df_train_normal_50.unionByName(df_train_unlabeled).unionByName(df_test_labeled)
+        validate_df_labeled = validate_df.withColumn("Temp_label", F.lit(888))
 
+
+        # 7️⃣ Combine all
+        final_dataset = df_train_normal_50.unionByName(df_train_unlabeled).unionByName(df_test_labeled).unionByName(validate_df_labeled)
         final_dataset.printSchema()
         return final_dataset

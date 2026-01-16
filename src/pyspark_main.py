@@ -152,7 +152,7 @@ def main():
     train_df.count();
     validate_df.count();
     test_df.count()
-    exit()
+    #exit()
 
 
 
