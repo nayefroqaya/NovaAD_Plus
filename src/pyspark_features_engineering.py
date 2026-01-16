@@ -313,9 +313,11 @@ class FeaturesEngineering:
             df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
             df_final = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
+            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
 
             df_final.printSchema()
             df_test.printSchema()
+            df_val.printSchema()
 
             # Convert to Pandas
             pdf_final = df_final.toPandas()
@@ -329,11 +331,20 @@ class FeaturesEngineering:
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
             pdf_test = df_test.toPandas()
 
+            # Prepare val set
+            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
+            pdf_val = df_val.toPandas()
+
             X_train = pdf_final["features_vec_final"].tolist()
             y_train = pdf_final["Final_Label"].values
             X_test = pdf_test["features_vec_final"].tolist()
             y_test_truth = pdf_test["Final_Label"].values
 
-            print(f"\n✅ Novelty detection (GMM) completed successfully.")
+            X_val = pdf_val["features_vec_final"].tolist()
+            y_val_truth = pdf_val["Final_Label"].values
 
-            return df_final, df_test  # X_train, y_train, X_test, y_test_truth
+            print(f"\n✅ Novelty detection (GMM) completed successfully.")
+            exit()
+
+            return df_final, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+

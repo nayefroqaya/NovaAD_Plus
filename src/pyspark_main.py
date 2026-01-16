@@ -244,10 +244,10 @@ def main():
 
     X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
         features_engineering_obj.novelty_detection_label_establishment(
-            sequences_df,
-            x_train_normal_labelled,
-            x_unlabeled_from_train,
-            ground_truth_unlabeled_data_from_train
+            sequences_df,  method ="gmm"
+            #x_train_normal_labelled,
+            #x_unlabeled_from_train,
+            #ground_truth_unlabeled_data_from_train
         )
     print('Novel was done .....')
     exit()
