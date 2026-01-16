@@ -215,7 +215,7 @@ def main():
 
     sequences_df.count()
     x_sequences_df.count()
-    exit()
+    #exit()
 
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
@@ -249,6 +249,7 @@ def main():
             x_unlabeled_from_train,
             ground_truth_unlabeled_data_from_train
         )
+    print('Novel was done .....')
     exit()
 
     # ---------------- Anomaly Detection ----------------
