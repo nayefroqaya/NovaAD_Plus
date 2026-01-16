@@ -215,8 +215,7 @@ class Utilities:
 
 
     @staticmethod
-    def processing_data_portion(train_df: DataFrame, validate_df: DataFrame, test_df: DataFrame, df_features: DataFrame,
-                                spark: SparkSession):
+    def processing_data_portion(train_df: DataFrame, validate_df: DataFrame, test_df: DataFrame):
         """Create labeled and unlabeled portions for training and mark test set in PySpark without using collect or count."""
 
         # 1️⃣ Separate normal and anomaly Node_block_id
@@ -261,7 +260,7 @@ class Utilities:
         # 6️⃣ Mark test set (Temp_label = 888)
         df_test_labeled = test_df.withColumn("Temp_label", F.lit(888))
 
-        validate_df_labeled = validate_df.withColumn("Temp_label", F.lit(888))
+        validate_df_labeled = validate_df.withColumn("Temp_label", F.lit(777))
 
 
         # 7️⃣ Combine all
