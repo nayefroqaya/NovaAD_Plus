@@ -148,7 +148,7 @@ class FeaturesExtractor:
                                                                                                 pre_final_global_features_pkl_path,
                                                                                                 spark)
         df_feature_full_dataset.printSchema()
-        exit()
+        #exit()
         # ==================== SEMANTIC FEATURE EXTRACTION =====================
         print("[INFO] Starting semantic feature extraction using BERT embeddings...")
         df_feature_full_dataset = df_features
@@ -161,7 +161,6 @@ class FeaturesExtractor:
                                                                                                     target_variance=0.95,
                                                                                                     max_pca_k=50)
         exit()
-
         final_all_features_df.printSchema()
         return number_component, best_topic_number, final_all_features_df
 
