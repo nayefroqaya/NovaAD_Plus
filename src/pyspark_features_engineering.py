@@ -344,7 +344,7 @@ class FeaturesEngineering:
             y_val_truth = pdf_val["Final_Label"].values
 
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
-            exit()
+            #exit()
 
-            return df_final, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
 

@@ -22,6 +22,16 @@ from scipy.stats import randint, uniform
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
+from pyspark.ml.classification import (
+    RandomForestClassifier,
+    DecisionTreeClassifier,
+    LogisticRegression
+)
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.sql.functions import col, when
+import tim
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -34,8 +44,149 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_final, df_test, spark):
-        print("Starting model training process...")
+    def anomaly_detector(df_final, df_val, df_test,mode):
+
+        train_df = df_final.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                          "features").withColumnRenamed(
+            "Final_Label", "label")
+
+        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                        "features").withColumnRenamed(
+            "Final_Label", "label")
+        val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                        "features").withColumnRenamed(
+            "Final_Label", "label")
+
+        if mode == 'M':
+
+            start_fit = time.time()
+
+            # =====================================================
+            # 2. Class weighting (imbalanced anomaly detection)
+            # =====================================================
+            label_counts = train_df.groupBy("label").count().collect()
+            total_count = sum(r["count"] for r in label_counts)
+
+            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
+
+            train_df = train_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+
+            # =====================================================
+            # 3. Base models (level-1)
+            # =====================================================
+            lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
+
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", predictionCol="rf_pred", numTrees=150, maxDepth=24)
+
+            dt = DecisionTreeClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="dt_prob", predictionCol="dt_pred", maxDepth=20)
+
+            # =====================================================
+            # 4. Train base models
+            # =====================================================
+            lr_model = lr.fit(train_df)
+            rf_model = rf.fit(train_df)
+            dt_model = dt.fit(train_df)
+
+            # =====================================================
+            # 5. Create meta-features (TRAIN)
+            # =====================================================
+            def add_probs(df, model, prob_col, prefix):
+                return (
+                    model.transform(df).withColumn(f"{prefix}_arr", vector_to_array(prob_col)).withColumn(f"{prefix}_0",
+                                                                                                          col(f"{prefix}_arr")[
+                                                                                                              0]).withColumn(
+                        f"{prefix}_1", col(f"{prefix}_arr")[1]))
+
+            train_meta = train_df
+            train_meta = add_probs(train_meta, lr_model, "lr_prob", "lr")
+            train_meta = add_probs(train_meta, rf_model, "rf_prob", "rf")
+            train_meta = add_probs(train_meta, dt_model, "dt_prob", "dt")
+
+            meta_features = ["lr_0", "lr_1", "rf_0", "rf_1", "dt_0", "dt_1"]
+
+            assembler = VectorAssembler(inputCols=meta_features, outputCol="meta_features")
+
+            train_meta = assembler.transform(train_meta)
+
+            # =====================================================
+            # 6. Meta-model (stacking)
+            # =====================================================
+            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", probabilityCol="final_prob",
+                predictionCol="last_pred_label", weightCol="class_weight")
+
+            stack_model = meta_lr.fit(train_meta)
+
+            end_fit = time.time()
+            fit_time = (end_fit - start_fit) / 60
+
+            # =====================================================
+            # 7. VALIDATION — threshold optimization
+            # =====================================================
+            val_meta = val_df
+            val_meta = add_probs(val_meta, lr_model, "lr_prob", "lr")
+            val_meta = add_probs(val_meta, rf_model, "rf_prob", "rf")
+            val_meta = add_probs(val_meta, dt_model, "dt_prob", "dt")
+            val_meta = assembler.transform(val_meta)
+
+            val_preds = stack_model.transform(val_meta)
+
+            val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
+
+            # Grid search for threshold (Spark-safe)
+            thresholds = [i / 100 for i in range(5, 95)]
+            best_f1 = -1
+            best_threshold = 0.5
+
+            for t in thresholds:
+                preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
+
+                tp = preds.filter("label=1 AND pred_adj=1").count()
+                fp = preds.filter("label=0 AND pred_adj=1").count()
+                fn = preds.filter("label=1 AND pred_adj=0").count()
+
+                precision = tp / (tp + fp + 1e-6)
+                recall = tp / (tp + fn + 1e-6)
+                f1 = 2 * precision * recall / (precision + recall + 1e-6)
+
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = t
+
+            print(f"Optimal threshold (validation F1): {best_threshold:.2f}")
+
+            # =====================================================
+            # 8. TEST — final predictions ONLY
+            # =====================================================
+            start_predict = time.time()
+
+            test_meta = test_df
+            test_meta = add_probs(test_meta, lr_model, "lr_prob", "lr")
+            test_meta = add_probs(test_meta, rf_model, "rf_prob", "rf")
+            test_meta = add_probs(test_meta, dt_model, "dt_prob", "dt")
+            test_meta = assembler.transform(test_meta)
+
+            final_test_predictions = (
+                stack_model.transform(test_meta).withColumn("prob_1", vector_to_array("final_prob")[1]).withColumn(
+                    "last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0)))
+
+            end_predict = time.time()
+            predict_time = (end_predict - start_predict) / 60
+
+            # =====================================================
+            # 9. RETURN (evaluation happens elsewhere)
+            # =====================================================
+            return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
+                "predict_time": predict_time}
+
+    '''
+    def anomaly_detector(df_final,df_val, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth):
+        #X_train, y_train, X_test,
+        #y_test_truth, X_val, y_val_truth, mode
+        #print("Starting model training process...")
         """
         df_final : PySpark DataFrame (training data)
         df_test  : PySpark DataFrame (test data)
@@ -57,6 +208,9 @@ class AnomalyDetector:
             "Final_Label", "label")
 
         test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                        "features").withColumnRenamed(
+            "Final_Label", "label")
+        val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
                                                                                         "features").withColumnRenamed(
             "Final_Label", "label")
 
@@ -172,3 +326,4 @@ class AnomalyDetector:
         final_test_predictions.select("label", "last_pred_label", "final_prob").show(20, truncate=False)
 
         return final_test_predictions, df_final
+ '''

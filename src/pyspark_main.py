@@ -242,7 +242,7 @@ def main():
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
 
-    X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
+    df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
         features_engineering_obj.novelty_detection_label_establishment(
             sequences_df,  method ="gmm"
             #x_train_normal_labelled,
@@ -250,18 +250,33 @@ def main():
             #ground_truth_unlabeled_data_from_train
         )
     print('Novel was done .....')
-    exit()
+    #exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
 
-    y_test_truth, y_test_pred, fit_time, predict_time = \
-        anomaly_detection_obj.anomaly_detector(
-            X_train, y_train, X_test,
-            y_test_truth, X_val, y_val_truth, mode
-        )
+    results = anomaly_detection_obj.anomaly_detector(df_final,df_val, df_test ,mode )
+    results["predictions_df"]  # Spark DF for evaluation
+    results["best_threshold"]  # chosen on validation
+    print(results["fit_time"])  # minutes
+    print(results["predict_time"])  # minutes
 
     # ---------------- Model Evaluation ----------------
+
+    metrics = model_evaluation_obj.evaluation_pyspark(results["predictions_df"])
+    print("\n📊 Final Test Metrics")
+    print("--------------------")
+    print(f"Precision : {metrics['precision']:.4f}")
+    print(f"Recall    : {metrics['recall']:.4f}")
+    print(f"F1-score  : {metrics['f1']:.4f}")
+    print(f"Accuracy  : {metrics['accuracy']:.4f}")
+    print(f"TP: {metrics['tp']}, FP: {metrics['fp']}, FN: {metrics['fn']}, TN: {metrics['tn']}")
+    print(results["fit_time"])  # minutes
+    print(results["predict_time"])  # minutes
+    exit()
+
+
+
     print(f"{GRAY}Evaluating model performance...{RESET}")
 
     model_evaluation_obj.evaluation(
