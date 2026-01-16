@@ -155,30 +155,31 @@ def main():
     exit()
 
 
+
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
-        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_'Stable'_Splitted_Datasets")
+        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Stable_Splitted_Datasets"
+
     elif Mix_or_stable == '1' and DATASET == 'S_BGL':
-        save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_'Mix'_Splitted_Datasets")
-    #else:
-    #    save_path = os.path.join(f"../datasets/{DATASET}", f"{Round}_{DATASET}_Splitted_Datasets")
+        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Mix_Splitted_Datasets"
+
     else:
-        print(GREEN + f"[INFO] Preparing dataset '{DATASET}'..." + RESET)
+        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Splitted_Datasets"
 
-        if isinstance(ALL_DATASET_CSV_PATH, DataFrame):
-            df_features = ALL_DATASET_CSV_PATH
-        else:
-            df_features = (spark.read.option("header", True).option("inferSchema", True).option("escape", "\\").csv(
-                ALL_DATASET_CSV_PATH))
+    os.makedirs(save_path, exist_ok=True)
+
     # ---------------- Load PKL splits into Spark ----------------
-    train_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "train_df.pkl"))).cache()
-    val_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "val_df.pkl"))).cache()
-    test_df = spark.createDataFrame(pd.read_pickle(os.path.join(save_path, "test_df.pkl"))).cache()
+    train_df = spark.read.parquet(os.path.join(save_path, "train_df")).cache()
+    val_df = spark.read.parquet(os.path.join(save_path, "val_df")).cache()
+    test_df = spark.read.parquet(os.path.join(save_path, "test_df")).cache()
+    print("Train count:", train_df.count())
+    print("Validation count:", val_df.count())
+    print("Test count:", test_df.count())
 
-    train_df.count();
-    val_df.count();
-    test_df.count()
-    exit()
+    train_df.printSchema()
+    assert train_df.schema == val_df.schema == test_df.schema
+
+    #exit()
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df, spark).persist(
         StorageLevel.MEMORY_AND_DISK)
