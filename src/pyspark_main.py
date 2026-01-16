@@ -185,8 +185,7 @@ def main():
     # ---------------- Features Extracting ----------------
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
 
-    number_component, best_topic_number = \
-        features_extracting_obj.features_extracting_configuring_tuning(
+    number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
             features_extracting_obj,
             DOC_TOPIC_DF_PATH,
             SENTIMENT_DF_PATH,
@@ -205,7 +204,6 @@ def main():
 
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
-
     sequences_df, x_sequences_df, y_sequences_df = \
         features_engineering_obj.features_aggregation_transformation(
             final_train_with_test_with_val,
