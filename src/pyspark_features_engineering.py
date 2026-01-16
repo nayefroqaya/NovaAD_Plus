@@ -58,7 +58,7 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesEngineering:
 
     @staticmethod
-    def features_aggregation_transformation(number_component, final_train_with_test, dataset, spark):
+    def features_aggregation_transformation(final_train_with_test, dataset):
 
         print("---- Starting feature aggregation and transformation ----")
         final_train_with_test.printSchema()
