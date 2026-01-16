@@ -136,22 +136,22 @@ def main():
     #print(' Reading the file was done successfully ')
 
     # ---------------- Load CSV into Spark ----------------
-    all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
-    all_data_df.count()  # Materialize cache
-    print('✅ Loaded CSV into Spark DataFrame')
+    #all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
+    #all_data_df.count()  # Materialize cache
+    #print('✅ Loaded CSV into Spark DataFrame')
 
     # ---------------- Dataset Splitting ----------------
-    print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
-    train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
-        Mix_or_stable, spark)
+    #print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
+    #train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
+    #    Mix_or_stable, spark)
 
-    train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
-    validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
-    test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
 
-    train_df.count();
-    validate_df.count();
-    test_df.count()
+    #train_df.count();
+    #validate_df.count();
+    #test_df.count()
     #exit()
 
 
@@ -184,7 +184,7 @@ def main():
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
     final_train_with_test_with_val.count()
-    exit()
+    #exit()
 
     # ---------------- Features Extracting ----------------
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
