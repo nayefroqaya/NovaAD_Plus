@@ -107,7 +107,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'SP_150MB'
     DATASETS_FOLDER = 'datasets'
-    Round = '1'
+    round_id = '1'
     mode = 'M'
     Mix_or_stable = '0'
 
@@ -142,7 +142,7 @@ def main():
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
-    train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, Round,
+    train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
         Mix_or_stable, spark)
 
     train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
@@ -158,13 +158,13 @@ def main():
 
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
-        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Stable_Splitted_Datasets"
+        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
 
     elif Mix_or_stable == '1' and DATASET == 'S_BGL':
-        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Mix_Splitted_Datasets"
+        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Mix_Splitted_Datasets"
 
     else:
-        save_path = f"../datasets/{DATASET}/{round}_{DATASET}_Splitted_Datasets"
+        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Splitted_Datasets"
 
     os.makedirs(save_path, exist_ok=True)
 
