@@ -160,7 +160,7 @@ class FeaturesExtractor:
                                                                                                     batch_size=32,
                                                                                                     target_variance=0.95,
                                                                                                     max_pca_k=50)
-        exit()
+        #exit()
         final_all_features_df.printSchema()
         return number_component, best_topic_number, final_all_features_df
 
