@@ -144,17 +144,13 @@ def main():
     #print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
     #train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
     #    Mix_or_stable, spark)
-
     #train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
     #validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
     #test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
-
     #train_df.count();
     #validate_df.count();
     #test_df.count()
     #exit()
-
-
 
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
@@ -198,7 +194,7 @@ def main():
             PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
             final_train_with_test_with_val,spark
         )
-    exit()
+    #exit()
 
     # ---------------- Load feature PKL → Spark ----------------
     final_train_with_test_with_val = spark.createDataFrame(
@@ -221,6 +217,7 @@ def main():
 
     sequences_df.count()
     x_sequences_df.count()
+    exit()
 
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
@@ -254,6 +251,7 @@ def main():
             x_unlabeled_from_train,
             ground_truth_unlabeled_data_from_train
         )
+    exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
@@ -268,7 +266,7 @@ def main():
     print(f"{GRAY}Evaluating model performance...{RESET}")
 
     model_evaluation_obj.evaluation(
-        Round,
+        round_id,
         X_train,
         y_train,
         number_component,
