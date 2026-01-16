@@ -131,7 +131,7 @@ class FeaturesExtractor:
         df_features_with_sentiment = features_extracting_obj.start_sentiment_extracting(Dataset_name, df_features,
                                                                                         sentiment_df_path, spark)
         df_features_with_sentiment.printSchema()
-        exit()
+        #exit()
         # ==================== TOPIC MODELING FEATURE EXTRACTION ===============
         #        df_features_with_sentiment =df_features
         print("[INFO] Starting topic modeling feature extraction...")
