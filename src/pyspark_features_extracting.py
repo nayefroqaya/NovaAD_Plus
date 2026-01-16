@@ -133,16 +133,14 @@ class FeaturesExtractor:
         df_features_with_sentiment.printSchema()
         #exit()
         # ==================== TOPIC MODELING FEATURE EXTRACTION ===============
-        #        df_features_with_sentiment =df_features
         print("[INFO] Starting topic modeling feature extraction...")
         best_topic_number, df_features_with_sentiment_topic = features_extracting_obj.start_topics_extracting(
             Dataset_name, df_features_with_sentiment, sentiment_df_path, doc_topic_df_path, spark)
         df_features_with_sentiment_topic.printSchema()
-        exit()
+        #exit()
         # ==================== ADDITIONAL FEATURE EXTRACTION ===================
         print("[INFO] Extracting additional features (temporal, statistical, entropy)...")
-        best_topic_number = 13
-        # df_features_with_sentiment_topic =df_features
+        best_topic_number = 15    # 15 SP_150MB
         df_feature_full_dataset = features_extracting_obj.features_extracted_different_features(Dataset_name,
                                                                                                 best_topic_number,
                                                                                                 df_features_with_sentiment_topic,
