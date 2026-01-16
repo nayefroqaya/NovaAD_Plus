@@ -196,8 +196,9 @@ def main():
             SENTIMENT_DF_PATH,
             DATASET,
             PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
-            final_train_with_test_with_val
+            final_train_with_test_with_val,spark
         )
+    exit()
 
     # ---------------- Load feature PKL → Spark ----------------
     final_train_with_test_with_val = spark.createDataFrame(
