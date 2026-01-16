@@ -120,8 +120,13 @@ class AnomalyDetector:
             # =====================================================
             # 6. Meta-model (stacking)
             # =====================================================
-            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", probabilityCol="final_prob",
-                predictionCol="last_pred_label", weightCol="class_weight")
+            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label",
+
+                predictionCol="last_pred_label",  # final prediction
+                probabilityCol="final_prob",  # final probability
+
+                rawPredictionCol="meta_raw",  # ✅ UNIQUE
+                weightCol="class_weight", maxIter=50)
 
             stack_model = meta_lr.fit(train_meta)
 
