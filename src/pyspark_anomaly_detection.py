@@ -78,10 +78,16 @@ class AnomalyDetector:
                 probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", predictionCol="rf_pred", numTrees=150, maxDepth=24)
+                probabilityCol="rf_prob",  # unique
+                rawPredictionCol="rf_raw",  # unique
+                predictionCol="rf_pred",  # unique
+                numTrees=150, maxDepth=24)
 
             dt = DecisionTreeClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="dt_prob", predictionCol="dt_pred", maxDepth=20)
+                probabilityCol="dt_prob",  # unique
+                rawPredictionCol="dt_raw",  # unique
+                predictionCol="dt_pred",  # unique
+                maxDepth=20)
 
             # =====================================================
             # 4. Train base models
