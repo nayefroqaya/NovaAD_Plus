@@ -31,7 +31,6 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.sql.functions import col, when
-import tim
 
 warnings.filterwarnings('ignore')
 colorama.init()
