@@ -31,6 +31,10 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.sql.functions import col, when
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark import StorageLevel
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -55,6 +59,266 @@ class AnomalyDetector:
         val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
                                                                                         "features").withColumnRenamed(
             "Final_Label", "label")
+
+
+
+
+        if mode != "M":
+            return None
+
+        # =====================================================
+        # 1. Prepare datasets
+        # =====================================================
+        def prep(df):
+            return (
+                df.select("features_vec_final", "Final_Label")
+                  .withColumnRenamed("features_vec_final", "features")
+                  .withColumnRenamed("Final_Label", "label")
+            )
+
+        train_df = prep(df_final)
+        val_df   = prep(df_val)
+        test_df  = prep(df_test)
+
+        train_df.persist(StorageLevel.MEMORY_AND_DISK)
+        val_df.persist(StorageLevel.MEMORY_AND_DISK)
+        test_df.persist(StorageLevel.MEMORY_AND_DISK)
+
+        train_count = train_df.count()
+        val_df.count()
+        test_df.count()
+
+        # =====================================================
+        # 2. Adaptive tuning policy (based on data size)
+        # =====================================================
+        if train_count < 100_000:
+            rf_depths = [8, 12]
+            rf_trees = 50
+            dt_depths = [6, 10]
+            lr_regs = [0.0, 0.01]
+        elif train_count < 1_000_000:
+            rf_depths = [10, 14]
+            rf_trees = 75
+            dt_depths = [8, 12]
+            lr_regs = [0.01, 0.1]
+        else:
+            rf_depths = [12, 16]
+            rf_trees = 100
+            dt_depths = [10, 14]
+            lr_regs = [0.1]
+
+        # =====================================================
+        # 3. Class weights
+        # =====================================================
+        counts = train_df.groupBy("label").count().collect()
+        total = sum(r["count"] for r in counts)
+        class_weights = {r["label"]: total / (2.0 * r["count"]) for r in counts}
+
+        train_df = train_df.withColumn(
+            "class_weight",
+            when(col("label") == 0, class_weights.get(0, 1.0))
+            .otherwise(class_weights.get(1, 1.0))
+        )
+
+        evaluator = BinaryClassificationEvaluator(
+            labelCol="label",
+            metricName="areaUnderROC"
+        )
+
+        start_fit = time.time()
+
+        # =====================================================
+        # 4. Logistic Regression (tuned)
+        # =====================================================
+        lr = LogisticRegression(
+            featuresCol="features",
+            labelCol="label",
+            weightCol="class_weight",
+            probabilityCol="lr_prob",
+            maxIter=30
+        )
+
+        lr_grid = (
+            ParamGridBuilder()
+            .addGrid(lr.regParam, lr_regs)
+            .addGrid(lr.elasticNetParam, [0.0, 0.5])
+            .build()
+        )
+
+        lr_tvs = TrainValidationSplit(
+            estimator=lr,
+            estimatorParamMaps=lr_grid,
+            evaluator=evaluator,
+            trainRatio=0.8,
+            parallelism=4
+        )
+
+        lr_model = lr_tvs.fit(train_df).bestModel
+
+        # =====================================================
+        # 5. Random Forest (light adaptive tuning)
+        # =====================================================
+        rf = RandomForestClassifier(
+            featuresCol="features",
+            labelCol="label",
+            weightCol="class_weight",
+            probabilityCol="rf_prob",
+            rawPredictionCol="rf_raw",
+            predictionCol="rf_pred",
+            numTrees=rf_trees,
+            subsamplingRate=0.7,
+            featureSubsetStrategy="sqrt"
+        )
+
+        rf_grid = (
+            ParamGridBuilder()
+            .addGrid(rf.maxDepth, rf_depths)
+            .build()
+        )
+
+        rf_tvs = TrainValidationSplit(
+            estimator=rf,
+            estimatorParamMaps=rf_grid,
+            evaluator=evaluator,
+            trainRatio=0.8,
+            parallelism=4
+        )
+
+        rf_model = rf_tvs.fit(train_df).bestModel
+
+        # =====================================================
+        # 6. Decision Tree (cheap tuning)
+        # =====================================================
+        dt = DecisionTreeClassifier(
+            featuresCol="features",
+            labelCol="label",
+            weightCol="class_weight",
+            probabilityCol="dt_prob",
+            rawPredictionCol="dt_raw",
+            predictionCol="dt_pred"
+        )
+
+        dt_grid = (
+            ParamGridBuilder()
+            .addGrid(dt.maxDepth, dt_depths)
+            .addGrid(dt.minInstancesPerNode, [10, 30])
+            .build()
+        )
+
+        dt_tvs = TrainValidationSplit(
+            estimator=dt,
+            estimatorParamMaps=dt_grid,
+            evaluator=evaluator,
+            trainRatio=0.8,
+            parallelism=4
+        )
+
+        dt_model = dt_tvs.fit(train_df).bestModel
+
+        # =====================================================
+        # 7. Build meta-features (single-pass transforms)
+        # =====================================================
+        def build_meta(df):
+            return (
+                lr_model.transform(df)
+                .transform(rf_model)
+                .transform(dt_model)
+                .withColumn("lr_1", vector_to_array("lr_prob")[1])
+                .withColumn("rf_1", vector_to_array("rf_prob")[1])
+                .withColumn("dt_1", vector_to_array("dt_prob")[1])
+                .select("label", "class_weight", "lr_1", "rf_1", "dt_1")
+            )
+
+        train_meta = build_meta(train_df).persist(StorageLevel.MEMORY_AND_DISK)
+        train_meta.count()
+
+        assembler = VectorAssembler(
+            inputCols=["lr_1", "rf_1", "dt_1"],
+            outputCol="meta_features"
+        )
+
+        train_meta = assembler.transform(train_meta)
+
+        # =====================================================
+        # 8. Meta-model (kept simple on purpose)
+        # =====================================================
+        meta_lr = LogisticRegression(
+            featuresCol="meta_features",
+            labelCol="label",
+            weightCol="class_weight",
+            probabilityCol="final_prob",
+            predictionCol="last_pred_label",
+            maxIter=20
+        )
+
+        stack_model = meta_lr.fit(train_meta)
+
+        fit_time = (time.time() - start_fit) / 60
+
+        # =====================================================
+        # 9. Validation — vectorized threshold tuning
+        # =====================================================
+        val_meta = assembler.transform(build_meta(val_df))
+
+        val_preds = (
+            stack_model.transform(val_meta)
+            .withColumn("prob_1", vector_to_array("final_prob")[1])
+            .select("label", "prob_1")
+            .persist(StorageLevel.MEMORY_AND_DISK)
+        )
+        val_preds.count()
+
+        thresholds_df = val_preds.sparkSession.createDataFrame(
+            [(i / 100,) for i in range(5, 95)], ["threshold"]
+        )
+
+        metrics = (
+            val_preds.crossJoin(thresholds_df)
+            .withColumn("pred", col("prob_1") >= col("threshold"))
+            .groupBy("threshold")
+            .agg(
+                expr("sum(case when label=1 and pred then 1 else 0 end)").alias("tp"),
+                expr("sum(case when label=0 and pred then 1 else 0 end)").alias("fp"),
+                expr("sum(case when label=1 and not pred then 1 else 0 end)").alias("fn"),
+            )
+            .withColumn("precision", expr("tp / (tp + fp + 1e-6)"))
+            .withColumn("recall", expr("tp / (tp + fn + 1e-6)"))
+            .withColumn(
+                "f1",
+                expr("2 * precision * recall / (precision + recall + 1e-6)")
+            )
+        )
+
+        best_threshold = metrics.orderBy(expr("f1 desc")).first()["threshold"]
+
+        # =====================================================
+        # 10. TEST — final predictions
+        # =====================================================
+        start_predict = time.time()
+
+        test_meta = assembler.transform(build_meta(test_df))
+
+        final_test_predictions = (
+            stack_model.transform(test_meta)
+            .withColumn("prob_1", vector_to_array("final_prob")[1])
+            .withColumn(
+                "last_pred_label",
+                when(col("prob_1") >= best_threshold, 1).otherwise(0)
+            )
+        )
+
+        predict_time = (time.time() - start_predict) / 60
+
+        # =====================================================
+        # 11. RETURN
+        # =====================================================
+        return {
+            "predictions_df": final_test_predictions,
+            "best_threshold": float(best_threshold),
+            "fit_time": fit_time,
+            "predict_time": predict_time
+        }
+        exit()
 
         if mode == 'M':
 
