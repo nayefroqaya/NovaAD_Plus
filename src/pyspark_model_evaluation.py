@@ -49,8 +49,10 @@ class ModelEvaluation:
         # -----------------------------
         # Return metrics (optional)
         # -----------------------------
-        return {"precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy}
+        #return {"precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy}
 
+        return {"precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy, "tp": tp, "fp": fp, "fn": fn,
+        "tn": tn}
     @staticmethod
     def evaluation(number_components, final_pred_df, df_final, dataset):
         """
