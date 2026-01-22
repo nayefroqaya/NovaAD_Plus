@@ -16,6 +16,12 @@ from pyspark.sql.functions import col
 import psutil
 import pandas as pd
 
+import psutil
+import platform
+import pyspark
+from pyspark.sql import SparkSession
+
+
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
 if not hasattr(np, "unicode_"):
@@ -56,6 +62,7 @@ print(f"[INFO] Spark initialized with {spark.sparkContext.defaultParallelism} pa
 # -----------------------------
 # Determine free RAM safely
 # -----------------------------
+'''
 available_gb = psutil.virtual_memory().available / (1024 ** 3)
 spark_memory_gb = max(4, int(available_gb * 0.8))  # use 80% of available RAM, at least 4 GB
 
@@ -79,10 +86,63 @@ spark = (
     .config("spark.sql.shuffle.partitions", "200")
     .getOrCreate()
 )
+'''
+
+# -----------------------------
+# System Info
+# -----------------------------
+vm = psutil.virtual_memory()
+total_gb = vm.total / (1024 ** 3)
+available_gb = vm.available / (1024 ** 3)
+used_gb = vm.used / (1024 ** 3)
+percent_used = vm.percent
+
+logical_cores = psutil.cpu_count(logical=True)
+physical_cores = psutil.cpu_count(logical=False)
+
+disk = psutil.disk_usage('/')
+disk_total_gb = disk.total / (1024 ** 3)
+disk_free_gb = disk.free / (1024 ** 3)
+
+print("=== System Info ===")
+print(f"Total RAM:     {total_gb:.2f} GB")
+print(f"Available RAM: {available_gb:.2f} GB")
+print(f"Used RAM:      {used_gb:.2f} GB ({percent_used:.1f}%)")
+print(f"CPU cores (physical/logical): {physical_cores} / {logical_cores}")
+print(f"Disk Total: {disk_total_gb:.2f} GB, Disk Free: {disk_free_gb:.2f} GB")
+print(f"OS: {platform.platform()}")
+print(f"Python version: {platform.python_version()}")
+print(f"PySpark version: {pyspark.__version__}")
+
+# -----------------------------
+# Determine Spark Memory
+# -----------------------------
+spark_memory_gb = max(4, int(available_gb * 0.6))  # safer: 60% of available RAM
+print(f"Setting Spark driver & executor memory to {spark_memory_gb} GB")
+
+# -----------------------------
+# Initialize Spark
+# -----------------------------
+spark = (
+    SparkSession.builder
+    .appName("SentimentAnalysisPySpark")
+    .master(f"local[{logical_cores}]")  # use all logical CPU cores
+    .config("spark.driver.memory", f"{spark_memory_gb}g")
+    .config("spark.executor.memory", f"{spark_memory_gb}g")
+    .config("spark.memory.fraction", "0.6")
+    .config("spark.memory.storageFraction", "0.3")
+    .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+    .config("spark.sql.adaptive.enabled", "true")
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+    .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128MB")
+    .config("spark.sql.shuffle.partitions", "200")
+    .getOrCreate()
+)
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
 colorama.init()
+exit()
 
 GREEN = colorama.Fore.GREEN
 GRAY = colorama.Fore.LIGHTBLACK_EX
