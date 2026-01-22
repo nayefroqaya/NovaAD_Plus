@@ -181,7 +181,7 @@ spark = (
 
     .getOrCreate()
 )
-exit()
+#exit()
 
 '''
 spark = (
@@ -210,8 +210,19 @@ GREEN = colorama.Fore.GREEN
 GRAY = colorama.Fore.LIGHTBLACK_EX
 RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
+import os
+import shutil
+
+SPILL_DIR = os.path.expanduser("tmp/spark-spill")
+os.makedirs(SPILL_DIR, exist_ok=True)
 
 
+def get_spill_size_gb(spill_dir):
+    total_bytes = 0
+    for root, dirs, files in os.walk(spill_dir):
+        for f in files:
+            total_bytes += os.path.getsize(os.path.join(root, f))
+    return total_bytes / (1024 ** 3)
 
 
 def main():
@@ -305,6 +316,10 @@ def main():
     #exit()
 
     # ---------------- Features Extracting ----------------
+    # --- Before Train ---
+    shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    os.makedirs(SPILL_DIR, exist_ok=True)
+
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
     number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
@@ -318,7 +333,10 @@ def main():
     end_features_extracting= time.time()
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
     print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
-    #exit()
+
+    train_spill_gb = get_spill_size_gb(SPILL_DIR)
+    print(f"Shuffle Spill during TRAIN: {train_spill_gb:.2f} GB")
+    exit()
 
     # ---------------- Load feature PKL → Spark ----------------
     final_train_with_test_with_val = spark.createDataFrame(
