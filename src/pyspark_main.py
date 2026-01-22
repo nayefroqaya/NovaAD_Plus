@@ -213,7 +213,7 @@ YELLOW = colorama.Fore.YELLOW
 import os
 import shutil
 
-SPILL_DIR = os.path.expanduser("tmp/spark-spill")
+SPILL_DIR = "/storage/home/roqaya/NovaAD_Plus/spark-spill"
 os.makedirs(SPILL_DIR, exist_ok=True)
 
 
