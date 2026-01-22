@@ -130,7 +130,8 @@ num_cores = logical_cores   # or 4, 8, 16 for experiments
 spark = (
     SparkSession.builder
     .appName("SentimentAnalysisPySpark")
-    .master(f"local[{num_cores}]")
+#    .master(f"local[{num_cores}]")
+    .master("local[*]")  # use all CPU cores
 
     # -----------------------------
     # Memory Control (Core Experiment Variable)
@@ -158,7 +159,7 @@ spark = (
     # -----------------------------
     # Disk Spill Location (for monitoring)
     # -----------------------------
-    .config("spark.local.dir", "/tmp/spark-spill")   # where spill files go
+    .config("spark.local.dir", "tmp/spark-spill")   # where spill files go
 
     # -----------------------------
     # Adaptive Query + Skew (for fairness)
@@ -171,7 +172,7 @@ spark = (
     # Spill & Shuffle Observability (for paper)
     # -----------------------------
     .config("spark.eventLog.enabled", "true")
-    .config("spark.eventLog.dir", "/tmp/spark-events")
+    .config("spark.eventLog.dir", "tmp/spark-events")
 
     # -----------------------------
     # Serialization & Execution
@@ -180,7 +181,7 @@ spark = (
 
     .getOrCreate()
 )
-
+exit()
 
 '''
 spark = (
