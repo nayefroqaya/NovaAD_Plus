@@ -20,6 +20,7 @@ import psutil
 import platform
 import pyspark
 from pyspark.sql import SparkSession
+import time
 
 
 if not hasattr(np, "string_"):
@@ -123,6 +124,65 @@ print(f"Setting Spark driver & executor memory to {spark_memory_gb} GB")
 # -----------------------------
 # Initialize Spark
 # -----------------------------
+
+num_cores = logical_cores   # or 4, 8, 16 for experiments
+
+spark = (
+    SparkSession.builder
+    .appName("SentimentAnalysisPySpark")
+    .master(f"local[{num_cores}]")
+
+    # -----------------------------
+    # Memory Control (Core Experiment Variable)
+    # -----------------------------
+    .config("spark.driver.memory", f"{spark_memory_gb}g")
+    .config("spark.executor.memory", f"{spark_memory_gb}g")
+    .config("spark.executor.memoryOverhead", "4g")   # controls off-heap + shuffle buffers
+    .config("spark.memory.fraction", "0.6")          # execution+storage memory
+    .config("spark.memory.storageFraction", "0.3")   # cached data portion
+
+    # -----------------------------
+    # CPU / Parallelism Control
+    # -----------------------------
+    .config("spark.default.parallelism", str(num_cores * 2))
+    .config("spark.sql.shuffle.partitions", str(num_cores * 2))
+
+    # -----------------------------
+    # Shuffle & Spill Control (KEY for your table)
+    # -----------------------------
+    .config("spark.reducer.maxSizeInFlight", "48m")  # smaller → more spill
+    .config("spark.shuffle.file.buffer", "32k")      # smaller → more disk I/O
+    .config("spark.shuffle.spill.compress", "true")
+    .config("spark.shuffle.compress", "true")
+
+    # -----------------------------
+    # Disk Spill Location (for monitoring)
+    # -----------------------------
+    .config("spark.local.dir", "/tmp/spark-spill")   # where spill files go
+
+    # -----------------------------
+    # Adaptive Query + Skew (for fairness)
+    # -----------------------------
+    .config("spark.sql.adaptive.enabled", "true")
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+    .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128MB")
+
+    # -----------------------------
+    # Spill & Shuffle Observability (for paper)
+    # -----------------------------
+    .config("spark.eventLog.enabled", "true")
+    .config("spark.eventLog.dir", "/tmp/spark-events")
+
+    # -----------------------------
+    # Serialization & Execution
+    # -----------------------------
+    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+
+    .getOrCreate()
+)
+
+
+'''
 spark = (
     SparkSession.builder
     .appName("SentimentAnalysisPySpark")
@@ -138,11 +198,12 @@ spark = (
     .config("spark.sql.shuffle.partitions", "200")
     .getOrCreate()
 )
+'''
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
 colorama.init()
-exit()
+#exit()
 
 GREEN = colorama.Fore.GREEN
 GRAY = colorama.Fore.LIGHTBLACK_EX
@@ -244,7 +305,7 @@ def main():
 
     # ---------------- Features Extracting ----------------
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
-
+    start_features_extracting = time.time()
     number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
             features_extracting_obj,
             DOC_TOPIC_DF_PATH,
@@ -253,6 +314,9 @@ def main():
             PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
             final_train_with_test_with_val,spark
         )
+    end_features_extracting= time.time()
+    feature_extract_time = (end_features_extracting - start_features_extracting) / 60
+    print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
     #exit()
 
     # ---------------- Load feature PKL → Spark ----------------
@@ -264,11 +328,16 @@ def main():
 
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
+    start_agree_trans= time.time()
+
     sequences_df, x_sequences_df, y_sequences_df = \
         features_engineering_obj.features_aggregation_transformation(
             final_train_with_test_with_val,
             DATASET
         )
+    end_agree_trans= time.time()
+    start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
+    print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
 
     sequences_df = sequences_df.persist(StorageLevel.MEMORY_AND_DISK)
     x_sequences_df = x_sequences_df.cache()
@@ -301,7 +370,7 @@ def main():
 
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
-
+    start_Novelty= time.time()
     df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
         features_engineering_obj.novelty_detection_label_establishment(
             sequences_df,  method ="gmm"
@@ -309,13 +378,22 @@ def main():
             #x_unlabeled_from_train,
             #ground_truth_unlabeled_data_from_train
         )
+    end_Novelty= time.time()
+    Novelty_time = (end_Novelty - start_Novelty) / 60
+    print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
+
     print('Novel was done .....')
     #exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
+    start_anomaly= time.time()
 
     results = anomaly_detection_obj.anomaly_detector(df_final,df_val, df_test ,mode )
+    end_anomaly= time.time()
+    anomaly_time = (end_anomaly - start_anomaly) / 60
+    print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
+
     results["predictions_df"]  # Spark DF for evaluation
     results["best_threshold"]  # chosen on validation
     print(results["fit_time"])  # minutes
@@ -333,6 +411,11 @@ def main():
     print(f"TP: {metrics['tp']}, FP: {metrics['fp']}, FN: {metrics['fn']}, TN: {metrics['tn']}")
     print(results["fit_time"])  # minutes
     print(results["predict_time"])  # minutes
+    print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
+    print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
+    print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
+    print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
+
     exit()
 
 

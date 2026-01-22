@@ -484,7 +484,7 @@ class LogdataRead:
             #  Save Processed Dataset Efficiently
             df.to_csv(All_dataset_path_as_csv, index=False)
 
-        elif dataset == 'TH_1G' or dataset == 'TH_2G' :
+        elif dataset == 'TH_1G' or dataset == 'TH_2G' or dataset == 'TH_5G' or dataset == 'TH_10G':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
                              "Component": "category", "EventId": "str", "Label": "category"}
