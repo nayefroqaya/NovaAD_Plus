@@ -1,0 +1,15 @@
+# Ignore datasets and logs
+../datasets/BGL/
+../datasets/HDFS/
+../datasets/HDO_abnormal.log
+../datasets/HDO_normal.log
+../datasets/Haddop_preparing.py
+../datasets/SP/
+../datasets/SP_100MB/
+../datasets/SP_150MB/
+../datasets/S_BGL/
+../datasets/TH_10G/
+../datasets/TH_1G/
+../datasets/TH_2G/
+../datasets/TH_5G/
+
