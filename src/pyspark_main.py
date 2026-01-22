@@ -118,7 +118,7 @@ print(f"PySpark version: {pyspark.__version__}")
 # -----------------------------
 # Determine Spark Memory
 # -----------------------------
-spark_memory_gb = max(4, int(available_gb * 0.8))  # safer: 60% of available RAM
+spark_memory_gb = max(4, int(available_gb * 0.1))  # safer: 60% of available RAM
 print(f"Setting Spark driver & executor memory to {spark_memory_gb} GB")
 
 # -----------------------------
@@ -129,7 +129,7 @@ num_cores = logical_cores   # or 4, 8, 16 for experiments
 
 spark = (
     SparkSession.builder
-    .appName("SentimentAnalysisPySpark")
+    .appName("AD")
 #    .master(f"local[{num_cores}]")
     .master("local[*]")  # use all CPU cores
 
