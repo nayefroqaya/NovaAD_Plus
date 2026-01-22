@@ -12,4 +12,6 @@
 ../datasets/TH_1G/
 ../datasets/TH_2G/
 ../datasets/TH_5G/
-
+# Spark / Parquet temporary & checksum files
+*.crc
+*.parquet/.part-*
