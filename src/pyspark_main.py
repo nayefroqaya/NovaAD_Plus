@@ -334,9 +334,8 @@ def main():
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
     print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
 
-    train_spill_gb = get_spill_size_gb(SPILL_DIR)
-    print(f"Shuffle Spill during TRAIN: {train_spill_gb:.2f} GB")
-    exit()
+    extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
+    print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
 
     # ---------------- Load feature PKL → Spark ----------------
     final_train_with_test_with_val = spark.createDataFrame(
@@ -347,6 +346,10 @@ def main():
 
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
+    shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    os.makedirs(SPILL_DIR, exist_ok=True)
+
+
     start_agree_trans= time.time()
 
     sequences_df, x_sequences_df, y_sequences_df = \
@@ -354,6 +357,11 @@ def main():
             final_train_with_test_with_val,
             DATASET
         )
+
+    aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
+    print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
+
+
     end_agree_trans= time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
     print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
@@ -389,6 +397,11 @@ def main():
 
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
+
+    shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    os.makedirs(SPILL_DIR, exist_ok=True)
+
+
     start_Novelty= time.time()
     df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
         features_engineering_obj.novelty_detection_label_establishment(
@@ -397,6 +410,10 @@ def main():
             #x_unlabeled_from_train,
             #ground_truth_unlabeled_data_from_train
         )
+
+    Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
+    print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
+
     end_Novelty= time.time()
     Novelty_time = (end_Novelty - start_Novelty) / 60
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
@@ -406,9 +423,15 @@ def main():
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
+    shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    os.makedirs(SPILL_DIR, exist_ok=True)
+
     start_anomaly= time.time()
 
     results = anomaly_detection_obj.anomaly_detector(df_final,df_val, df_test ,mode )
+
+    Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)
+    print(f"Shuffle Spill during AD: {Anomaly_spill_gb:.2f} GB")
     end_anomaly= time.time()
     anomaly_time = (end_anomaly - start_anomaly) / 60
     print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
@@ -434,6 +457,11 @@ def main():
     print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
     print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
+    print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
+    print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
+    print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
+    print(f"Shuffle Spill during AD Train : {Anomaly_spill_gb:.2f} GB")
+
 
     exit()
 
