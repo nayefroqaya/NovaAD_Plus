@@ -118,7 +118,7 @@ print(f"PySpark version: {pyspark.__version__}")
 # -----------------------------
 # Determine Spark Memory
 # -----------------------------
-spark_memory_gb = max(4, int(available_gb * 0.6))  # safer: 60% of available RAM
+spark_memory_gb = max(4, int(available_gb * 0.8))  # safer: 60% of available RAM
 print(f"Setting Spark driver & executor memory to {spark_memory_gb} GB")
 
 # -----------------------------
