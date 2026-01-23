@@ -344,9 +344,8 @@ def main():
 
 
     # ✅ Load from Parquet
-    output_path = DATASET + "_Topic_sentiment_diff_df.parquet"
-    df_features_with_sentiment_topic_diff = spark.read.parquet(output_path)
-    sdf_features = df_features_with_sentiment_topic_diff
+    output_path = DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
 
     # ---------------- Features Engineering ----------------
