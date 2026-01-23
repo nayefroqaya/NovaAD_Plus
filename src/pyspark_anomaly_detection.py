@@ -112,9 +112,9 @@ class AnomalyDetector:
             # 4. Tune RF with small TrainValidationSplit
             # ------------------------------
             rf_param_grid = (ParamGridBuilder()
-                             .addGrid(rf.numTrees, [80, 150])
-                             .addGrid(rf.maxDepth, [12, 18, 24])
-                             .addGrid(rf.minInstancesPerNode, [1, 5])
+                             .addGrid(rf.numTrees, [150])
+                             .addGrid(rf.maxDepth, [18, 24])
+                             .addGrid(rf.minInstancesPerNode, [1])
                              .build())
 
             rf_tvs = TrainValidationSplit(
@@ -138,7 +138,7 @@ class AnomalyDetector:
             # ------------------------------
             # 6. Create OOF meta-features (3-fold stacking)
             # ------------------------------
-            def create_oof_meta_features(df: DataFrame, folds=3):
+            def create_oof_meta_features(df: DataFrame, folds=2):
                 df = df.withColumn("row_idx", lit(0))  # dummy column for splitting
                 # Split df into K folds
                 fold_size = df.count() // folds
