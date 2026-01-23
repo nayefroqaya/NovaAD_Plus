@@ -223,7 +223,8 @@ class AnomalyDetector:
             val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
 
             #thresholds = [i / 100 for i in range(20, 80, 2)]
-            thresholds = [i / 100 for i in range(30, 71, 5)]  # 30%, 35%, ..., 70%
+            #thresholds = [i / 100 for i in range(30, 71, 5)]  # 30%, 35%, ..., 70%
+            thresholds = [i / 100 for i in range(40, 61, 10)]  # 0.40, 0.50, 0.60
 
             best_f1 = -1
             best_threshold = 0.5
