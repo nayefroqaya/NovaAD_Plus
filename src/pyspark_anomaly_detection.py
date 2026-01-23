@@ -35,6 +35,9 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark import StorageLevel
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import lit
+
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -60,7 +63,215 @@ class AnomalyDetector:
                                                                                         "features").withColumnRenamed(
             "Final_Label", "label")
 
+        # ------------------------------
+        # 1. Prepare datasets
+        # ------------------------------
+        train_df = df_final.select("features_vec_final", "Final_Label") \
+            .withColumnRenamed("features_vec_final", "features") \
+            .withColumnRenamed("Final_Label", "label")
 
+        val_df = df_val.select("features_vec_final", "Final_Label") \
+            .withColumnRenamed("features_vec_final", "features") \
+            .withColumnRenamed("Final_Label", "label")
+
+        test_df = df_test.select("features_vec_final", "Final_Label") \
+            .withColumnRenamed("features_vec_final", "features") \
+            .withColumnRenamed("Final_Label", "label")
+
+        if mode == 'M':
+            start_fit = time.time()
+
+            # ------------------------------
+            # 2. Class weighting
+            # ------------------------------
+            label_counts = train_df.groupBy("label").count().collect()
+            total_count = sum(r["count"] for r in label_counts)
+            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
+
+            train_df = train_df.withColumn(
+                "class_weight",
+                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1])
+            )
+
+            # ------------------------------
+            # 3. Base Models (RF + LR)
+            # ------------------------------
+            # Logistic Regression
+            lr = LogisticRegression(
+                featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60
+            )
+
+            # Random Forest
+            rf = RandomForestClassifier(
+                featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred"
+            )
+
+            # ------------------------------
+            # 4. Tune RF with small TrainValidationSplit
+            # ------------------------------
+            rf_param_grid = (ParamGridBuilder()
+                             .addGrid(rf.numTrees, [80, 150])
+                             .addGrid(rf.maxDepth, [12, 18, 24])
+                             .addGrid(rf.minInstancesPerNode, [1, 5])
+                             .build())
+
+            rf_tvs = TrainValidationSplit(
+                estimator=rf,
+                estimatorParamMaps=rf_param_grid,
+                evaluator=BinaryClassificationEvaluator(
+                    labelCol="label", rawPredictionCol="rf_raw", metricName="areaUnderPR"
+                ),
+                trainRatio=0.8,
+                parallelism=4
+            )
+
+            rf_tuned_model = rf_tvs.fit(train_df)
+            best_rf_model = rf_tuned_model.bestModel
+
+            # ------------------------------
+            # 5. Train LR
+            # ------------------------------
+            lr_model = lr.fit(train_df)
+
+            # ------------------------------
+            # 6. Create OOF meta-features (3-fold stacking)
+            # ------------------------------
+            def create_oof_meta_features(df: DataFrame, folds=3):
+                df = df.withColumn("row_idx", lit(0))  # dummy column for splitting
+                # Split df into K folds
+                fold_size = df.count() // folds
+                oof_meta = None
+
+                for k in range(folds):
+                    start = k * fold_size
+                    end = start + fold_size if k < folds - 1 else None
+
+                    val_fold = df.limit(end).subtract(df.limit(start)) if end else df.limit(df.count()).subtract(df.limit(start))
+                    train_fold = df.subtract(val_fold)
+
+                    # Train base models on train_fold
+                    lr_fold_model = lr.fit(train_fold)
+                    rf_fold_model = best_rf_model  # RF already tuned, just use it
+
+                    # Predict on val_fold
+                    def add_probs(df_in, lr_mdl, rf_mdl):
+                        df_out = lr_mdl.transform(df_in).withColumn("lr_arr", vector_to_array("lr_prob")) \
+                            .withColumn("lr_0", col("lr_arr")[0]).withColumn("lr_1", col("lr_arr")[1])
+                        df_out = rf_mdl.transform(df_out).withColumn("rf_arr", vector_to_array("rf_prob")) \
+                            .withColumn("rf_0", col("rf_arr")[0]).withColumn("rf_1", col("rf_arr")[1])
+                        return df_out
+
+                    val_meta = add_probs(val_fold, lr_fold_model, rf_fold_model)
+
+                    if oof_meta is None:
+                        oof_meta = val_meta
+                    else:
+                        oof_meta = oof_meta.union(val_meta)
+
+                return oof_meta
+
+            train_meta = create_oof_meta_features(train_df, folds=3)
+
+            meta_features = ["lr_0", "lr_1", "rf_0", "rf_1"]
+            assembler = VectorAssembler(inputCols=meta_features, outputCol="meta_features")
+            train_meta = assembler.transform(train_meta)
+
+            # ------------------------------
+            # 7. Meta Logistic Regression tuning
+            # ------------------------------
+            meta_lr = LogisticRegression(
+                featuresCol="meta_features", labelCol="label",
+                predictionCol="last_pred_label", probabilityCol="final_prob",
+                rawPredictionCol="meta_raw", weightCol="class_weight", maxIter=50
+            )
+
+            meta_param_grid = (ParamGridBuilder()
+                               .addGrid(meta_lr.regParam, [0.0, 0.01, 0.1])
+                               .addGrid(meta_lr.elasticNetParam, [0.0, 0.5, 1.0])
+                               .build())
+
+            meta_tvs = TrainValidationSplit(
+                estimator=meta_lr,
+                estimatorParamMaps=meta_param_grid,
+                evaluator=BinaryClassificationEvaluator(
+                    labelCol="label", rawPredictionCol="meta_raw", metricName="areaUnderPR"
+                ),
+                trainRatio=0.8,
+                parallelism=2
+            )
+
+            stack_model = meta_tvs.fit(train_meta).bestModel
+
+            end_fit = time.time()
+            fit_time = (end_fit - start_fit) / 60
+
+            # ------------------------------
+            # 8. Validation threshold tuning
+            # ------------------------------
+            def add_probs(df_in, lr_mdl, rf_mdl):
+                df_out = lr_mdl.transform(df_in).withColumn("lr_arr", vector_to_array("lr_prob")) \
+                    .withColumn("lr_0", col("lr_arr")[0]).withColumn("lr_1", col("lr_arr")[1])
+                df_out = rf_mdl.transform(df_out).withColumn("rf_arr", vector_to_array("rf_prob")) \
+                    .withColumn("rf_0", col("rf_arr")[0]).withColumn("rf_1", col("rf_arr")[1])
+                return df_out
+
+            val_meta = add_probs(val_df, lr_model, best_rf_model)
+            val_meta = assembler.transform(val_meta)
+            val_preds = stack_model.transform(val_meta)
+            val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
+
+            thresholds = [i / 100 for i in range(20, 80, 2)]
+            best_f1 = -1
+            best_threshold = 0.5
+
+            for t in thresholds:
+                preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
+                tp = preds.filter("label=1 AND pred_adj=1").count()
+                fp = preds.filter("label=0 AND pred_adj=1").count()
+                fn = preds.filter("label=1 AND pred_adj=0").count()
+
+                precision = tp / (tp + fp + 1e-6)
+                recall = tp / (tp + fn + 1e-6)
+                f1 = 2 * precision * recall / (precision + recall + 1e-6)
+
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = t
+
+            print(f"Optimal threshold (validation F1): {best_threshold:.2f}")
+
+            # ------------------------------
+            # 9. Test predictions
+            # ------------------------------
+            start_predict = time.time()
+            test_meta = add_probs(test_df, lr_model, best_rf_model)
+            test_meta = assembler.transform(test_meta)
+            final_test_predictions = (
+                stack_model.transform(test_meta)
+                .withColumn("prob_1", vector_to_array("final_prob")[1])
+                .withColumn("last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0))
+            )
+            end_predict = time.time()
+            predict_time = (end_predict - start_predict) / 60
+
+            # ------------------------------
+            # 10. Return results
+            # ------------------------------
+            return {
+                "predictions_df": final_test_predictions,
+                "best_threshold": best_threshold,
+                "fit_time": fit_time,
+                "predict_time": predict_time
+            }
+
+
+
+
+
+
+        exit()
         if mode == 'M':
 
             start_fit = time.time()
@@ -80,13 +291,13 @@ class AnomalyDetector:
             # 3. Base models (level-1)
             # =====================================================
             lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=20)  #60
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="rf_prob",  # unique
                 rawPredictionCol="rf_raw",  # unique
                 predictionCol="rf_pred",  # unique
-                numTrees=100, maxDepth=24) # 150
+                numTrees=150, maxDepth=24)
 
             dt = DecisionTreeClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="dt_prob",  # unique
@@ -131,7 +342,7 @@ class AnomalyDetector:
                 probabilityCol="final_prob",  # final probability
 
                 rawPredictionCol="meta_raw",  # ✅ UNIQUE
-                weightCol="class_weight", maxIter=20)  #50
+                weightCol="class_weight", maxIter=50)
 
             stack_model = meta_lr.fit(train_meta)
 
@@ -152,9 +363,7 @@ class AnomalyDetector:
             val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
 
             # Grid search for threshold (Spark-safe)
-            #thresholds = [i / 100 for i in range(5, 95)]
-            thresholds = [i / 20 for i in range(1, 19)]  # step = 0.05
-
+            thresholds = [i / 100 for i in range(5, 95)]
             best_f1 = -1
             best_threshold = 0.5
 
