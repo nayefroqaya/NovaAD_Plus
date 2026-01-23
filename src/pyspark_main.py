@@ -364,7 +364,7 @@ def main():
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
-    exit()
+    #exit()
 
     end_agree_trans= time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
@@ -423,7 +423,7 @@ def main():
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
 
     print('Novel was done .....')
-    #exit()
+    exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
