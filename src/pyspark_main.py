@@ -336,12 +336,17 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-
+    #exit()
     # ---------------- Load feature PKL → Spark ----------------
-    final_train_with_test_with_val = spark.createDataFrame(
-        pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)
-    ).persist(StorageLevel.MEMORY_AND_DISK)
+    #final_train_with_test_with_val = spark.createDataFrame(
+    #    pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)
+    #).persist(StorageLevel.MEMORY_AND_DISK)
 
+
+    # ✅ Load from Parquet
+    output_path = DATASET + "_Topic_sentiment_diff_df.parquet"
+    df_features_with_sentiment_topic_diff = spark.read.parquet(output_path)
+    sdf_features = df_features_with_sentiment_topic_diff
     final_train_with_test_with_val.count()
 
     # ---------------- Features Engineering ----------------
@@ -360,7 +365,7 @@ def main():
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
-
+    exit()
 
     end_agree_trans= time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
