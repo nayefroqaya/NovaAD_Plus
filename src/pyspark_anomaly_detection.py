@@ -138,7 +138,7 @@ class AnomalyDetector:
             # ------------------------------
             # 6. Create OOF meta-features (3-fold stacking)
             # ------------------------------
-            def create_oof_meta_features(df: DataFrame, folds=2):
+            def create_oof_meta_features(df: DataFrame, folds=1):
                 df = df.withColumn("row_idx", lit(0))  # dummy column for splitting
                 # Split df into K folds
                 fold_size = df.count() // folds
@@ -188,8 +188,8 @@ class AnomalyDetector:
             )
 
             meta_param_grid = (ParamGridBuilder()
-                               .addGrid(meta_lr.regParam, [0.0, 0.01, 0.1])
-                               .addGrid(meta_lr.elasticNetParam, [0.0, 0.5, 1.0])
+                               .addGrid(meta_lr.regParam, [ 0.01, 0.1])  # 0.0
+                               .addGrid(meta_lr.elasticNetParam, [ 0.5, 1.0]) # 0.0
                                .build())
 
             meta_tvs = TrainValidationSplit(
@@ -222,7 +222,9 @@ class AnomalyDetector:
             val_preds = stack_model.transform(val_meta)
             val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
 
-            thresholds = [i / 100 for i in range(20, 80, 2)]
+            #thresholds = [i / 100 for i in range(20, 80, 2)]
+            thresholds = [i / 100 for i in range(30, 71, 5)]  # 30%, 35%, ..., 70%
+
             best_f1 = -1
             best_threshold = 0.5
 
