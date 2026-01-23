@@ -80,13 +80,13 @@ class AnomalyDetector:
             # 3. Base models (level-1)
             # =====================================================
             lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=20)  #60
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="rf_prob",  # unique
                 rawPredictionCol="rf_raw",  # unique
                 predictionCol="rf_pred",  # unique
-                numTrees=150, maxDepth=24)
+                numTrees=100, maxDepth=24) # 150
 
             dt = DecisionTreeClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="dt_prob",  # unique
@@ -131,7 +131,7 @@ class AnomalyDetector:
                 probabilityCol="final_prob",  # final probability
 
                 rawPredictionCol="meta_raw",  # ✅ UNIQUE
-                weightCol="class_weight", maxIter=50)
+                weightCol="class_weight", maxIter=20)  #50
 
             stack_model = meta_lr.fit(train_meta)
 
@@ -152,7 +152,9 @@ class AnomalyDetector:
             val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
 
             # Grid search for threshold (Spark-safe)
-            thresholds = [i / 100 for i in range(5, 95)]
+            #thresholds = [i / 100 for i in range(5, 95)]
+            thresholds = [i / 20 for i in range(1, 19)]  # step = 0.05
+
             best_f1 = -1
             best_threshold = 0.5
 
