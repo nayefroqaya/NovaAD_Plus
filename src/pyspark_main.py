@@ -11,6 +11,8 @@ from pyspark_features_engineering import FeaturesEngineering
 from pyspark_features_extracting import FeaturesExtractor
 from pyspark_model_evaluation import ModelEvaluation
 from pyspark_utility import Utilities
+from load_datalog import LogdataRead
+
 from pyspark.storagelevel import StorageLevel
 from pyspark.sql.functions import col
 import psutil
@@ -238,7 +240,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'SP_150MB'
+    DATASET = 'TH_5G'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'M'
@@ -257,7 +259,7 @@ def main():
         .getOrCreate()
 
     # ---------------- Initialize classes ----------------
-    #logdata_read_obj = LogdataRead()
+    logdata_read_obj = LogdataRead()
     features_extracting_obj = FeaturesExtractor()
     features_engineering_obj = FeaturesEngineering()
     anomaly_detection_obj = AnomalyDetector()
@@ -265,8 +267,10 @@ def main():
     utilities_obj = Utilities()
 
     # ---------------- Data as CSV ----------------
-    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    #print(' Reading the file was done successfully ')
+    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    print(' Reading the file was done successfully ')
+    exit()
+
 
     # ---------------- Load CSV into Spark ----------------
     #all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
