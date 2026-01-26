@@ -1,0 +1,17 @@
+# Specific datasets to ignore
+datasets/BGL/
+datasets/HDFS/
+datasets/SP/
+datasets/SP_100MB/
+datasets/SP_150MB/
+datasets/S_BGL/
+datasets/TH_10G/
+datasets/TH_1G/
+datasets/TH_2G/
+datasets/TH_5G/
+
+# Specific dataset files to ignore
+datasets/HDO_abnormal.log
+datasets/HDO_normal.log
+datasets/Haddop_preparing.py
+
