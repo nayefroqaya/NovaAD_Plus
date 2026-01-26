@@ -290,57 +290,57 @@ def main():
     #exit()
 
     # ---------------- Process normal data ----------------
-    if Mix_or_stable == '0' and DATASET == 'S_BGL':
-        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
+    #if Mix_or_stable == '0' and DATASET == 'S_BGL':
+    #    save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
 
-    elif Mix_or_stable == '1' and DATASET == 'S_BGL':
-        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Mix_Splitted_Datasets"
+    #elif Mix_or_stable == '1' and DATASET == 'S_BGL':
+    #    save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Mix_Splitted_Datasets"
 
-    else:
-        save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Splitted_Datasets"
+    #else:
+    #    save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Splitted_Datasets"
 
-    os.makedirs(save_path, exist_ok=True)
+    #os.makedirs(save_path, exist_ok=True)
 
     # ---------------- Load PKL splits into Spark ----------------
-    train_df = spark.read.parquet(os.path.join(save_path, "train_df")).cache()
-    val_df = spark.read.parquet(os.path.join(save_path, "val_df")).cache()
-    test_df = spark.read.parquet(os.path.join(save_path, "test_df")).cache()
-    print("Train count:", train_df.count())
-    print("Validation count:", val_df.count())
-    print("Test count:", test_df.count())
+    #train_df = spark.read.parquet(os.path.join(save_path, "train_df")).cache()
+    #val_df = spark.read.parquet(os.path.join(save_path, "val_df")).cache()
+    #test_df = spark.read.parquet(os.path.join(save_path, "test_df")).cache()
+    #print("Train count:", train_df.count())
+    #print("Validation count:", val_df.count())
+    #print("Test count:", test_df.count())
 
-    train_df.printSchema()
-    assert train_df.schema == val_df.schema == test_df.schema
+    #train_df.printSchema()
+    #assert train_df.schema == val_df.schema == test_df.schema
 
     #exit()
 
-    final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
-        StorageLevel.MEMORY_AND_DISK)
-    final_train_with_test_with_val.count()
+   # final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
+    #    StorageLevel.MEMORY_AND_DISK)
+    #final_train_with_test_with_val.count()
     #exit()
 
     # ---------------- Features Extracting ----------------
     # --- Before Train ---
-    shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    os.makedirs(SPILL_DIR, exist_ok=True)
+    #shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    #os.makedirs(SPILL_DIR, exist_ok=True)
 
-    print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
-    start_features_extracting = time.time()
-    number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
-            features_extracting_obj,
-            DOC_TOPIC_DF_PATH,
-            SENTIMENT_DF_PATH,
-            DATASET,
-            PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
-            final_train_with_test_with_val,spark
-        )
-    end_features_extracting= time.time()
-    feature_extract_time = (end_features_extracting - start_features_extracting) / 60
-    print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
+    #print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
+    #start_features_extracting = time.time()
+    #number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
+    #        features_extracting_obj,
+    #        DOC_TOPIC_DF_PATH,
+    #        SENTIMENT_DF_PATH,
+    #        DATASET,
+    #        PRE_FINAL_GLOBAL_FEATURES_PKL_PATH,
+    #        final_train_with_test_with_val,spark
+    #    )
+    #end_features_extracting= time.time()
+    #feature_extract_time = (end_features_extracting - start_features_extracting) / 60
+    #print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
 
-    extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
-    print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    exit()
+    #extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
+    #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
+    #exit()
     # ---------------- Load feature PKL → Spark ----------------
     #final_train_with_test_with_val = spark.createDataFrame(
     #    pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)
