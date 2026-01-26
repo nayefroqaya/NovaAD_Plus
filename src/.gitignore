@@ -30,3 +30,9 @@ tmp/
 # Python cache
 __pycache__/
 *.pyc
+../drain_parser/__pycache__/
+TH_5G_Topic_sentiment_df.parquet/
+TH_5G_Topic_sentiment_diff_df.parquet/
+TH_5G_Topic_sentiment_diff_semantic_df.parquet/
+TH_5G_sentiment_df.parquet/
+__pycache__/pyspark_features_extracting.cpython-310.pyc
