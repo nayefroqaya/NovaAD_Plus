@@ -242,7 +242,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'TH_5G'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'M'
     Mix_or_stable = '0'
 
@@ -273,21 +273,21 @@ def main():
 
 
     # ---------------- Load CSV into Spark ----------------
-    all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
-    all_data_df.count()  # Materialize cache
-    print('✅ Loaded CSV into Spark DataFrame')
+    #all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
+    #all_data_df.count()  # Materialize cache
+    #print('✅ Loaded CSV into Spark DataFrame')
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
-    train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
-        Mix_or_stable, spark)
-    train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
-    validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
-    test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
-    train_df.count();
-    validate_df.count();
-    test_df.count()
-    exit()
+   # train_df, validate_df, test_df, df_features = utilities_obj.dataset_splitting(all_data_df, DATASET, round_id,
+   #     Mix_or_stable, spark)
+    #train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
+    #train_df.count();
+    #validate_df.count();
+    #test_df.count()
+    #exit()
 
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
@@ -340,7 +340,7 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    #exit()
+    exit()
     # ---------------- Load feature PKL → Spark ----------------
     #final_train_with_test_with_val = spark.createDataFrame(
     #    pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)

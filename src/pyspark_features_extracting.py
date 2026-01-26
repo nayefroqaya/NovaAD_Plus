@@ -141,7 +141,6 @@ class FeaturesExtractor:
         #exit()
         # ==================== ADDITIONAL FEATURE EXTRACTION ===================
         print("[INFO] Extracting additional features (temporal, statistical, entropy)...")
-        best_topic_number = 15    # 15 SP_150MB
         df_feature_full_dataset = features_extracting_obj.features_extracted_different_features(Dataset_name,
                                                                                                 best_topic_number,
                                                                                                 df_features_with_sentiment_topic,
