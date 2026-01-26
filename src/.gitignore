@@ -15,3 +15,15 @@
 # Spark / Parquet temporary & checksum files
 *.crc
 *.parquet/.part-*
+# Python cache
+__pycache__/
+*.pyc
+
+# Spark / PySpark artifacts
+tmp/spark-events/
+
+# (Optional) Ignore any spark event logs anywhere
+spark-events/
+
+# General temp folders
+tmp/
