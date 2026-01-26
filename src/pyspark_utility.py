@@ -115,7 +115,7 @@ class Utilities:
         total_ids = unique_ids_df.count()
 
         if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB',
-                       'TH_1G', 'TH_2G', 'S_BGL']:
+                       'TH_1G', 'TH_2G', 'TH_5G', 'S_BGL']:
 
             shuffled_ids_df = unique_ids_df.orderBy(F.rand())
 
