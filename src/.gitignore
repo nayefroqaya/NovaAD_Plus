@@ -27,3 +27,6 @@ spark-events/
 
 # General temp folders
 tmp/
+# Python cache
+__pycache__/
+*.pyc
