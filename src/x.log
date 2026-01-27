@@ -1,7 +1,7 @@
 === System Info ===
 Total RAM:     251.54 GB
-Available RAM: 242.20 GB
-Used RAM:      9.34 GB (3.7%)
+Available RAM: 242.22 GB
+Used RAM:      9.32 GB (3.7%)
 CPU cores (physical/logical): 32 / 64
 Disk Total: 254.74 GB, Disk Free: 152.92 GB
 OS: Linux-5.15.0-153-generic-x86_64-with-glibc2.35
@@ -92,7 +92,7 @@ Feature aggregation completed successfully
 scaling done finally -------
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 Shuffle Spill during aggregation: 0.00 GB
-aggregation and transform completed in 0.34 minutes
+aggregation and transform completed in 0.37 minutes
 Preparing training and evaluation datasets...
 Performing novelty detection and establishing labels...
 root
@@ -210,10 +210,33 @@ weighted avg      0.830     0.729     0.715      6302
 
 ✅ Novelty detection (GMM) completed successfully.
 Shuffle Spill during Novelty: 0.00 GB
-Model Novelty and label estimating completed in 0.78 minutes
+Model Novelty and label estimating completed in 0.80 minutes
 Novel was done .....
 Running anomaly detection on test dataset...
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label', 'probability', 'gmm_pred', 'prob_array', 'anomaly_score']
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
 Optimal threshold (validation F1): 0.05
+Shuffle Spill during AD: 0.00 GB
+Model anomaly train completed in 2.98 minutes
+1.940302844842275
+0.0043637712796529135
+
+📊 Evaluation Results
+--------------------
+TP: 1902  FP: 1462
+FN: 4  TN: 834
+Precision : 0.5654
+Recall    : 0.9979
+F1-score  : 0.7218
+Accuracy  : 0.6511
+
+📊 Final Test Metrics
+--------------------
+Precision : 0.5654
+Recall    : 0.9979
+F1-score  : 0.7218
+Accuracy  : 0.6511
+TP: 1902, FP: 1462, FN: 4, TN: 834
+1.940302844842275
+0.0043637712796529135
