@@ -140,11 +140,7 @@ class AnomalyDetector:
         )
 
         gbt = GBTClassifier(
-
-            featuresCol="features", labelCol="label", predictionCol="gbt_pred",
-            rawPredictionCol="gbt_raw", maxDepth=6, maxIter=100
-
-
+            featuresCol="features", labelCol="label", maxDepth=6, maxIter=100
         )
 
         # ==============================
@@ -218,10 +214,11 @@ class AnomalyDetector:
             # GBT
             # =================
             df_out = drop_ml_cols(df_out)
+
             df_out = gbt_model.transform(df_out)
             # rename probability safely
-            df_out = df_out.withColumnRenamed("probability", "gbt_prob")
-            df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("gbt_prob")))
+            # use default probability column
+            df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("probability")))
             df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]).drop("gbt_arr")
             return df_out
 
