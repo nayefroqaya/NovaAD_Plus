@@ -187,6 +187,10 @@ class AnomalyDetector:
         # 6. Build Meta Features (SAFE)
         # ==============================
         def add_probs(df_in):
+            df_out = df_in
+            # --- ALWAYS ensure correct feature column name ---
+            if "features" not in df_out.columns and "features_vec_final" in df_out.columns:
+                df_out = df_out.withColumnRenamed("features_vec_final", "features")
             df_out = drop_ml_cols(df_in)
 
             # LR
