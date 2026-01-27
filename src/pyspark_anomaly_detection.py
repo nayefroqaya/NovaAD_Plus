@@ -73,7 +73,7 @@ class AnomalyDetector:
         print(df_val.columns)
         print(df_test.columns)
 
-        exit()
+        #exit()
 
         @udf(ArrayType(DoubleType()))
         def vec_to_array_manual(v):

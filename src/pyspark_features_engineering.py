@@ -58,41 +58,41 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesEngineering:
 
     @staticmethod
-    def features_aggregation_transformation(final_train_with_test, dataset):
+    def features_aggregation_transformation(final_train_with_test_with_val, dataset):
 
         print("---- Starting feature aggregation and transformation ----")
-        final_train_with_test.printSchema()
+        final_train_with_test_with_val.printSchema()
         #        exit()
         # 2️⃣ Drop rows that are fully null
-        final_train_with_test = final_train_with_test.na.drop(how='all')
+        final_train_with_test_with_val = final_train_with_test_with_val.na.drop(how='all')
         # Sentiment features : -------------------------------------------------
-        final_train_with_test = final_train_with_test.withColumn("sentiment_label",
+        final_train_with_test_with_val = final_train_with_test_with_val.withColumn("sentiment_label",
                                                                  when(col("sentiment_label").isNull(),
                                                                       "negative")  # placeholder for missing sentiment
                                                                  .otherwise(col("sentiment_label")))
 
-        final_train_with_test.select(count(when(col("sentiment_label").isNull(), True)).alias("null_count"),
+        final_train_with_test_with_val.select(count(when(col("sentiment_label").isNull(), True)).alias("null_count"),
                                      count(when(col("sentiment_label").isNotNull(), True)).alias("not_null_count"))
 
-        print("Columns:", final_train_with_test.columns)
-        final_train_with_test.select("sentiment_label").printSchema()
+        print("Columns:", final_train_with_test_with_val.columns)
+        final_train_with_test_with_val.select("sentiment_label").printSchema()
 
-        final_train_with_test = final_train_with_test.withColumn("sentiment_label", when(
+        final_train_with_test_with_val = final_train_with_test_with_val.withColumn("sentiment_label", when(
             col("sentiment_label").isNull() | (trim(col("sentiment_label")) == "") | (
                 col("sentiment_label").isin("None", "NaN", "null")), "negative").otherwise(col("sentiment_label")))
 
         # Normalize and clean first (optional but safer)
-        final_train_with_test = final_train_with_test.withColumn("sentiment_label", trim(col("sentiment_label")))
+        final_train_with_test_with_val = final_train_with_test_with_val.withColumn("sentiment_label", trim(col("sentiment_label")))
 
         # Then map to numeric
-        final_train_with_test = final_train_with_test.withColumn("sentiment_label_indexed",
+        final_train_with_test_with_val = final_train_with_test_with_val.withColumn("sentiment_label_indexed",
                                                                  when(col("sentiment_label") == "positive",
                                                                       1).otherwise(0))
 
         feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
                            "month", "day", "hour", "minute", "second"]
 
-        df_cached = final_train_with_test
+        df_cached = final_train_with_test_with_val
         print(' preparing the numeric array ----')
         df_cached = df_cached.withColumn("numeric_array", array(*[col(c).cast("double") for c in feature_columns]))
         print('preparing  full vector by concating ')
@@ -110,6 +110,7 @@ class FeaturesEngineering:
         log_normal_labelled = df_cached.filter(F.col("Temp_label") == 0)
         log_remain_normal_anomaly_unlabelled = df_cached.filter(F.col("Temp_label") == 999)
         log_test_unlabelled = df_cached.filter(F.col("Temp_label") == 888)
+        log_val_labelled = df_cached.filter(F.col("Temp_label") == 777)
 
         # ------------------ Helper UDFs ----------------------------------------------
 
@@ -120,8 +121,7 @@ class FeaturesEngineering:
             arr = np.array(list_of_vectors, dtype="float32")
             return arr.mean(axis=0).tolist()
 
-        # ------------------ (1) Train - Normal logs labelled -------------------------
-
+        # ------------------ (1) Train - Normal logs labelled :Temp_label =0 -------------------------
         summed_df_normal_labelled_train = (log_normal_labelled.groupby("Node_block_id").agg(
             avg_vector_udf(F.collect_list("features")).alias("features")))
 
@@ -178,10 +178,25 @@ class FeaturesEngineering:
 
         summed_df_test = summed_df_combine_unlabelled_test
 
+
+        # ------------------ (4) validate dataset (Temp_label = 777) -----------------------
+        summed_df_combine_labelled_val = (log_val_labelled.groupby("Node_block_id").agg(
+            avg_vector_udf(F.collect_list("features")).alias("features")))
+
+        sequence_labels_combine_labelled_val= (log_val_labelled.groupby("Node_block_id").agg(
+            F.when(F.sum(F.when(F.col("Label") != "Normal", 1).otherwise(0)) > 0, "anomaly").otherwise("normal").alias(
+                "Label")))
+
+        summed_df_combine_labelled_val = (
+            summed_df_combine_labelled_val.join(sequence_labels_combine_labelled_val, "Node_block_id",
+                                                   "inner").withColumn("Temp_label", F.lit(888)))
+
+        summed_df_val = summed_df_combine_labelled_val
+
         # ------------------ Final Combine -------------------------------------------
 
-        summ_train_test_combine = summed_df_train.unionByName(summed_df_test)
-        summ_train_test_combine.printSchema()
+        summ_train_test_val_combine = summed_df_train.unionByName(summed_df_test).unionByName(summed_df_val)
+        summ_train_test_val_combine.printSchema()
         print("Feature aggregation completed successfully")
         #        exit()
 
@@ -190,19 +205,19 @@ class FeaturesEngineering:
         # =============================
 
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
-        summ_train_test_combine = summ_train_test_combine.withColumn("features_vec",
+        summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
                                                                      array_to_vector_udf(col("features")))
 
         scaler = StandardScaler(inputCol="features_vec", outputCol="features_vec_final", withMean=True, withStd=True)
-        model = scaler.fit(summ_train_test_combine)
-        summ_train_test_combine_scaled = model.transform(summ_train_test_combine)
+        model = scaler.fit(summ_train_test_val_combine)
+        summ_train_test_val_combine_scaled = model.transform(summ_train_test_val_combine)
         print("✅ StandardScaler applied successfully")
         print('scaling done finally -------')
 
-        X_sequences_df = summ_train_test_combine_scaled.select("features_vec_final")
-        y_sequences_df = summ_train_test_combine_scaled.select("Label")
+        X_sequences_df = summ_train_test_val_combine_scaled.select("features_vec_final")
+        y_sequences_df = summ_train_test_val_combine_scaled.select("Label")
 
-        return summ_train_test_combine_scaled, X_sequences_df, y_sequences_df
+        return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
 
     @staticmethod
     def novelty_detection_label_establishment(sequences_df: DataFrame, method: str = "gmm"
@@ -230,9 +245,9 @@ class FeaturesEngineering:
         unlabeled_train_df = sequences_df.filter(col("Temp_label") == 999)
         test_df = sequences_df.filter(col("Temp_label") == 888)
 
-        train_normal_df.select("Temp_label", "Label").show(3, truncate=False)
-        unlabeled_train_df.select("Temp_label", "Label").show(3, truncate=False)
-        test_df.select("Temp_label", "Label").show(3, truncate=False)
+        #train_normal_df.select("Temp_label", "Label").show(3, truncate=False)
+        #unlabeled_train_df.select("Temp_label", "Label").show(3, truncate=False)
+        #test_df.select("Temp_label", "Label").show(3, truncate=False)
         #        exit()
 
         print('info labe for nayef ..........................................')
@@ -246,7 +261,6 @@ class FeaturesEngineering:
             raise ValueError("❌ No unlabeled logs (Temp_label=999) found for novelty detection.")
 
         # Ensure feature column is vector type
-        feature_col = "features_vec_final"
         if method.lower() == "gmm":
 
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
