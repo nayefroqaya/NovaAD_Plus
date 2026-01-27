@@ -87,7 +87,8 @@ class AnomalyDetector:
             return v.toArray().tolist()
 
         def drop_ml_cols(df):
-            for c in ["prediction", "probability", "rawPrediction", "lr_prob", "final_prob"]:
+            for c in ["prediction", "rawPrediction", "probability", "lr_pred", "lr_raw", "lr_prob", "gbt_pred",
+                      "gbt_raw", "gbt_prob", "meta_prediction", "meta_raw", "final_prob"]:
                 if c in df.columns:
                     df = df.drop(c)
             return df
@@ -140,7 +141,7 @@ class AnomalyDetector:
 
         gbt = GBTClassifier(
 
-            featuresCol="features", labelCol="label", predictionCol="gbt_pred", probabilityCol="gbt_prob",
+            featuresCol="features", labelCol="label", predictionCol="gbt_pred",
             rawPredictionCol="gbt_raw", maxDepth=6, maxIter=100
 
 
