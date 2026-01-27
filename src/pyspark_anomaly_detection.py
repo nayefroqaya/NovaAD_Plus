@@ -73,7 +73,7 @@ class AnomalyDetector:
         print(df_val.columns)
         print(df_test.columns)
 
-        #exit()
+        exit()
 
         @udf(ArrayType(DoubleType()))
         def vec_to_array_manual(v):
@@ -91,12 +91,12 @@ class AnomalyDetector:
                                                                                                 , "features").withColumnRenamed("Final_Label", "label").cache()
 
         val_df = df_val.select("features_vec_final", "Final_Label") \
-            .withColumnRenamed("features_vec_fina", "features") \
+            .withColumnRenamed("features_vec_final", "features") \
             .withColumnRenamed("Final_Label", "label") \
             .cache()
 
         test_df = df_test.select("features_vec_final", "Final_Label") \
-            .withColumnRenamed("features_vec_fina", "features") \
+            .withColumnRenamed("features_vec_final", "features") \
             .withColumnRenamed("Final_Label", "label") \
             .cache()
 

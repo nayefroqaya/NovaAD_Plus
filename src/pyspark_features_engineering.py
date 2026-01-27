@@ -229,7 +229,6 @@ class FeaturesEngineering:
         sequences_df = sequences_df.withColumn("Label",
                                                F.when(F.col("Label") == "normal", 0).when(F.col("Label") == "anomaly",
                                                                                           1))
-        #        exit()
         """
             Novelty detection pipeline supporting both IsolationForest (iof) and RandomForest (rf).
 

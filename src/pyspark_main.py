@@ -370,8 +370,7 @@ def main():
         )
     print(sequences_df.columns)
 
-
-    exit()
+#    exit()
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
@@ -391,24 +390,24 @@ def main():
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
 
-    x_train_normal_labelled = x_sequences_df.filter(col("Temp_label") == 0)
-    X_train_all_data = x_sequences_df.filter(col("Temp_label") != 888)
-    x_unlabeled_from_train = x_sequences_df.filter(col("Temp_label") == 999)
+    #x_train_normal_labelled = x_sequences_df.filter(col("Temp_label") == 0)
+    #X_train_all_data = x_sequences_df.filter(col("Temp_label") != 888)
+    #x_unlabeled_from_train = x_sequences_df.filter(col("Temp_label") == 999)
 
-    labelled_df_from_train = sequences_df.filter(col("Temp_label") == 0)
-    ground_truth_labeled_data_from_train = labelled_df_from_train.select("Label")
+    #labelled_df_from_train = sequences_df.filter(col("Temp_label") == 0)
+    #ground_truth_labeled_data_from_train = labelled_df_from_train.select("Label")
 
-    labelled_df_from_train_all_data = sequences_df.filter(col("Temp_label") != 888)
-    ground_truth_train_all_data = labelled_df_from_train_all_data.select("Label")
+    #labelled_df_from_train_all_data = sequences_df.filter(col("Temp_label") != 888)
+    #ground_truth_train_all_data = labelled_df_from_train_all_data.select("Label")
 
-    unlabeled_df_from_train = sequences_df.filter(col("Temp_label") == 999)
-    ground_truth_unlabeled_data_from_train = unlabeled_df_from_train.select("Label")
+    #unlabeled_df_from_train = sequences_df.filter(col("Temp_label") == 999)
+    #ground_truth_unlabeled_data_from_train = unlabeled_df_from_train.select("Label")
 
-    unlabeled_df_from_test = sequences_df.filter(col("Temp_label") == 888)
-    ground_truth_unlabeled_data_from_test = unlabeled_df_from_test.select("Label")
+    #unlabeled_df_from_test = sequences_df.filter(col("Temp_label") == 888)
+    #ground_truth_unlabeled_data_from_test = unlabeled_df_from_test.select("Label")
 
-    labeled_df_from_val = sequences_df.filter(col("Temp_label") == 777)
-    ground_truth_labeled_data_from_val = labeled_df_from_val.select("Label")
+    #labeled_df_from_val = sequences_df.filter(col("Temp_label") == 777)
+    #ground_truth_labeled_data_from_val = labeled_df_from_val.select("Label")
 
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
