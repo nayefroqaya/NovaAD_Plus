@@ -132,15 +132,18 @@ class AnomalyDetector:
         # 3. Base Models
         # ==============================
         lr = LogisticRegression(
-            featuresCol="features", labelCol="label",
-            weightCol="class_weight",
-            probabilityCol="lr_prob",
-            maxIter=80, regParam=0.01
+
+            featuresCol="features", labelCol="label", weightCol="class_weight", probabilityCol="lr_prob",
+            predictionCol="lr_pred", rawPredictionCol="lr_raw", maxIter=80, regParam=0.01
+
         )
 
         gbt = GBTClassifier(
-            featuresCol="features", labelCol="label",
-            maxDepth=6, maxIter=100
+
+            featuresCol="features", labelCol="label", predictionCol="gbt_pred", probabilityCol="gbt_prob",
+            rawPredictionCol="gbt_raw", maxDepth=6, maxIter=100
+
+
         )
 
         # ==============================
@@ -215,7 +218,7 @@ class AnomalyDetector:
             # =================
             df_out = drop_ml_cols(df_out)
             df_out = gbt_model.transform(df_out)
-            df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("probability")))
+            df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("gbt_prob")))
             df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]).drop("gbt_arr")
 
             return df_out
