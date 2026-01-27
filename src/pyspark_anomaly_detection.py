@@ -41,15 +41,16 @@ from pyspark.ml.classification import LogisticRegression, GBTClassifier
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
+#from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
 import time
 from pyspark.ml.classification import LogisticRegression, GBTClassifier
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
+#from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
 import time
-
+from pyspark.sql.types import ArrayType, DoubleType
+from pyspark.sql.functions import udf, col
 warnings.filterwarnings('ignore')
 colorama.init()
 GREEN = colorama.Fore.GREEN
@@ -66,6 +67,11 @@ class AnomalyDetector:
         # ==============================
         # 1. Prepare + Cache Datasets
         # ==============================
+        @udf(ArrayType(DoubleType()))
+        def vec_to_array_manual(v):
+            if v is None:
+                return None
+            return v.toArray().tolist()
 
 
         train_df = df_final_train.select("features_vec_final", "Final_Label")
