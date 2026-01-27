@@ -1,0 +1,219 @@
+=== System Info ===
+Total RAM:     251.54 GB
+Available RAM: 242.20 GB
+Used RAM:      9.34 GB (3.7%)
+CPU cores (physical/logical): 32 / 64
+Disk Total: 254.74 GB, Disk Free: 152.92 GB
+OS: Linux-5.15.0-153-generic-x86_64-with-glibc2.35
+Python version: 3.10.19
+PySpark version: 4.0.1
+Setting Spark driver & executor memory to 193 GB
+Aggregating and transforming features...
+---- Starting feature aggregation and transformation ----
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+
+Columns: ['processed_EventTemplate', 'Node_block_id', 'Timestamp', 'Label', 'Temp_label', 'sentiment_label', 'Dominant_Topic', 'year', 'month', 'day', 'hour', 'minute', 'second', 'Character_Count', 'num_words', 'entropy', 'reduced_embedding']
+root
+ |-- sentiment_label: string (nullable = true)
+
+ preparing the numeric array ----
+preparing  full vector by concating 
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- sentiment_label_indexed: integer (nullable = false)
+ |-- numeric_array: array (nullable = false)
+ |    |-- element: double (containsNull = true)
+ |-- features_array: array (nullable = true)
+ |    |-- element: double (containsNull = true)
+ |-- features: vector (nullable = true)
+
+xxxx-------------------
++----------+------+
+|Temp_label| count|
++----------+------+
+|         0|198013|
+|       888|367025|
+|       777|121936|
+|       999|535468|
++----------+------+
+
++-------+------+
+|  Label| count|
++-------+------+
+| Normal|648508|
+|Anomaly|573934|
++-------+------+
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: string (nullable = false)
+ |-- Temp_label: integer (nullable = false)
+
+Feature aggregation completed successfully
+# 3️⃣ Apply RobustScaler-------
+✅ StandardScaler applied successfully
+scaling done finally -------
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+Shuffle Spill during aggregation: 0.00 GB
+aggregation and transform completed in 0.34 minutes
+Preparing training and evaluation datasets...
+Performing novelty detection and establishing labels...
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: string (nullable = false)
+ |-- Temp_label: integer (nullable = false)
+ |-- features_vec: vector (nullable = true)
+ |-- features_vec_final: vector (nullable = true)
+
++-------+-----+
+|  Label|count|
++-------+-----+
+| normal| 5712|
+|anomaly| 4792|
++-------+-----+
+
++----------+-----+
+|Temp_label|count|
++----------+-----+
+|         0| 1708|
+|       999| 4594|
+|       888| 4202|
++----------+-----+
+
+
+🚀 Starting novelty detection using method = GMM
+info labe for nayef ..........................................
++-----+-----+
+|Label|count|
++-----+-----+
+|    0| 1708|
++-----+-----+
+
++-----+-----+
+|Label|count|
++-----+-----+
+|    0| 1708|
+|    1| 2886|
++-----+-----+
+
++-----+-----+
+|Label|count|
++-----+-----+
+|    0| 2296|
+|    1| 1906|
++-----+-----+
+
+
+☁️ Using Gaussian Mixture Model (semi-supervised) ...
+🔍 Testing GMM: k=2, maxIter=5
+🔍 Testing GMM: k=2, maxIter=10
+🔍 Testing GMM: k=2, maxIter=50
+🔍 Testing GMM: k=2, maxIter=100
+🔍 Testing GMM: k=2, maxIter=150
+
+✅ Optimal GMM parameters: k=2, maxIter=5
+   Best mean log-likelihood: 0.499497
+Classification_report only for pseudo-code label for unlabeled data
+              precision    recall  f1-score   support
+
+           0      0.000     0.000     0.000      1708
+           1      0.628     1.000     0.772      2886
+
+    accuracy                          0.628      4594
+   macro avg      0.314     0.500     0.386      4594
+weighted avg      0.395     0.628     0.485      4594
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: integer (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+ |-- features_vec: vector (nullable = true)
+ |-- features_vec_final: vector (nullable = true)
+ |-- Final_Label: integer (nullable = true)
+ |-- probability: vector (nullable = true)
+ |-- gmm_pred: integer (nullable = true)
+ |-- prob_array: array (nullable = true)
+ |    |-- element: double (containsNull = false)
+ |-- anomaly_score: double (nullable = true)
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: integer (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+ |-- features_vec: vector (nullable = true)
+ |-- features_vec_final: vector (nullable = true)
+ |-- Final_Label: integer (nullable = true)
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: integer (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+ |-- features_vec: vector (nullable = true)
+ |-- features_vec_final: vector (nullable = true)
+ |-- Final_Label: integer (nullable = true)
+
+Classification_report full training data
+              precision    recall  f1-score   support
+
+           0      1.000     0.500     0.667      3416
+           1      0.628     1.000     0.772      2886
+
+    accuracy                          0.729      6302
+   macro avg      0.814     0.750     0.719      6302
+weighted avg      0.830     0.729     0.715      6302
+
+
+✅ Novelty detection (GMM) completed successfully.
+Shuffle Spill during Novelty: 0.00 GB
+Model Novelty and label estimating completed in 0.78 minutes
+Novel was done .....
+Running anomaly detection on test dataset...
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label', 'probability', 'gmm_pred', 'prob_array', 'anomaly_score']
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
+Optimal threshold (validation F1): 0.05
