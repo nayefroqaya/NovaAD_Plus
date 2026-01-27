@@ -272,7 +272,7 @@ def main():
     #print(' Reading the file was done successfully ')
     #exit()
 
-
+    '''
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -343,6 +343,7 @@ def main():
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #exit()
     # ---------------- Load feature PKL → Spark ----------------
+    '''
 
 
 
