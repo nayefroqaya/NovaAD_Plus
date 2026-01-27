@@ -241,7 +241,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'BGL'
+    DATASET = 'SP_150MB'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'M'
