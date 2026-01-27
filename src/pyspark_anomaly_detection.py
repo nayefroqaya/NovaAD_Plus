@@ -81,6 +81,78 @@ class AnomalyDetector:
         df_val = df_val.select("features_vec_final", "Final_Label")
         df_test = df_test.select("features_vec_final", "Final_Label")
 
+        train_df = df_final_train.withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Label",
+                                                                                                        "label").cache()
+        val_df = df_val.withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Labe",
+                                                                                              "label").cache()
+        test_df = df_test.withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Labe",
+                                                                                                "label").cache()
+
+        start_fit = time.time()
+
+        # --------------------------
+        # 2. Train Logistic Regression
+        # --------------------------
+        lr = LogisticRegression(featuresCol="features", labelCol="label", maxIter=100, regParam=0.01,
+            elasticNetParam=0.5, probabilityCol="prob")
+
+        lr_model = lr.fit(train_df)
+        end_fit = time.time()
+        print(f"Training time (seconds): {end_fit - start_fit:.2f}")
+
+        # --------------------------
+        # 3. Validation threshold tuning (maximize F1)
+        # --------------------------
+        val_preds = lr_model.transform(val_df).withColumn("prob_1", vector_to_array(col("prob"))[1])
+
+        thresholds = [i / 100 for i in range(10, 91, 2)]
+        best_f1 = -1
+        best_threshold = 0.5
+
+        for t in thresholds:
+            preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
+            metrics = preds.selectExpr("sum(CASE WHEN label=1 AND pred_adj=1 THEN 1 ELSE 0 END) as tp",
+                "sum(CASE WHEN label=0 AND pred_adj=1 THEN 1 ELSE 0 END) as fp",
+                "sum(CASE WHEN label=1 AND pred_adj=0 THEN 1 ELSE 0 END) as fn").collect()[0]
+
+            tp = metrics["tp"] or 0
+            fp = metrics["fp"] or 0
+            fn = metrics["fn"] or 0
+
+            precision = tp / (tp + fp + 1e-6)
+            recall = tp / (tp + fn + 1e-6)
+            f1 = 2 * precision * recall / (precision + recall + 1e-6)
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = t
+
+        print("Best threshold:", best_threshold)
+        print("Best F1 score:", best_f1)
+
+        # --------------------------
+        # 4. Test predictions
+        # --------------------------
+        final_test_predictions = lr_model.transform(test_df) \.withColumn("prob_1"
+                                                                        , vector_to_array(col("prob"))[1]) \
+            .withColu \
+            mn("final_pred", when(col("prob_1") >= best_threshold, 1).otherwise(0))
+
+        return {
+            "predictions_df": final_test_predictions,
+            "best_threshold": best_threshold,
+            "best_f1": best_f1
+        }
+
+
+
+
+
+
+
+
+        exit()
+
         def drop_ml_cols(df):
             ml_cols = ["prediction", "rawPrediction", "probability", "lr_pred", "lr_raw", "lr_prob", "rf_pred",
                 "rf_raw", "rf_prob", "meta_prediction", "meta_raw", "final_prob"]
