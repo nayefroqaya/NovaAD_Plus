@@ -69,7 +69,11 @@ class AnomalyDetector:
         # ==============================
         # 1. Prepare + Cache Datasets
         # ==============================
+        print(df_final_train.columns)
+        print(df_val.columns)
+        print(df_test.columns)
 
+        exit()
 
         @udf(ArrayType(DoubleType()))
         def vec_to_array_manual(v):
