@@ -100,6 +100,7 @@ class AnomalyDetector:
         val_df.count()
         test_df.count()
 
+
         if mode != "M":
             return None
 
@@ -187,30 +188,33 @@ class AnomalyDetector:
         # 6. Build Meta Features (SAFE)
         # ==============================
         def add_probs(df_in):
-            df_out = df_in
-            # --- ALWAYS ensure correct feature column name ---
-            if "features" not in df_out.columns and "features_vec_final" in df_out.columns:
-                df_out = df_out.withColumnRenamed("features_vec_final", "features")
-            df_out = drop_ml_cols(df_in)
+            # --- FORCE clean schema every time ---
+            df_out = df_in.select(col("features_vec_final").alias("features"), col("label"))
 
-            # LR
+            # --- Drop any leftover ML cols (defensive) ---
+            df_out = drop_ml_cols(df_out)
+
+            # =================
+            # Logistic Regression
+            # =================
             df_out = lr_model.transform(df_out)
             df_out = df_out.withColumn("lr_arr", vec_to_array_manual(col("lr_prob")))
-            df_out = df_out.withColumn("lr_1", col("lr_arr")[1]) \
-                .drop("lr_arr")
+            df_out = df_out.withColumn("lr_1", col("lr_arr")[1]).drop("lr_arr")
 
-            # GBT (clean before transform!)
+            # =================
+            # GBT
+            # =================
             df_out = drop_ml_cols(df_out)
             df_out = gbt_model.transform(df_out)
             df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("probability")))
-            df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]) \
-                .drop("gbt_arr")
+            df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]).drop("gbt_arr")
 
             return df_out
 
         train_meta = add_probs(train_df)
-        val_meta   = add_probs(val_df)
-        test_meta  = add_probs(test_df)
+        val_meta = add_probs(val_df)
+        test_meta = add_probs(test_df)
+
 
         assembler = VectorAssembler(
             inputCols=["lr_1", "gbt_1"],
