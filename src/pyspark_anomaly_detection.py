@@ -219,9 +219,10 @@ class AnomalyDetector:
             # =================
             df_out = drop_ml_cols(df_out)
             df_out = gbt_model.transform(df_out)
+            # rename probability safely
+            df_out = df_out.withColumnRenamed("probability", "gbt_prob")
             df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("gbt_prob")))
             df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]).drop("gbt_arr")
-
             return df_out
 
         train_meta = add_probs(train_df)
@@ -246,13 +247,11 @@ class AnomalyDetector:
         # 7. Meta Model
         # ==============================
         meta_lr = LogisticRegression(
-            featuresCol="meta_features",
-            labelCol="label",
-            weightCol="class_weight",
-            probabilityCol="final_prob",
-            predictionCol="meta_prediction",  # 👈 IMPORTANT
-            rawPredictionCol="meta_raw",
-            maxIter=60, regParam=0.01
+
+            featuresCol="meta_features", labelCol="label", weightCol="class_weight", probabilityCol="final_prob",
+            predictionCol="meta_prediction", rawPredictionCol="meta_raw", maxIter=60, regParam=0.01
+
+
         )
 
         stack_model = meta_lr.fit(train_meta)
