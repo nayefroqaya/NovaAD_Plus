@@ -86,7 +86,7 @@ class AnomalyDetector:
                                                                                       "features").withColumnRenamed(
             "Final_Label", "label").cache()
 
-        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_fina",
+        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
                                                                                         "features").withColumnRenamed(
             "Final_Label", "label").cache()
 
