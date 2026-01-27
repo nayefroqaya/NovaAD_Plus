@@ -246,8 +246,9 @@ class AnomalyDetector:
             labelCol="label",
             weightCol="class_weight",
             probabilityCol="final_prob",
-            maxIter=60,
-            regParam=0.01
+            predictionCol="meta_prediction",  # 👈 IMPORTANT
+            rawPredictionCol="meta_raw",
+            maxIter=60, regParam=0.01
         )
 
         stack_model = meta_lr.fit(train_meta)
