@@ -133,10 +133,7 @@ class AnomalyDetector:
         # --------------------------
         # 4. Test predictions
         # --------------------------
-        final_test_predictions = lr_model.transform(test_df) \.withColumn("prob_1"
-                                                                        , vector_to_array(col("prob"))[1]) \
-            .withColu \
-            mn("final_pred", when(col("prob_1") >= best_threshold, 1).otherwise(0))
+        final_test_predictions = lr_model.transform(test_df).withColumn("prob_1", vector_to_array(col("prob"))[1]).withColumn("final_pred", when(col("prob_1") >= best_threshold, 1).otherwise(0))
 
         return {
             "predictions_df": final_test_predictions,
