@@ -52,6 +52,13 @@ import time
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.functions import udf, col
 from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
+from pyspark.sql.functions import col, when, lit, udf, sum as spark_sum
+from pyspark.sql.types import ArrayType, DoubleType
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.feature import VectorAssembler
+import time
+
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -65,6 +72,224 @@ class AnomalyDetector:
 
     @staticmethod
     def anomaly_detector(df_final_train, df_val, df_test, mode):
+
+        # ==============================
+        # 1. Prepare + Cache Datasets
+        # ==============================
+        print("Train columns:", df_final_train.columns)
+        df_final_train = df_final_train.select("features_vec_final", "Final_Label")
+        df_val = df_val.select("features_vec_final", "Final_Label")
+        df_test = df_test.select("features_vec_final", "Final_Label")
+
+        def drop_ml_cols(df):
+            ml_cols = ["prediction", "rawPrediction", "probability", "lr_pred", "lr_raw", "lr_prob", "rf_pred",
+                "rf_raw", "rf_prob", "meta_prediction", "meta_raw", "final_prob"]
+            for c in ml_cols:
+                if c in df.columns:
+                    df = df.drop(c)
+            return df
+
+        # rename for ML
+        train_df = df_final_train.withColumnRenamed("features_vec_final", "features") .withColumnRenamed("Final_Label", "label").cache()
+        val_df = df_val.withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Labe", "label").cache()
+        test_df = df_test.withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Labe", "label").cache()
+        train_df.count()
+        val_df.count()
+        test_df.count()
+
+        if mode != "M":
+            return None
+
+        start_fit = time.time()
+
+        # ==============================
+        # 2. Class Weights
+        # ==============================
+        label_counts = train_df.groupBy("label").count().collect()
+        total = sum(r["count"] for r in label_counts)
+        class_weights = {r["label"]: total / (2.0 * r["count"]) for r in label_counts}
+
+        train_df = train_df.withColumn(
+            "class_weight",
+            when(col("label") == 0, class_weights[0]).otherwise(class_weights[1])
+        ).cache()
+        train_df.count()
+
+        # ==============================
+        # 3. Base Models
+        # ==============================
+        lr = LogisticRegression(
+            featuresCol="features", labelCol="label", weightCol="class_weight",
+            probabilityCol="lr_prob", predictionCol="lr_pred", rawPredictionCol="lr_raw",
+            maxIter=80, regParam=0.01
+        )
+
+        rf = RandomForestClassifier(
+            featuresCol="features", labelCol="label", seed=42
+        )
+
+        # ==============================
+        # 4. Cheap RF Tuning (subsample)
+        # ==============================
+        tune_df = train_df.sample(fraction=0.3, seed=42).cache()
+        tune_df.count()
+
+        rf_param_grid = ParamGridBuilder().addGrid(rf.numTrees, [50, 80]).addGrid(rf.maxDepth, [4, 6, 8]).addGrid(rf.subsamplingRate, [0.7, 0.9]).build()
+        evaluator = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderPR")
+
+        rf_tvs = TrainValidationSplit(
+            estimator=rf,
+            estimatorParamMaps=rf_param_grid,
+            evaluator=evaluator,
+            trainRatio=0.8,
+            parallelism=4
+        )
+
+        rf_tuned = rf_tvs.fit(tune_df)
+        best_rf = rf_tuned.bestModel
+
+        best_numTrees = best_rf.getNumTrees
+        best_maxDepth = best_rf.getMaxDepth()
+        best_subsample = best_rf.getSubsamplingRate()
+
+        print("Best RF params:", best_numTrees, best_maxDepth, best_subsample)
+
+        # ==============================
+        # 5. Train Final Base Models
+        # ==============================
+        lr_model = lr.fit(train_df)
+
+        rf_final = RandomForestClassifier(
+            featuresCol="features", labelCol="label",
+            numTrees=best_numTrees, maxDepth=best_maxDepth,
+            subsamplingRate=best_subsample, seed=42
+        )
+        rf_model = rf_final.fit(train_df)
+
+        # ==============================
+        # 6. Build Meta Features
+        # ==============================
+        def add_probs(df_in):
+            df_out = drop_ml_cols(df_in)
+
+            # Logistic Regression
+            df_out = lr_model.transform(df_out)
+            df_out = df_out.withColumn("lr_1", vector_to_array("lr_prob")[1])
+
+            # Random Forest
+            df_out = drop_ml_cols(df_out)
+            df_out = rf_model.transform(df_out)
+            df_out = df_out.withColumn("rf_1", vector_to_array("probability")[1])
+
+            return df_out
+
+        train_meta = add_probs(train_df)
+        val_meta   = add_probs(val_df)
+        test_meta  = add_probs(test_df)
+
+        assembler = VectorAssembler(inputCols=["lr_1", "rf_1"], outputCol="meta_features")
+
+        train_meta = assembler.transform(train_meta).cache()
+        val_meta   = assembler.transform(val_meta).cache()
+        test_meta  = assembler.transform(test_meta).cache()
+
+        train_meta.count()
+        val_meta.count()
+        test_meta.count()
+
+        # ==============================
+        # 7. Meta Model
+        # ==============================
+        meta_lr = LogisticRegression(
+            featuresCol="meta_features", labelCol="label", weightCol="class_weight",
+            probabilityCol="final_prob", predictionCol="meta_prediction",
+            rawPredictionCol="meta_raw", maxIter=
+            60, regParam=0.01
+        )
+
+        stack_model = meta_lr.fit(train_meta)
+
+        end_fit = time.time()
+        fit_time = (end_fit - start_fit) / 60
+
+        # ==============================
+        # 8. Validation Threshold Tuning (F2)
+        # ==============================
+        beta = 2
+
+        val_preds = stack_model.transform(val_meta)
+        val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1]) \
+            .select("label", "prob_1").cache()
+        val_preds.count()
+
+        thresholds = [i / 100 for i in range(10, 91, 2)]
+        best_fbeta = -1
+        best_threshold = 0.5
+
+        for t in thresholds:
+            preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= lit(t), 1).otherwise(0))
+            metrics = preds.select(
+                spark_sum((col("label") == 1) & (col("pred_adj") == 1)).alias("tp"),
+                spark_sum((col("label") == 0) & (col("pred_adj") == 1)).alias("fp"),
+                spark_sum((col("label") == 1) & (col("pred_adj") == 0)).alias("fn")
+            ).collect()[0]
+
+            tp = metrics["tp"] or 0
+            fp = metrics["fp"] or 0
+            fn = metrics["fn"] or 0
+
+            precision = tp / (tp + fp + 1e-6)
+            recall = tp / (tp + fn + 1e-6)
+            fbeta = (1 + beta**2) * precision * recall / (beta**2 * precision + recall + 1e-6)
+
+            if fbeta > best_fbeta:
+                best_fbeta = fbeta
+                best_threshold = t
+
+        print("Optimal threshold (validation F2):", best_threshold)
+        print("Best F2:", best_fbeta)
+
+        # ==============================
+        # 9. Test Predictions
+        # ==============================
+        start_predict = time.time()
+
+        final_test_predictions = stack_model.transform(test_meta)
+        final_test_predictions = final_test_predictions.withColumn("prob_", vector_to_array("final_prob")[1]).withColumn("last_pred_label", when(col("prob_1") >= lit(best_threshold), 1).otherwise(0))
+
+        end_predict = time.time()
+        predict_time = (end_predict - start_predict) / 60
+
+        # ==============================
+        # 10. Return
+        # ==============================
+        return {
+            "predictions_df": final_test_predictions,
+            "best_threshold": best_threshold,
+            "fit_time": fit_time,
+            "predict_time": predict_time,
+            "best_rf_params": {
+                "numTrees": best_numTrees,
+                "maxDepth": best_maxDepth,
+                "subsample": best_subsample
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        exit()
 
         # ==============================
         # 1. Prepare + Cache Datasets
