@@ -342,10 +342,6 @@ def main():
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #exit()
     # ---------------- Load feature PKL → Spark ----------------
-    final_train_with_test_with_val = spark.createDataFrame(
-        pd.read_pickle(PRE_FINAL_GLOBAL_FEATURES_PKL_PATH)
-    ).persist(StorageLevel.MEMORY_AND_DISK)
-
 
     # ✅ Load from Parquet
     output_path = DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
