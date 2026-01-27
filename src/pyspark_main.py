@@ -433,7 +433,7 @@ def main():
 
     start_anomaly= time.time()
 
-    results = anomaly_detection_obj.anomaly_detector(df_final,df_val, df_test ,mode )
+    results = anomaly_detection_obj.anomaly_detector(df_final_train,df_val, df_test ,mode )
 
     Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during AD: {Anomaly_spill_gb:.2f} GB")
