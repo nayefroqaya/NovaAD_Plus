@@ -311,16 +311,16 @@ class FeaturesEngineering:
             # Merge pseudo-labeled + normal logs
             df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
             df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-            df_final = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
             df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
 
-            df_final.printSchema()
+            df_final_train.printSchema()
             df_test.printSchema()
             df_val.printSchema()
 
             # Convert to Pandas
-            pdf_final = df_final.toPandas()
+            pdf_final = df_final_train.toPandas()
             y_train = pdf_final["Final_Label"].values
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
@@ -346,5 +346,5 @@ class FeaturesEngineering:
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
             #exit()
 
-            return df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final_train, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
 

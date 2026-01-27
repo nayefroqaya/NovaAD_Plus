@@ -407,7 +407,7 @@ def main():
 
 
     start_Novelty= time.time()
-    df_final, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
+    df_final_train, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth = \
         features_engineering_obj.novelty_detection_label_establishment(
             sequences_df,  method ="gmm"
             #x_train_normal_labelled,
