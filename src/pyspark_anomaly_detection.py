@@ -1,64 +1,57 @@
-import colorama
-import numpy as np
 import time
 import warnings
+
+import colorama
+import numpy as np
+from pyspark import StorageLevel
 from pyspark.ml import Pipeline
 from pyspark.ml import Pipeline
 from pyspark.ml.classification import GBTClassifier, RandomForestClassifier
+from pyspark.ml.classification import LogisticRegression, GBTClassifier
+# from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
+from pyspark.ml.classification import LogisticRegression, GBTClassifier
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, DecisionTreeClassifier
 from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.classification import (RandomForestClassifier, DecisionTreeClassifier, LogisticRegression)
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.sql import DataFrame
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col, expr
 from pyspark.sql.functions import col, monotonically_increasing_id
 from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
+from pyspark.sql.functions import col, when, lit, udf, sum as spark_sum
+from pyspark.sql.functions import lit
+from pyspark.sql.functions import udf, col
+# from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
+from pyspark.sql.types import ArrayType, DoubleType
+from pyspark.sql.types import ArrayType, DoubleType
 from scipy.stats import randint, uniform
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
-from pyspark.ml.classification import (
-    RandomForestClassifier,
-    DecisionTreeClassifier,
-    LogisticRegression
-)
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.sql.functions import col, when
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark import StorageLevel
-from pyspark.sql import DataFrame
-from pyspark.sql.functions import lit
-from pyspark.ml.classification import LogisticRegression, GBTClassifier
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-#from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
-import time
-from pyspark.ml.classification import LogisticRegression, GBTClassifier
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-#from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
-import time
-from pyspark.sql.types import ArrayType, DoubleType
-from pyspark.sql.functions import udf, col
-from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
-from pyspark.sql.functions import col, when, lit, udf, sum as spark_sum
-from pyspark.sql.types import ArrayType, DoubleType
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.feature import VectorAssembler
-import time
-
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -89,23 +82,17 @@ class AnomalyDetector:
                                                                                                 "features").withColumnRenamed(
             "Final_Label", "label").cache()
 
-        val_df = df_val.select("features_vec_final", "Final_Label") \.withColumnRenamed("features_vec_final"
-                                                                                      , "features") \
-            .withColumnRenam \
-            ed("Final_Label", "label") \
-            .cache()
+        val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                      "features").withColumnRenamed(
+            "Final_Label", "label").cache()
 
-        test_df = df_test.select("features_vec_final", "Final_Label") \
-            .withColumnRenamed("features_vec_fina
-                                                                                        ", "features") \
-            .withColumnRenam \
-            ed("Final_Label", "label") \
-            .cache()
+        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_fina",
+                                                                                        "features").withColumnRenamed(
+            "Final_Label", "label").cache()
 
         train_df.count()
         val_df.count()
         test_df.count()
-
 
         if mode == 'M':
 
@@ -120,25 +107,25 @@ class AnomalyDetector:
             class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
 
             train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+                                           when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
 
             # =====================================================
             # 3. Base models (level-1)
             # =====================================================
             lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
+                                    probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=60)
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob",  # unique
-                rawPredictionCol="rf_raw",  # unique
-                predictionCol="rf_pred",  # unique
-                numTrees=150, maxDepth=24)
+                                        probabilityCol="rf_prob",  # unique
+                                        rawPredictionCol="rf_raw",  # unique
+                                        predictionCol="rf_pred",  # unique
+                                        numTrees=150, maxDepth=24)
 
             dt = DecisionTreeClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="dt_prob",  # unique
-                rawPredictionCol="dt_raw",  # unique
-                predictionCol="dt_pred",  # unique
-                maxDepth=20)
+                                        probabilityCol="dt_prob",  # unique
+                                        rawPredictionCol="dt_raw",  # unique
+                                        predictionCol="dt_pred",  # unique
+                                        maxDepth=20)
 
             # =====================================================
             # 4. Train base models
@@ -173,11 +160,11 @@ class AnomalyDetector:
             # =====================================================
             meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label",
 
-                predictionCol="last_pred_label",  # final prediction
-                probabilityCol="final_prob",  # final probability
+                                         predictionCol="last_pred_label",  # final prediction
+                                         probabilityCol="final_prob",  # final probability
 
-                rawPredictionCol="meta_raw",  # ✅ UNIQUE
-                weightCol="class_weight", maxIter=50)
+                                         rawPredictionCol="meta_raw",  # ✅ UNIQUE
+                                         weightCol="class_weight", maxIter=50)
 
             stack_model = meta_lr.fit(train_meta)
 
@@ -241,7 +228,7 @@ class AnomalyDetector:
             # 9. RETURN (evaluation happens elsewhere)
             # =====================================================
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
-                "predict_time": predict_time}
+                    "predict_time": predict_time}
 
     '''
     def anomaly_detector(df_final,df_val, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth):
