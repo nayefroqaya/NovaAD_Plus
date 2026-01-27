@@ -69,11 +69,16 @@ class AnomalyDetector:
         # ==============================
         # 1. Prepare + Cache Datasets
         # ==============================
-        print(df_final_train.columns)
-        print(df_val.columns)
-        print(df_test.columns)
+        print(df_final_train.columns) # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label', 'probability', 'gmm_pred', 'prob_array', 'anomaly_score']
+        df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
 
-        exit()
+        print(df_val.columns) # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
+        df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
+
+        print(df_test.columns) # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
+        df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
+
+        #exit()
 
         @udf(ArrayType(DoubleType()))
         def vec_to_array_manual(v):
@@ -87,7 +92,7 @@ class AnomalyDetector:
                     df = df.drop(c)
             return df
 
-        train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final"
+        train_df =   df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final"
                                                                                                 , "features").withColumnRenamed("Final_Label", "label").cache()
 
         val_df = df_val.select("features_vec_final", "Final_Label") \
