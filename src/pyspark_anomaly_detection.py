@@ -51,6 +51,8 @@ from pyspark.ml.evaluation import BinaryClassificationEvaluator
 import time
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.functions import udf, col
+from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
+
 warnings.filterwarnings('ignore')
 colorama.init()
 GREEN = colorama.Fore.GREEN
@@ -62,32 +64,37 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_final_train, df_val, df_test,mode):
+    def anomaly_detector(df_final_train, df_val, df_test, mode):
 
         # ==============================
         # 1. Prepare + Cache Datasets
         # ==============================
+
+
         @udf(ArrayType(DoubleType()))
         def vec_to_array_manual(v):
             if v is None:
                 return None
             return v.toArray().tolist()
 
+        def drop_ml_cols(df):
+            for c in ["prediction", "probability", "rawPrediction", "lr_prob", "final_prob"]:
+                if c in df.columns:
+                    df = df.drop(c)
+            return df
 
-        train_df = df_final_train.select("features_vec_final", "Final_Label")
-        train_df = train_df.withColumnRenamed("features_vec_final", "features")
-        train_df = train_df.withColumnRenamed("Final_Label", "label")
-        train_df = train_df.cache()
+        train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final"
+                                                                                                , "features").withColumnRenamed("Final_Label", "label").cache()
 
-        val_df = df_val.select("features_vec_final", "Final_Label")
-        val_df = val_df.withColumnRenamed("features_vec_final", "features")
-        val_df = val_df.withColumnRenamed("Final_Label", "label")
-        val_df = val_df.cache()
+        val_df = df_val.select("features_vec_final", "Final_Label") \
+            .withColumnRenamed("features_vec_fina", "features") \
+            .withColumnRenamed("Final_Label", "label") \
+            .cache()
 
-        test_df = df_test.select("features_vec_final", "Final_Label")
-        test_df = test_df.withColumnRenamed("features_vec_final", "features")
-        test_df = test_df.withColumnRenamed("Final_Label", "label")
-        test_df = test_df.cache()
+        test_df = df_test.select("features_vec_final", "Final_Label") \
+            .withColumnRenamed("features_vec_fina", "features") \
+            .withColumnRenamed("Final_Label", "label") \
+            .cache()
 
         train_df.count()
         val_df.count()
@@ -103,31 +110,37 @@ class AnomalyDetector:
         # ==============================
         label_counts = train_df.groupBy("label").count().collect()
         total = sum(r["count"] for r in label_counts)
-        class_weights = {}
-        for r in label_counts:
-            class_weights[r["label"]] = total / (2.0 * r["count"])
+        class_weights = {r["label"]: total / (2.0 * r["count"]) for r in label_counts}
 
-        train_df = train_df.withColumn("class_weight",
-            when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
-        train_df = train_df.cache()
+        train_df = train_df.withColumn(
+            "class_weight",
+            when(col("label") == 0, class_weights[0]).otherwise(class_weights[1])
+        ).cache()
         train_df.count()
 
         # ==============================
         # 3. Base Models
         # ==============================
-        lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-            probabilityCol="lr_prob", maxIter=80, regParam=0.01)
+        lr = LogisticRegression(
+            featuresCol="features", labelCol="label",
+            weightCol="class_weight",
+            probabilityCol="lr_prob",
+            maxIter=80, regParam=0.01
+        )
 
-        gbt = GBTClassifier(featuresCol="features", labelCol="label", maxDepth=6, maxIter=100)
+        gbt = GBTClassifier(
+            featuresCol="features", labelCol="label",
+            maxDepth=6, maxIter=100
+        )
 
         # ==============================
         # 4. Cheap GBT Tuning
         # ==============================
-        tune_df = train_df.sample(fraction=0.3, seed=42)
-        tune_df = tune_df.cache()
+        tune_df = train_df.sample(fraction=0.3, seed=42).cache()
         tune_df.count()
 
-        gbt_param_grid = ParamGridBuilder().addGrid(gbt.maxDepth, [4, 6, 8]) \
+        gbt_param_grid = ParamGridBuilder() \
+            .addGrid(gbt.maxDepth, [4, 6, 8]) \
             .addGrid(gbt.maxIter, [80, 120]) \
             .build()
 
@@ -171,22 +184,29 @@ class AnomalyDetector:
         gbt_model = gbt_final.fit(train_df)
 
         # ==============================
-        # 6. Build Meta Features
+        # 6. Build Meta Features (SAFE)
         # ==============================
         def add_probs(df_in):
-            df_out = lr_model.transform(df_in)
-            df_out = df_out.withColumn("lr_arr", vector_to_array("lr_prob"))
-            df_out = df_out.withColumn("lr_1", col("lr_arr")[1])
+            df_out = drop_ml_cols(df_in)
 
+            # LR
+            df_out = lr_model.transform(df_out)
+            df_out = df_out.withColumn("lr_arr", vec_to_array_manual(col("lr_prob")))
+            df_out = df_out.withColumn("lr_1", col("lr_arr")[1]) \
+                .drop("lr_arr")
+
+            # GBT (clean before transform!)
+            df_out = drop_ml_cols(df_out)
             df_out = gbt_model.transform(df_out)
-            df_out = df_out.withColumn("gbt_arr", vector_to_array("probability"))
-            df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1])
+            df_out = df_out.withColumn("gbt_arr", vec_to_array_manual(col("probability")))
+            df_out = df_out.withColumn("gbt_1", col("gbt_arr")[1]) \
+                .drop("gbt_arr")
 
             return df_out
 
         train_meta = add_probs(train_df)
-        val_meta = add_probs(val_df)
-        test_meta = add_probs(test_df)
+        val_meta   = add_probs(val_df)
+        test_meta  = add_probs(test_df)
 
         assembler = VectorAssembler(
             inputCols=["lr_1", "gbt_1"],
@@ -194,8 +214,8 @@ class AnomalyDetector:
         )
 
         train_meta = assembler.transform(train_meta).cache()
-        val_meta = assembler.transform(val_meta).cache()
-        test_meta = assembler.transform(test_meta).cache()
+        val_meta   = assembler.transform(val_meta).cache()
+        test_meta  = assembler.transform(test_meta).cache()
 
         train_meta.count()
         val_meta.count()
@@ -224,9 +244,10 @@ class AnomalyDetector:
         beta = 2
 
         val_preds = stack_model.transform(val_meta)
-        val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
-        val_preds = val_preds.select("label", "prob_1")
-        val_preds = val_preds.cache()
+        val_preds = val_preds.withColumn(
+            "prob_1", vec_to_array_manual(col("final_prob"))[1]
+        ).select("labe", "prob_1").cache()
+
         val_preds.count()
 
         thresholds = [i / 100 for i in range(10, 91, 2)]
@@ -253,8 +274,8 @@ class AnomalyDetector:
             precision = tp / (tp + fp + 1e-6)
             recall = tp / (tp + fn + 1e-6)
 
-            fbeta = (1 + beta **2) * precision * recall / (
-                    beta **2 * precision + recall + 1e-6
+            fbeta = (1 + beta**2) * precision * recall / (
+                    beta**2 * precision + recall + 1e-6
             )
 
             if fbeta > best_fbeta:
@@ -270,10 +291,8 @@ class AnomalyDetector:
         start_predict = time.time()
 
         final_test_predictions = stack_model.transform(test_meta)
-        final_test_predictions = final_test_predictions.withColumn(
-            "prob_1", vector_to_array("final_prob")[1]
-        )
-        final_test_predictions = final_test_predictions.withColumn(
+        final_test_predictions = final_test_predictions.withColumn("prob_", vec_to_array_manual(col("final_prob"))[1]
+        ).withColumn(
             "last_pred_label",
             when(col("prob_1") >= lit(best_threshold), 1).otherwise(0)
         )
