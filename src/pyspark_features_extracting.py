@@ -162,7 +162,7 @@ class FeaturesExtractor:
                                                                                                     max_pca_k=50)
         #exit()
         final_all_features_df.printSchema()
-        return number_component, best_topic_number #, final_all_features_df
+        return number_component, best_topic_number , final_all_features_df
 
     def start_sentiment_extracting(self, Dataset_name, df_features, sentiment_df_path, spark):
         print(f"Spark version: {spark.version}")

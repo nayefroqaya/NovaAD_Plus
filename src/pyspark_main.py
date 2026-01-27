@@ -272,7 +272,7 @@ def main():
     #print(' Reading the file was done successfully ')
     #exit()
 
-    '''
+
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -327,7 +327,7 @@ def main():
 
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
-    number_component, best_topic_number = features_extracting_obj.features_extracting_configuring_tuning(
+    number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
             features_extracting_obj,
             DOC_TOPIC_DF_PATH,
             SENTIMENT_DF_PATH,
@@ -343,7 +343,7 @@ def main():
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #exit()
     # ---------------- Load feature PKL → Spark ----------------
-    '''
+
 
 
 
@@ -351,10 +351,10 @@ def main():
 
 
     # ✅ Load from Parquet
-    output_path = DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    final_train_with_test_with_val = spark.read.parquet(output_path)
-    final_train_with_test_with_val.count()
-
+    #output_path = DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    #final_train_with_test_with_val = spark.read.parquet(output_path)
+    #final_train_with_test_with_val.count()
+    final_train_with_test_with_val =final_all_features_df
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
@@ -370,7 +370,7 @@ def main():
         )
     print(sequences_df.columns)
 
-#    exit()
+    #exit()
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
