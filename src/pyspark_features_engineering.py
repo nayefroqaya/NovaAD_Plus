@@ -263,6 +263,10 @@ class FeaturesEngineering:
         if unlabeled_train_df.count() == 0:
             raise ValueError("❌ No unlabeled logs (Temp_label=999) found for novelty detection.")
 
+
+
+        vector_to_array_udf = udf(lambda v: v.toArray().tolist(), ArrayType(DoubleType()))
+
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
@@ -296,6 +300,8 @@ class FeaturesEngineering:
 
                         # Compute mean log-likelihood on unlabeled data
                         preds = model.transform(unlabeled_df)
+                        preds = preds.withColumn("prob_array", vector_to_array_udf(col("probability")))
+
                         # True log-likelihood: log(sum of mixture probabilities)
                         mean_ll = preds.select(
                             _mean(log(col("probability").getItem(0) + 1e-12)).alias("mean_log_prob")).collect()[0][
