@@ -266,7 +266,7 @@ class FeaturesEngineering:
 
         # Ensure feature column is vector type
         if method.lower() == "gmm":
-
+            '''
             print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
 
             # Train on normal logs only
@@ -276,12 +276,13 @@ class FeaturesEngineering:
             if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
                 raise ValueError("❌ Not enough data for KMeans novelty detection.")
 
+    
             feature_col = "features_vec_final"
 
             # -----------------------------
             # 1. Train KMeans on NORMAL data
             # -----------------------------
-            k_values = [2, 5, 10, 20]
+            k_values = [2,3, 5, 10,15, 20]
             best_model, best_score, best_k = None, -np.inf, None
 
             for k in k_values:
@@ -384,9 +385,6 @@ class FeaturesEngineering:
             print(classification_report(y_train_truth, y_train, digits=3))
 
             exit()
-
-
-
             '''
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
             # Train on normal logs only
@@ -464,7 +462,7 @@ class FeaturesEngineering:
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
             print(classification_report(y_train_truth, y_train, digits=3))
-            '''
+
             #exit()
 
             # Prepare test set
