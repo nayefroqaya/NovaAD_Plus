@@ -3,7 +3,7 @@ Total RAM:     251.54 GB
 Available RAM: 242.19 GB
 Used RAM:      9.35 GB (3.7%)
 CPU cores (physical/logical): 32 / 64
-Disk Total: 254.74 GB, Disk Free: 152.79 GB
+Disk Total: 254.74 GB, Disk Free: 152.76 GB
 OS: Linux-5.15.0-153-generic-x86_64-with-glibc2.35
 Python version: 3.10.19
 PySpark version: 4.0.1
@@ -92,7 +92,7 @@ Feature aggregation completed successfully
 scaling done finally -------
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 Shuffle Spill during aggregation: 0.00 GB
-aggregation and transform completed in 0.61 minutes
+aggregation and transform completed in 0.63 minutes
 Preparing training and evaluation datasets...
 Performing novelty detection and establishing labels...
 root
@@ -150,7 +150,7 @@ info labe for nayef ..........................................
 🔍 Testing GMM: k=2, maxIter=100
 🔍 Testing GMM: k=2, maxIter=150
 
-✅ Optimal GMM parameters: k=2, maxIter=50
+✅ Optimal GMM parameters: k=2, maxIter=10
    Best mean log-likelihood: 0.500000
 Classification_report only for pseudo-code label for unlabeled data
               precision    recall  f1-score   support
@@ -210,32 +210,32 @@ weighted avg      0.829     0.713     0.701     50955
 
 ✅ Novelty detection (GMM) completed successfully.
 Shuffle Spill during Novelty: 0.00 GB
-Model Novelty and label estimating completed in 1.71 minutes
+Model Novelty and label estimating completed in 1.69 minutes
 Novel was done .....
 Running anomaly detection on test dataset...
 Class weights: {0: 1.743123973727422, 1: 0.7011062494840254}
 TRAIN COLS: ['features', 'label', 'class_weight']
-🔥 Optimal threshold (validation F1): 0.10 | F1: 0.0000
+🔥 Optimal threshold: 0.10 | F1: 0.0000
 Shuffle Spill during AD: 0.00 GB
-Model anomaly train completed in 2.33 minutes
-0.9221587936083476
-0.004099579652150472
+Model anomaly train completed in 1.57 minutes
+0.8068852663040161
+0.0020174821217854816
 
 📊 Evaluation Results
 --------------------
-TP: 14486  FP: 11747
-FN: 65  TN: 7673
-Precision : 0.5522
-Recall    : 0.9955
-F1-score  : 0.7104
-Accuracy  : 0.6523
+TP: 14548  FP: 14515
+FN: 3  TN: 4905
+Precision : 0.5006
+Recall    : 0.9998
+F1-score  : 0.6671
+Accuracy  : 0.5726
 
 📊 Final Test Metrics
 --------------------
-Precision : 0.5522
-Recall    : 0.9955
-F1-score  : 0.7104
-Accuracy  : 0.6523
-TP: 14486, FP: 11747, FN: 65, TN: 7673
-0.9221587936083476
-0.004099579652150472
+Precision : 0.5006
+Recall    : 0.9998
+F1-score  : 0.6671
+Accuracy  : 0.5726
+TP: 14548, FP: 14515, FN: 3, TN: 4905
+0.8068852663040161
+0.0020174821217854816
