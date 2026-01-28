@@ -307,7 +307,7 @@ class FeaturesEngineering:
             preds = preds.withColumn("prob_array", vector_to_array("probability"))
             preds = preds.withColumn("anomaly_score", 1 - array_max(col("prob_array")))
 
-            threshold = 0.1  # float(np.percentile(scores, 90))
+            threshold = 0.9  # float(np.percentile(scores, 90))
             pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
 
             unlabeled_eval_df = pseudo_labels_df.join(
@@ -338,7 +338,7 @@ class FeaturesEngineering:
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
             print(classification_report(y_train_truth, y_train, digits=3))
-            # exit()
+            exit()
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
