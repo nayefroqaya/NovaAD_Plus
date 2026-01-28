@@ -119,14 +119,14 @@ class AnomalyDetector:
             # 2. Define base models
             # -----------------------------
             lr_model = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=200, regParam=0.01, elasticNetParam=0.5)
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
 
             rf_model = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=300, maxDepth=25,
-                minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=20,
+                minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
             svc_model = LinearSVC(featuresCol="features", labelCol="label", weightCol="class_weight",
-                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=200, regParam=0.001)
+                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
 
             # -----------------------------
             # 3. Train base models
@@ -223,17 +223,29 @@ class AnomalyDetector:
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                 "predict_time": predict_time}
 
+        else:   # -----------------------------------
 
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
+                # try 200–600
+                maxDepth=25,  # try 20–30
+                minInstancesPerNode=5,  # allow rare patterns
+                subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
 
+            rf_model = rf.fit(train_df)
 
+            val_preds = rf_model.transform(val_df)
+            test_preds = rf_model.transform(test_df)
 
+            evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
+            val_f1 = evaluator.evaluate(val_preds)
+            test_f1 = evaluator.evaluate(test_preds)
 
+            print(f"🔥 RF Validation F1:  {val_f1:.4f}")
+            print(f"🔥 RF Test F1:        {test_f1:.4f}")
 
-
-
-
-
+            exit()
 
             '''
 
