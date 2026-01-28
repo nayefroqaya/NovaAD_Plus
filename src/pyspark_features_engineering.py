@@ -307,7 +307,7 @@ class FeaturesEngineering:
             preds = preds.withColumn("prob_array", vector_to_array("probability"))
             preds = preds.withColumn("anomaly_score", 1 - array_max(col("prob_array")))
 
-            threshold = 0.9  # float(np.percentile(scores, 90))
+            threshold = 0.05  # float(np.percentile(scores, 90))
             pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
 
             unlabeled_eval_df = pseudo_labels_df.join(
