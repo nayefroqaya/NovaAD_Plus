@@ -54,6 +54,7 @@ from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
 from pyspark.sql.functions import col, when, abs, log
 from pyspark.sql.functions import col, log, when, abs as _abs
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
 
 
 warnings.filterwarnings('ignore')
