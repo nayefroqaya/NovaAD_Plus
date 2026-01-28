@@ -225,6 +225,27 @@ class AnomalyDetector:
 
         else:   # -----------------------------------
 
+            # =====================================================
+            # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
+            # =====================================================
+            label_counts = train_df.groupBy("label").count().collect()
+            total_count = sum(r["count"] for r in label_counts)
+
+            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
+
+            print("Class weights:", class_weights)
+
+            train_df = train_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
+
+            val_df = val_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
+
+            test_df = test_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
+
+            print("TRAIN COLS:", train_df.columns)
+
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
                 # try 200–600
