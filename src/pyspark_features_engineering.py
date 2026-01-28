@@ -337,7 +337,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholding (percentile-based)
             # -----------------------------
-            threshold = 0.08  #preds.approxQuantile("anomaly_score", [0.95], 0.01)[0]
+            threshold = 0.09  #preds.approxQuantile("anomaly_score", [0.95], 0.01)[0]
             #print(f"🔥 KMeans anomaly threshold (95th pct): {threshold:.6f}")
 
             pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
