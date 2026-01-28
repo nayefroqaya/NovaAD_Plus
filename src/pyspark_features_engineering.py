@@ -359,5 +359,5 @@ class FeaturesEngineering:
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
             #exit()
 
-            return df_final_train, df_test ,df_val, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final_train, df_test ,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
 

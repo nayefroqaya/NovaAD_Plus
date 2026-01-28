@@ -120,7 +120,7 @@ class AnomalyDetector:
                 probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=12,
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=50,
                 minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
             # =====================================================
@@ -181,7 +181,7 @@ class AnomalyDetector:
             # =====================================================
 
             meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
-                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
+                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=150,
                 regParam=0.01, elasticNetParam=0.0)
 
             stack_model = meta_lr.fit(train_meta)
