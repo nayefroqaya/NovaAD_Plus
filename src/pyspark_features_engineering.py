@@ -46,6 +46,10 @@ from pyspark.sql.types import FloatType
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, ArrayType, DoubleType
 from sklearn.metrics import classification_report
 from sklearn.metrics import classification_report
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.sql.functions import col, log, mean as _mean
+from itertools import product
+import numpy as np
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -249,7 +253,7 @@ class FeaturesEngineering:
         #test_df.select("Temp_label", "Label").show(3, truncate=False)
         #        exit()
 
-        print('info labe for nayef ..........................................')
+        print('info labe  ..........................................')
         train_normal_df.groupBy("Label").count().show()
         unlabeled_train_df.groupBy("Label").count().show()
         test_df.groupBy("Label").count().show()
@@ -262,6 +266,62 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
+            print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
+            # Train on normal logs only
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for GMM novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # GMM hyperparameter grid
+            k_values = [2, 3, 5]
+            max_iter_values = [5, 10, 50, 100, 150]
+            n_init = 3  # Number of random restarts to stabilize results
+            best_model, best_score, best_params = None, -np.inf, None
+
+            for k, max_iter in product(k_values, max_iter_values):
+                print(f"🔍 Testing GMM: k={k}, maxIter={max_iter}")
+                best_model_for_params, best_score_for_params = None, -np.inf
+
+                for init_seed in range(n_init):
+                    try:
+                        gmm = GaussianMixture(featuresCol=feature_col, predictionCol="gmm_pred",
+                            probabilityCol="probability", k=k, maxIter=max_iter, seed=init_seed
+                            # Different seed for each restart
+                        )
+                        model = gmm.fit(train_normal_df)
+
+                        # Compute mean log-likelihood on unlabeled data
+                        preds = model.transform(unlabeled_df)
+                        # True log-likelihood: log(sum of mixture probabilities)
+                        mean_ll = preds.select(
+                            _mean(log(col("probability").getItem(0) + 1e-12)).alias("mean_log_prob")).collect()[0][
+                            "mean_log_prob"]
+
+                        if mean_ll > best_score_for_params:
+                            best_score_for_params = mean_ll
+                            best_model_for_params = model
+                    except Exception as e:
+                        print(f"⚠️ Failed for GMM params ({k}, {max_iter}, seed={init_seed}): {e}")
+                        continue
+
+                # Compare this hyperparameter setting to the global best
+                if best_score_for_params > best_score:
+                    best_score = best_score_for_params
+                    best_params = (k, max_iter)
+                    best_model = best_model_for_params
+
+            if best_model is None:
+                raise RuntimeError("❌ No valid GMM model found.")
+
+            print(f"\n✅ Optimal GMM parameters: k={best_params[0]}, maxIter={best_params[1]}")
+            print(f"   Best mean log-likelihood: {best_score:.6f}")
+
+
+            '''
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
             # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
@@ -301,6 +361,8 @@ class FeaturesEngineering:
 
             print(f"\n✅ Optimal GMM parameters: k={best_params[0]}, maxIter={best_params[1]}")
             print(f"   Best mean log-likelihood: {best_score:.6f}")
+            
+            '''
             # Assign pseudo-labels based on likelihood
             preds = best_model.transform(unlabeled_df)
 
