@@ -46,6 +46,11 @@ from pyspark.sql.types import FloatType
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, ArrayType, DoubleType
 from sklearn.metrics import classification_report
 from sklearn.metrics import classification_report
+from pyspark.ml.clustering import KMeans
+from pyspark.sql.functions import col, when, array_max
+from pyspark.sql.types import DoubleType
+from pyspark.sql.functions import udf
+import numpy as np
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -262,6 +267,127 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
+            print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
+
+            # Train on normal logs only
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for KMeans novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1. Train KMeans on NORMAL data
+            # -----------------------------
+            k_values = [2, 5, 10, 20]
+            best_model, best_score, best_k = None, -np.inf, None
+
+            for k in k_values:
+                print(f"🔍 Testing KMeans: k={k}")
+                try:
+                    kmeans = KMeans(featuresCol=feature_col, predictionCol="km_cluster", k=k, seed=42, maxIter=50)
+                    model = kmeans.fit(train_normal_df)
+
+                    # Use negative avg distance on normal as score (lower distance is better)
+                    centers = model.clusterCenters()
+
+                    def dist_to_center(cluster_id, features):
+                        center = centers[int(cluster_id)]
+                        return float(np.linalg.norm(np.array(features) - np.array(center)))
+
+                    dist_udf = udf(dist_to_center, DoubleType())
+
+                    preds_norm = model.transform(train_normal_df)
+                    preds_norm = preds_norm.withColumn("dist", dist_udf(col("km_cluster"), col(feature_col)))
+
+                    avg_dist = preds_norm.selectExpr("avg(dist) as avg_dist").collect()[0]["avg_dist"]
+
+                    score = -avg_dist  # minimize distance
+                    if score > best_score:
+                        best_score = score
+                        best_k = k
+                        best_model = model
+
+                except Exception as e:
+                    print(f"⚠️ Failed for KMeans k={k}: {e}")
+                    continue
+
+            if best_model is None:
+                raise RuntimeError("❌ No valid KMeans model found.")
+
+            print(f"\n✅ Optimal KMeans k = {best_k}")
+            print(f"   Best avg normal distance = {-best_score:.6f}")
+
+            # -----------------------------
+            # 2. Score UNLABELED using distance to centroid
+            # -----------------------------
+            centers = best_model.clusterCenters()
+
+            def dist_to_center(cluster_id, features):
+                center = centers[int(cluster_id)]
+                return float(np.linalg.norm(np.array(features) - np.array(center)))
+
+            dist_udf = udf(dist_to_center, DoubleType())
+
+            preds = best_model.transform(unlabeled_df)
+            preds = preds.withColumn("anomaly_score", dist_udf(col("km_cluster"), col(feature_col)))
+
+            # -----------------------------
+            # 3. Thresholding (percentile-based)
+            # -----------------------------
+            threshold = preds.approxQuantile("anomaly_score", [0.95], 0.01)[0]
+            print(f"🔥 KMeans anomaly threshold (95th pct): {threshold:.6f}")
+
+            pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
+
+            # -----------------------------
+            # 4. Evaluate pseudo-labels on unlabeled (if true labels exist)
+            # -----------------------------
+            unlabeled_eval_df = pseudo_labels_df.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
+            y_true = pdf_unlabeled["true_label"]
+            y_pred = pdf_unlabeled["pseudo_label"]
+
+            print('Classification_report only for pseudo-labels for unlabeled data')
+            print(classification_report(y_true, y_pred, digits=3))
+
+            # -----------------------------
+            # 5. Merge pseudo-labeled + normal logs
+            # -----------------------------
+            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
+            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+
+            df_val = sequences_df.filter(col("Temp_label") == 777) \
+                .withColumn("Final_Label", col("Label"))
+
+            df_final_train.printSchema()
+            df_test.printSchema()
+            df_val.printSchema()
+
+            # -----------------------------
+            # 6. Training label sanity check
+            # -----------------------------
+            pdf_final = df_final_train.toPandas()
+            y_train = pdf_final["Final_Label"].values
+            y_train_truth = pdf_final["Label"].values
+
+            print('Classification_report full training data')
+            print(classification_report(y_train_truth, y_train, digits=3))
+
+            exit()
+
+
+
+            '''
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
             # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
@@ -338,6 +464,7 @@ class FeaturesEngineering:
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
             print(classification_report(y_train_truth, y_train, digits=3))
+            '''
             #exit()
 
             # Prepare test set
