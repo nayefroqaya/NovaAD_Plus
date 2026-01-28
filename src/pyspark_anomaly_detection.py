@@ -219,11 +219,8 @@ class AnomalyDetector:
                 test_meta = add_meta_extras(test_meta, p)
             test_meta = assembler.transform(test_meta)
 
-            final_test_predictions = stack_model.transform(test_meta) \
-                .withColumn("prob_1"
-                                                                                 , col("final_prob")[1]) \
-                .withColu \
-                mn("last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0))
+            final_test_predictions = stack_model.transform(test_meta).withColumn("prob_1"
+                                                                                 , col("final_prob")[1]).withColumn("last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0))
 
             end_predict = time.time()
             predict_time = (end_predict - start_predict) / 60
