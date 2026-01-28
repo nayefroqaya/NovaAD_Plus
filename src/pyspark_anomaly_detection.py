@@ -52,6 +52,8 @@ from scipy.stats import randint, uniform
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
+from pyspark.sql.functions import col, when, abs, log
+
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -96,6 +98,176 @@ class AnomalyDetector:
 
         if mode == 'M':
 
+            lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
+
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=12,
+                minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
+
+            # =====================================================
+            # 2. TRAIN BASE MODELS
+            # =====================================================
+
+            start_fit = time.time()
+
+            lr_model = lr.fit(train_df)
+            rf_model = rf.fit(train_df)
+
+            end_fit = time.time()
+            fit_time = (end_fit - start_fit) / 60
+
+            # =====================================================
+            # 3. META FEATURE FUNCTIONS
+            # =====================================================
+
+            def add_probs(df, model, prob_col, prefix):
+                return (
+                    model.transform(df).withColumn(f"{prefix}_arr", vector_to_array(prob_col)).withColumn(f"{prefix}_0",
+                                                                                                          col(f"{prefix}_arr")[
+                                                                                                              0]).withColumn(
+                        f"{prefix}_1", col(f"{prefix}_arr")[1]))
+
+            def add_meta_extras(df, prefix):
+                df = df.withColumn(f"{prefix}_margin", abs(col(f"{prefix}_1") - col(f"{prefix}_0")))
+
+                df = df.withColumn(f"{prefix}_entropy", -(
+                            col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
+                        col(f"{prefix}_0") + 1e-9)))
+                return df
+
+            # =====================================================
+            # 4. TRAIN META
+            # =====================================================
+
+            train_meta = train_df
+
+            train_meta = add_probs(train_meta, lr_model, "lr_prob", "lr")
+            train_meta = add_meta_extras(train_meta, "lr")
+
+            train_meta = add_probs(train_meta, rf_model, "rf_prob", "rf")
+            train_meta = add_meta_extras(train_meta, "rf")
+
+            # =====================================================
+            # 5. META ASSEMBLER
+            # =====================================================
+
+            meta_features = ["lr_0", "lr_1", "lr_margin", "lr_entropy", "rf_0", "rf_1", "rf_margin", "rf_entropy"]
+
+            assembler = VectorAssembler(inputCols=meta_features, outputCol="meta_features")
+
+            train_meta = assembler.transform(train_meta)
+
+            # =====================================================
+            # 6. META MODEL (FAST LR)
+            # =====================================================
+
+            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
+                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
+                regParam=0.01, elasticNetParam=0.0)
+
+            stack_model = meta_lr.fit(train_meta)
+
+            # =====================================================
+            # 7. VALIDATION
+            # =====================================================
+
+            val_meta = val_df
+
+            val_meta = add_probs(val_meta, lr_model, "lr_prob", "lr")
+            val_meta = add_meta_extras(val_meta, "lr")
+
+            val_meta = add_probs(val_meta, rf_model, "rf_prob", "rf")
+            val_meta = add_meta_extras(val_meta, "rf")
+
+            val_meta = assembler.transform(val_meta)
+
+            val_preds = stack_model.transform(val_meta)
+            val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
+
+            # =====================================================
+            # 8. FAST THRESHOLD TUNING
+            # =====================================================
+
+            thresholds = [i / 100 for i in range(10, 90)]
+
+            best_f1 = -1
+            best_threshold = 0.5
+
+            for t in thresholds:
+                preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
+
+                tp = preds.filter("label=1 AND pred_adj=1").count()
+                fp = preds.filter("label=0 AND pred_adj=1").count()
+                fn = preds.filter("label=1 AND pred_adj=0").count()
+
+                precision = tp / (tp + fp + 1e-6)
+                recall = tp / (tp + fn + 1e-6)
+                f1 = 2 * precision * recall / (precision + recall + 1e-6)
+
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = t
+
+            print(f"🔥 Optimal threshold (validation F1): {best_threshold:.2f} | F1: {best_f1:.4f}")
+
+            # =====================================================
+            # 9. TEST — final predictions ONLY
+            # =====================================================
+
+            start_predict = time.time()
+
+            test_meta = test_df
+
+            test_meta = add_probs(test_meta, lr_model, "lr_prob", "lr")
+            test_meta = add_meta_extras(test_meta, "lr")
+
+            test_meta = add_probs(test_meta, rf_model, "rf_prob", "rf")
+            test_meta = add_meta_extras(test_meta, "rf")
+
+            test_meta = assembler.transform(test_meta)
+
+            final_test_predictions = (
+                stack_model.transform(test_meta).withColumn("prob_1", vector_to_array("final_prob")[1]).withColumn(
+                    "last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0)))
+
+            end_predict = time.time()
+            predict_time = (end_predict - start_predict) / 60
+
+            # =====================================================
+            # 10. RETURN (evaluation happens elsewhere)
+            # =====================================================
+
+            return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
+                "predict_time": predict_time}
+
+            exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            # ------- it is ok but not perfect :
             start_fit = time.time()
 
             # =====================================================
@@ -229,6 +401,61 @@ class AnomalyDetector:
             # =====================================================
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                     "predict_time": predict_time}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     '''
     def anomaly_detector(df_final,df_val, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth):
