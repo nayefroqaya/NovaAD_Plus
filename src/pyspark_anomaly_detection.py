@@ -115,10 +115,15 @@ class AnomalyDetector:
             # =====================================================
             # 2. BASE MODELS
             # =====================================================
+            # =====================================================
+            # 2. BASE MODELS
+            # =====================================================
 
+            # Logistic Regression
             lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
 
+            # Random Forest
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=12,
                 minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
@@ -126,138 +131,66 @@ class AnomalyDetector:
             # =====================================================
             # 3. TRAIN BASE MODELS
             # =====================================================
-
             start_fit = time.time()
-
             lr_model = lr.fit(train_df)
             rf_model = rf.fit(train_df)
-
             end_fit = time.time()
             fit_time = (end_fit - start_fit) / 60
 
             # =====================================================
-            # 4. META FEATURE FUNCTIONS
+            # 4. VALIDATION
             # =====================================================
 
-            def add_probs(df, model, prob_col, prefix):
-                return (
-                    model.transform(df).withColumn(f"{prefix}_arr", vector_to_array(prob_col)).withColumn(f"{prefix}_0",
-                                                                                                          col(f"{prefix}_arr")[
-                                                                                                              0]).withColumn(
-                        f"{prefix}_1", col(f"{prefix}_arr")[1]))
-
-            def add_meta_extras(df, prefix):
-                df = df.withColumn(f"{prefix}_margin", abs(col(f"{prefix}_1") - col(f"{prefix}_0")))
-
-                df = df.withColumn(f"{prefix}_entropy", -(
-                        col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
-                    col(f"{prefix}_0") + 1e-9)))
+            def combine_probs(df, lr_model, rf_model):
+                # LR
+                df = lr_model.transform(df).withColumn("lr_prob_1", vector_to_array("lr_prob")[1])
+                # RF
+                df = rf_model.transform(df).withColumn("rf_prob_1", vector_to_array("rf_prob")[1])
+                # Average the probabilities (simple ensemble)
+                df = df.withColumn("avg_prob", (col("lr_prob_1") + col("rf_prob_1")) / 2)
                 return df
 
-            # =====================================================
-            # 5. TRAIN META
-            # =====================================================
-
-            train_meta = train_df
-
-            train_meta = add_probs(train_meta, lr_model, "lr_prob", "lr")
-            train_meta = add_meta_extras(train_meta, "lr")
-
-            train_meta = add_probs(train_meta, rf_model, "rf_prob", "rf")
-            train_meta = add_meta_extras(train_meta, "rf")
+            val_preds = combine_probs(val_df, lr_model, rf_model)
 
             # =====================================================
-            # 6. META ASSEMBLER
+            # 5. THRESHOLD TUNING (maximize F1)
             # =====================================================
-
-            meta_features = ["lr_0", "lr_1", "lr_margin", "lr_entropy", "rf_0", "rf_1", "rf_margin", "rf_entropy"]
-
-            assembler = VectorAssembler(inputCols=meta_features, outputCol="meta_features")
-
-            train_meta = assembler.transform(train_meta)
-
-            # =====================================================
-            # 7. META MODEL
-            # =====================================================
-
-            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
-                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
-                regParam=0.01, elasticNetParam=0.0)
-
-            stack_model = meta_lr.fit(train_meta)
-
-            # =====================================================
-            # 8. VALIDATION
-            # =====================================================
-
-            val_meta = val_df
-
-            val_meta = add_probs(val_meta, lr_model, "lr_prob", "lr")
-            val_meta = add_meta_extras(val_meta, "lr")
-
-            val_meta = add_probs(val_meta, rf_model, "rf_prob", "rf")
-            val_meta = add_meta_extras(val_meta, "rf")
-
-            val_meta = assembler.transform(val_meta)
-
-            val_preds = stack_model.transform(val_meta)
-            val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
-
-            # =====================================================
-            # 9. FAST THRESHOLD TUNING
-            # =====================================================
-
             thresholds = [i / 100 for i in range(10, 90)]
-
             best_f1 = -1
             best_threshold = 0.5
 
             for t in thresholds:
-                preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
-
+                preds = val_preds.withColumn("pred_adj", when(col("avg_prob") >= t, 1).otherwise(0))
                 tp = preds.filter("label=1 AND pred_adj=1").count()
                 fp = preds.filter("label=0 AND pred_adj=1").count()
                 fn = preds.filter("label=1 AND pred_adj=0").count()
-
                 precision = tp / (tp + fp + 1e-6)
                 recall = tp / (tp + fn + 1e-6)
                 f1 = 2 * precision * recall / (precision + recall + 1e-6)
-
                 if f1 > best_f1:
                     best_f1 = f1
                     best_threshold = t
 
-            print(f"🔥 Optimal threshold (validation F1): {best_threshold:.2f} | F1: {best_f1:.4f}")
+            print(f"🔥 Optimal threshold: {best_threshold:.2f} | F1: {best_f1:.4f}")
 
             # =====================================================
-            # 10. TEST — FINAL PREDICTIONS
+            # 6. TEST — FINAL PREDICTIONS
             # =====================================================
-
             start_predict = time.time()
-
-            test_meta = test_df
-
-            test_meta = add_probs(test_meta, lr_model, "lr_prob", "lr")
-            test_meta = add_meta_extras(test_meta, "lr")
-
-            test_meta = add_probs(test_meta, rf_model, "rf_prob", "rf")
-            test_meta = add_meta_extras(test_meta, "rf")
-
-            test_meta = assembler.transform(test_meta)
-
-            final_test_predictions = (
-                stack_model.transform(test_meta).withColumn("prob_1", vector_to_array("final_prob")[1]).withColumn(
-                    "last_pred_label", when(col("prob_1") >= best_threshold, 1).otherwise(0)))
-
+            test_meta = combine_probs(test_df, lr_model, rf_model)
+            final_test_predictions = (test_meta.withColumn("prob_1", col("avg_prob")).withColumn("last_pred_label",
+                                                                                                 when(
+                                                                                                     col("avg_prob") >= best_threshold,
+                                                                                                     1).otherwise(0)))
             end_predict = time.time()
             predict_time = (end_predict - start_predict) / 60
 
             # =====================================================
-            # 11. RETURN
+            # 7. RETURN
             # =====================================================
-
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                 "predict_time": predict_time}
+
 
 
             exit()
