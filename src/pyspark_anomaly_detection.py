@@ -119,14 +119,14 @@ class AnomalyDetector:
             # 2. Define base models
             # -----------------------------
             lr_model = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
+                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=200, regParam=0.01, elasticNetParam=0.5)
 
             rf_model = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=20,
-                minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=300, maxDepth=25,
+                minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
             svc_model = LinearSVC(featuresCol="features", labelCol="label", weightCol="class_weight",
-                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
+                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=200, regParam=0.001)
 
             # -----------------------------
             # 3. Train base models
