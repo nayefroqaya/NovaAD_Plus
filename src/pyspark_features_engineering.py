@@ -273,7 +273,7 @@ class FeaturesEngineering:
             feature_col = "features_vec_final"
 
             # GMM hyperparameter grid
-            k_values = [2]  # [2,3,5,7,9,11]  # number of mixture components
+            k_values = [2,3,5]  # [2,3,5,7,9,11]  # number of mixture components
             max_iter_values =  [5,10, 50, 100,150]
             best_model, best_score, best_params = None, -np.inf, None
 
@@ -307,7 +307,7 @@ class FeaturesEngineering:
             preds = preds.withColumn("prob_array", vector_to_array("probability"))
             preds = preds.withColumn("anomaly_score", 1 - array_max(col("prob_array")))
 
-            threshold = 0.05  # float(np.percentile(scores, 90))
+            threshold = 0.1  # float(np.percentile(scores, 90))
             pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
 
             unlabeled_eval_df = pseudo_labels_df.join(
