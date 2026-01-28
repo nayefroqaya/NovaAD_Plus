@@ -97,9 +97,9 @@ class AnomalyDetector:
             # =====================================================
             label_counts = train_df.groupBy("label").count().collect()
             total_count = sum(r["count"] for r in label_counts)
-
+            '''
             class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
-
+    
             print("Class weights:", class_weights)
 
             train_df = train_df.withColumn("class_weight",
@@ -110,7 +110,7 @@ class AnomalyDetector:
 
             test_df = test_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
+            '''
             print("TRAIN COLS:", train_df.columns)
             # -------------------------------
             # 3. Base models
@@ -118,14 +118,17 @@ class AnomalyDetector:
             # -----------------------------
             # 2. Define base models
             # -----------------------------
-            lr_model = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
+            lr_model = LogisticRegression(featuresCol="features", labelCol="label",
+                                          #weightCol="class_weight",
                 probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
 
-            rf_model = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+            rf_model = RandomForestClassifier(featuresCol="features", labelCol="label",
+                                              #weightCol="class_weight",
                 probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=20,
                 minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
-            svc_model = LinearSVC(featuresCol="features", labelCol="label", weightCol="class_weight",
+            svc_model = LinearSVC(featuresCol="features", labelCol="label",
+                                  #weightCol="class_weight",
                 predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
 
             # -----------------------------
@@ -179,7 +182,8 @@ class AnomalyDetector:
             # -----------------------------
             # 6. Train meta LogisticRegression
             # -----------------------------
-            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
+            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label",
+                                         #weightCol="class_weight",
                 predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
                 regParam=0.01, elasticNetParam=0.0)
 

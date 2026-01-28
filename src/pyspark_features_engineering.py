@@ -398,7 +398,7 @@ class FeaturesEngineering:
 
             # GMM hyperparameter grid
             k_values = [2,3,5]  # [2,3,5,7,9,11]  # number of mixture components
-            max_iter_values =  [5,10, 50, 100,150]
+            max_iter_values =  [5,10, 20, 50, 100,150, 200]
             best_model, best_score, best_params = None, -np.inf, None
 
             for k, max_iter in product(k_values, max_iter_values):
