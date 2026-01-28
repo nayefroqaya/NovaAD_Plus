@@ -46,10 +46,6 @@ from pyspark.sql.types import FloatType
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, ArrayType, DoubleType
 from sklearn.metrics import classification_report
 from sklearn.metrics import classification_report
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.sql.functions import col, log, mean as _mean
-from itertools import product
-import numpy as np
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -263,79 +259,9 @@ class FeaturesEngineering:
         if unlabeled_train_df.count() == 0:
             raise ValueError("❌ No unlabeled logs (Temp_label=999) found for novelty detection.")
 
-        vector_to_array_udf = udf(lambda v: v.toArray().tolist(), ArrayType(DoubleType()))
-
-        # -----------------------------
-        # GMM novelty detection
-        # -----------------------------
+        # Ensure feature column is vector type
         if method.lower() == "gmm":
 
-            print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
-
-            # Train on normal logs only
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for GMM novelty detection.")
-
-            feature_col = "features_vec_final"
-
-            # GMM hyperparameter grid
-            k_values = [2, 3, 5]  # number of mixture components
-            max_iter_values = [5, 10, 50, 100, 150]
-            n_init = 3  # random restarts for stability
-
-            best_model, best_score, best_params = None, -np.inf, None
-
-            # -----------------------------
-            # Hyperparameter search
-            # -----------------------------
-            for k, max_iter in product(k_values, max_iter_values):
-                print(f"🔍 Testing GMM: k={k}, maxIter={max_iter}")
-                best_model_for_params, best_score_for_params = None, -np.inf
-
-                for init_seed in range(n_init):
-                    try:
-                        gmm = GaussianMixture(featuresCol=feature_col, predictionCol="gmm_pred",
-                            probabilityCol="probability", k=k, maxIter=max_iter, seed=init_seed)
-
-                        model = gmm.fit(train_normal_df)
-
-                        # -----------------------------
-                        # Compute mean log-likelihood on unlabeled data
-                        # -----------------------------
-                        preds = model.transform(unlabeled_df)
-                        # Convert probability vector to Python list for indexing
-                        preds = preds.withColumn("prob_array", vector_to_array_udf(col("probability")))
-
-                        # Use first component or max for more stable likelihood
-                        mean_ll = preds.select(_mean(log(col("prob_array")[0] + 1e-12))).collect()[0][0]
-
-                        if mean_ll > best_score_for_params:
-                            best_score_for_params = mean_ll
-                            best_model_for_params = model
-
-                    except Exception as e:
-                        print(f"⚠️ Failed for GMM params ({k}, {max_iter}, seed={init_seed}): {e}")
-                        continue
-
-                # Update global best
-                if best_score_for_params > best_score:
-                    best_score = best_score_for_params
-                    best_params = (k, max_iter)
-                    best_model = best_model_for_params
-
-            # -----------------------------
-            # Check results
-            # -----------------------------
-            if best_model is None:
-                raise RuntimeError("❌ No valid GMM model found.")
-
-            print(f"\n✅ Optimal GMM parameters: k={best_params[0]}, maxIter={best_params[1]}")
-            print(f"   Best mean log-likelihood: {best_score:.6f}")
-
-            '''
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
             # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
@@ -375,15 +301,10 @@ class FeaturesEngineering:
 
             print(f"\n✅ Optimal GMM parameters: k={best_params[0]}, maxIter={best_params[1]}")
             print(f"   Best mean log-likelihood: {best_score:.6f}")
-            
-            '''
             # Assign pseudo-labels based on likelihood
-            # -----------------------------
-            # Assign pseudo-labels on unlabeled data
-            # -----------------------------
             preds = best_model.transform(unlabeled_df)
-            preds = preds.withColumn("prob_array", vector_to_array_udf(col("probability")))
 
+            preds = preds.withColumn("prob_array", vector_to_array("probability"))
             preds = preds.withColumn("anomaly_score", 1 - array_max(col("prob_array")))
 
             threshold = 0.1  # float(np.percentile(scores, 90))
@@ -417,7 +338,7 @@ class FeaturesEngineering:
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
             print(classification_report(y_train_truth, y_train, digits=3))
-            exit()
+            #exit()
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
