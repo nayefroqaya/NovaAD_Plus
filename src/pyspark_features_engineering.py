@@ -273,7 +273,7 @@ class FeaturesEngineering:
             feature_col = "features_vec_final"
 
             # GMM hyperparameter grid
-            k_values = [2,3,5,7,9]  # [2,3,5,7,9,11]  # number of mixture components
+            k_values = [2,3,5]  # [2,3,5,7,9,11]  # number of mixture components
             max_iter_values =  [5,10, 50, 100,150]
             best_model, best_score, best_params = None, -np.inf, None
 
