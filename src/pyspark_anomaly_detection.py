@@ -68,35 +68,53 @@ class AnomalyDetector:
     @staticmethod
     def anomaly_detector(df_final_train, df_val, df_test, mode):
 
-        print(
-            df_final_train.columns)  # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label', 'probability', 'gmm_pred', 'prob_array', 'anomaly_score']
         df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
-
-        print(
-            df_val.columns)  # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
         df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
-
-        print(
-            df_test.columns)  # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final', 'Final_Label']
         df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
 
-        train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                                "features").withColumnRenamed(
-            "Final_Label", "label").cache()
+        train_df = (df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                                 "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
-        val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                      "features").withColumnRenamed(
-            "Final_Label", "label").cache()
+        val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                       "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
-        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                        "features").withColumnRenamed(
-            "Final_Label", "label").cache()
+        test_df = (df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                         "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
         train_df.count()
         val_df.count()
         test_df.count()
 
         if mode == 'M':
+
+            # =====================================================
+            # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
+            # =====================================================
+
+            label_counts = train_df.groupBy("label").count().collect()
+            total_count = sum(r["count"] for r in label_counts)
+
+            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
+
+            print("Class weights:", class_weights)
+
+            train_df = train_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            val_df = val_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            test_df = test_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            print("TRAIN COLS:", train_df.columns)
+
+            # =====================================================
+            # 2. BASE MODELS
+            # =====================================================
 
             lr = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
@@ -106,7 +124,7 @@ class AnomalyDetector:
                 minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
             # =====================================================
-            # 2. TRAIN BASE MODELS
+            # 3. TRAIN BASE MODELS
             # =====================================================
 
             start_fit = time.time()
@@ -118,7 +136,7 @@ class AnomalyDetector:
             fit_time = (end_fit - start_fit) / 60
 
             # =====================================================
-            # 3. META FEATURE FUNCTIONS
+            # 4. META FEATURE FUNCTIONS
             # =====================================================
 
             def add_probs(df, model, prob_col, prefix):
@@ -132,12 +150,12 @@ class AnomalyDetector:
                 df = df.withColumn(f"{prefix}_margin", abs(col(f"{prefix}_1") - col(f"{prefix}_0")))
 
                 df = df.withColumn(f"{prefix}_entropy", -(
-                            col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
-                        col(f"{prefix}_0") + 1e-9)))
+                        col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
+                    col(f"{prefix}_0") + 1e-9)))
                 return df
 
             # =====================================================
-            # 4. TRAIN META
+            # 5. TRAIN META
             # =====================================================
 
             train_meta = train_df
@@ -149,7 +167,7 @@ class AnomalyDetector:
             train_meta = add_meta_extras(train_meta, "rf")
 
             # =====================================================
-            # 5. META ASSEMBLER
+            # 6. META ASSEMBLER
             # =====================================================
 
             meta_features = ["lr_0", "lr_1", "lr_margin", "lr_entropy", "rf_0", "rf_1", "rf_margin", "rf_entropy"]
@@ -159,7 +177,7 @@ class AnomalyDetector:
             train_meta = assembler.transform(train_meta)
 
             # =====================================================
-            # 6. META MODEL (FAST LR)
+            # 7. META MODEL
             # =====================================================
 
             meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
@@ -169,7 +187,7 @@ class AnomalyDetector:
             stack_model = meta_lr.fit(train_meta)
 
             # =====================================================
-            # 7. VALIDATION
+            # 8. VALIDATION
             # =====================================================
 
             val_meta = val_df
@@ -186,7 +204,7 @@ class AnomalyDetector:
             val_preds = val_preds.withColumn("prob_1", vector_to_array("final_prob")[1])
 
             # =====================================================
-            # 8. FAST THRESHOLD TUNING
+            # 9. FAST THRESHOLD TUNING
             # =====================================================
 
             thresholds = [i / 100 for i in range(10, 90)]
@@ -212,7 +230,7 @@ class AnomalyDetector:
             print(f"🔥 Optimal threshold (validation F1): {best_threshold:.2f} | F1: {best_f1:.4f}")
 
             # =====================================================
-            # 9. TEST — final predictions ONLY
+            # 10. TEST — FINAL PREDICTIONS
             # =====================================================
 
             start_predict = time.time()
@@ -235,11 +253,12 @@ class AnomalyDetector:
             predict_time = (end_predict - start_predict) / 60
 
             # =====================================================
-            # 10. RETURN (evaluation happens elsewhere)
+            # 11. RETURN
             # =====================================================
 
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                 "predict_time": predict_time}
+
 
             exit()
 
