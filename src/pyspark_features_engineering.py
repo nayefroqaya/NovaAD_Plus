@@ -650,18 +650,12 @@ class FeaturesEngineering:
                     break
 
             print(f"[RESULT] Selected PCA components (best_k): {best_k}")
-            exit()
-
-
-
-
-
-
+            #exit()
 
             # -----------------------------
             # 1. Fit PCA on normal only
             # -----------------------------
-            k_pca = 50 # 50  # 🔧 TUNE: try 20, 50, 100
+            k_pca = best_k # 50  # 🔧 TUNE: try 20, 50, 100
             pca = PCA(k=k_pca, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
 
@@ -741,6 +735,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
+            exit()
 
 
             '''
