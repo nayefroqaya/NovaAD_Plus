@@ -234,29 +234,27 @@ class AnomalyDetector:
 
         else:   # -----------------------------------
 
-            # -------------------------
-            # 3️⃣ Define GBT Classifier
-            # -------------------------
+            # GBT directly
             gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="class_weight", seed=42)
 
-            pipeline = Pipeline(stages=[gbt])
+            # Param grid
+            paramGrid = (ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]).addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]).build())
 
-            # -------------------------
-            # 4️⃣ Hyperparameter Grid
-            # -------------------------
-            paramGrid = ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]).addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]) \
-                .build()
-
+            # F1 evaluator
             f1_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction"
                                                              , metricName="f1")
 
+            # CrossValidator
             crossval = CrossValidator(
-                estimator=pipeline,
+                estimator=gbt,       # use gbt directly
                 estimatorParamMaps=paramGrid,
                 evaluator=f1_evaluator,
-                numFolds=3,        # stratified k-fold not directly supported, but sufficient for large datasets
-                parallelism=4      # adjust based on your cluster
+                numFolds=3,
+                parallelism=4
             )
+
+
+
 
             # -------------------------
             # 5️⃣ Train Best Model
