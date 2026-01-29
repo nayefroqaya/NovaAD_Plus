@@ -56,7 +56,10 @@ from pyspark.sql.functions import col, when, abs, log
 from pyspark.sql.functions import col, log, when, abs as _abs
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, LinearSVC
-
+from pyspark.sql.functions import col, when
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.sql.functions import col
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -91,7 +94,7 @@ class AnomalyDetector:
         val_df.count()
         test_df.count()
 
-        if mode == 'X':
+        if mode == 'M':
             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
             # =====================================================
@@ -224,6 +227,80 @@ class AnomalyDetector:
                 "predict_time": predict_time}
 
         else:   # -----------------------------------
+            # =====================================================
+            # 1. AUTOMATIC CLASS WEIGHTS
+            # =====================================================
+            label_counts = train_df.groupBy("label").count().collect()
+            total_count = sum(r["count"] for r in label_counts)
+
+            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
+            print("Class weights:", class_weights)
+
+            train_df = train_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            val_df = val_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            test_df = test_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+
+            print("TRAIN COLS:", train_df.columns)
+
+            # =====================================================
+            # 2. RANDOM FOREST TRAINING
+            # =====================================================
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
+                maxDepth=25, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
+
+            rf_model = rf.fit(train_df)
+
+            # =====================================================
+            # 3. PREDICTIONS
+            # =====================================================
+            val_preds = rf_model.transform(val_df)
+            test_preds = rf_model.transform(test_df)
+
+            # =====================================================
+            # 4. SKLEARN-STYLE CLASSIFICATION REPORT
+            # =====================================================
+            def print_classification_report(df, label_col="label", pred_col="prediction", name=""):
+                preds_and_labels = (df.select(col(pred_col).cast("double"), col(label_col).cast("double")).rdd.map(
+                    lambda row: (row[0], row[1])))
+
+                metrics = MulticlassMetrics(preds_and_labels)
+                labels = sorted(metrics.labels)
+
+                print(f"\n================ CLASSIFICATION REPORT: {name} ================")
+                print(f"{'Class':<8}{'Precision':<12}{'Recall':<12}{'F1':<12}{'Support':<10}")
+
+                cm = metrics.confusionMatrix().toArray()
+
+                for lbl in labels:
+                    lbl_int = int(lbl)
+                    precision = metrics.precision(lbl)
+                    recall = metrics.recall(lbl)
+                    f1 = metrics.fMeasure(lbl)
+                    support = int(cm[lbl_int].sum())
+
+                    print(f"{lbl_int:<8}{precision:<12.4f}{recall:<12.4f}{f1:<12.4f}{support:<10}")
+
+                print("\nConfusion Matrix (rows=true, cols=pred):")
+                print(cm)
+
+                print(f"\nWeighted Precision: {metrics.weightedPrecision():.4f}")
+                print(f"Weighted Recall:    {metrics.weightedRecall():.4f}")
+                print(f"Weighted F1:        {metrics.weightedFMeasure():.4f}")
+
+            # =====================================================
+            # 5. RUN REPORTS
+            # =====================================================
+            print_classification_report(val_preds, name="RF Validation")
+            print_classification_report(test_preds, name="RF Test")
+
+
+            exit()
 
             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
