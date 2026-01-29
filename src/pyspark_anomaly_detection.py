@@ -1,5 +1,10 @@
 import time
 import warnings
+from pyspark.sql.functions import when, col
+from pyspark.ml.classification import GBTClassifier
+from pyspark.ml import Pipeline
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 import colorama
 import numpy as np
@@ -60,11 +65,6 @@ from pyspark.sql.functions import col, when
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.sql.functions import col
-from pyspark.sql.functions import col, udf
-from pyspark.sql.types import DoubleType
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.classification import RandomForestClassifier
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -234,113 +234,52 @@ class AnomalyDetector:
 
         else:   # -----------------------------------
 
-            # =====================================================
-            # CONFIG
-            # =====================================================
-            novelty_score_col = "novelty_score"  # Higher = more anomalous
-            label_col = "Final_Label"  # 0 = normal, 1 = anomaly
-            thresholds = [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
+            # -------------------------
+            # 3️⃣ Define GBT Classifier
+            # -------------------------
+            gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="class_weight", seed=42)
 
-            # =====================================================
-            # FUNCTION: PER-CLASS METRICS
-            # =====================================================
-            def get_binary_metrics(df, score_col, label_col, threshold):
-                tmp = df.withColumn("prediction", (col(score_col) >= threshold).cast("double"))
-                preds_and_labels = tmp.select(col("prediction").cast("double"), col(label_col).cast("double")).rdd.map(
-                    lambda r: (r["prediction"], r[label_col]))
-                metrics = MulticlassMetrics(preds_and_labels)
-                f1_class1 = metrics.fMeasure(1.0)  # F1 for anomaly
-                return metrics, f1_class1
+            pipeline = Pipeline(stages=[gbt])
 
-            def print_binary_metrics(metrics, cm, name="", threshold=0.5):
-                print(f"\n================ {name} (threshold={threshold}) ================")
-                for cls in [0.0, 1.0]:
-                    precision = metrics.precision(cls)
-                    recall = metrics.recall(cls)
-                    f1 = metrics.fMeasure(cls)
-                    support = int(cm[int(cls)].sum())
-                    print(
-                        f"Class {int(cls)}: Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}, Support={support}")
-                print("Confusion Matrix (rows=true, cols=pred):")
-                print(cm)
+            # -------------------------
+            # 4️⃣ Hyperparameter Grid
+            # -------------------------
+            paramGrid = ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]).addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]) \
+                .build()
 
-            # =====================================================
-            # 1. THRESHOLD-ONLY NOVELTY DETECTION
-            # =====================================================
-            best_f1 = -1
-            best_thresh = 0.5
-            best_metrics = None
-            best_cm = None
+            f1_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction"
+                                                             , metricName="f1")
 
-            for th in thresholds:
-                metrics, f1_c1 = get_binary_metrics(test_df, novelty_score_col, label_col, th)
-                cm = metrics.confusionMatrix().toArray()
-                print_binary_metrics(metrics, cm, name="Novelty Only", threshold=th)
-                if f1_c1 > best_f1:
-                    best_f1 = f1_c1
-                    best_thresh = th
-                    best_metrics = metrics
-                    best_cm = cm
+            crossval = CrossValidator(
+                estimator=pipeline,
+                estimatorParamMaps=paramGrid,
+                evaluator=f1_evaluator,
+                numFolds=3,        # stratified k-fold not directly supported, but sufficient for large datasets
+                parallelism=4      # adjust based on your cluster
+            )
 
-            print(f"\n✅ Best novelty threshold = {best_thresh}, F1(class 1) = {best_f1:.4f}")
+            # -------------------------
+            # 5️⃣ Train Best Model
+            # -------------------------
+            cv_model = crossval.fit(train_df)
+            best_model = cv_model.bestModel
 
-            # =====================================================
-            # 2. STACK NOVELTY SCORE WITH ORIGINAL FEATURES
-            # =====================================================
-            assembler = VectorAssembler(inputCols=["features", novelty_score_col], outputCol="features_with_score")
-            train_stacked = assembler.transform(train_df)
-            test_stacked = assembler.transform(test_df)
+            # -------------------------
+            # 6️⃣ Evaluate on Test Set
+            # -------------------------
+            predictions = best_model.transform(test_df)
 
-            # =====================================================
-            # 3. RANDOM FOREST ON STACKED FEATURES
-            # =====================================================
-            label_counts = train_stacked.groupBy(label_col).count().collect()
-            count_dict = {r[label_col]: r["count"] for r in label_counts}
-            total_count = sum(count_dict.values())
-            minority_boost = 1.3
-            class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
-                1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
+            precision_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedPrecision")
+            recall_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedRecall")
 
-            train_stacked = train_stacked.withColumn("class_weight",
-                (col(label_col) == 0).cast("double") * class_weights[0] + (col(label_col) == 1).cast("double") *
-                class_weights[1])
-            test_stacked = test_stacked.withColumn("class_weight",
-                (col(label_col) == 0).cast("double") * class_weights[0] + (col(label_col) == 1).cast("double") *
-                class_weights[1])
+            f1 = f1_evaluator.evaluate(predictions)
+            precision = precision_evaluator.evaluate(predictions)
+            recall = recall_evaluator.evaluate(predictions)
 
-            rf = RandomForestClassifier(featuresCol="features_with_score", labelCol=label_col, weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
-                maxDepth=18, minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
-            rf_model = rf.fit(train_stacked)
-            preds = rf_model.transform(test_stacked)
-
-            # =====================================================
-            # 4. EXTRACT PROBABILITY FOR CLASS 1
-            # =====================================================
-            get_p1 = udf(lambda v: float(v[1]), DoubleType())
-            preds = preds.withColumn("p_class1", get_p1(col("rf_prob")))
-
-            # =====================================================
-            # 5. AUTO-THRESHOLD TUNING FOR STACKED RF
-            # =====================================================
-            best_f1_rf = -1
-            best_thresh_rf = 0.5
-            best_metrics_rf = None
-            best_cm_rf = None
-
-            for th in thresholds:
-                metrics_rf, f1_c1 = get_binary_metrics(preds, "p_class1", label_col, th)
-                cm_rf = metrics_rf.confusionMatrix().toArray()
-                print_binary_metrics(metrics_rf, cm_rf, name="Stacked RF + Novelty", threshold=th)
-                if f1_c1 > best_f1_rf:
-                    best_f1_rf = f1_c1
-                    best_thresh_rf = th
-                    best_metrics_rf = metrics_rf
-                    best_cm_rf = cm_rf
-
-            print(f"\n✅ Best Stacked RF threshold = {best_thresh_rf}, F1(class 1) = {best_f1_rf:.4f}")
+            print(f"Best Model Test F1-score: {f1:.4f}")
+            print(f"Weighted Precision: {precision:.4f}")
+            print(f"Weighted Recall: {recall:.4f}")
             exit()
-
 
             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS (IMPROVED)
