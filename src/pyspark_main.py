@@ -241,7 +241,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'BGL'
+    DATASET = 'HDFS'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'M'
@@ -272,7 +272,7 @@ def main():
     #print(' Reading the file was done successfully ')
     #exit()
 
-    '''
+
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -341,9 +341,9 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    #exit()
+    exit()
     # ---------------- Load feature PKL → Spark ----------------
-    '''
+
 
     # ✅ Load from Parquet
     output_path = DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
