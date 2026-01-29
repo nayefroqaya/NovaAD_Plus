@@ -655,7 +655,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (from normal)
             # -----------------------------
-            threshold = train_pca.approxQuantile("anomaly_score", [0.85], 0.01)[0]
+            threshold = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
 
             print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
 
@@ -707,8 +707,6 @@ class FeaturesEngineering:
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
             
-
-
 
             '''
             print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
@@ -910,7 +908,7 @@ class FeaturesEngineering:
             print(classification_report(y_train_truth, y_train, digits=3))
             '''
 
-            exit()
+
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
