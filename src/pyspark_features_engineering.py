@@ -278,6 +278,7 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
+            '''
             print("\n🧠 Using PCA + KMeans for novelty detection (robust, semi-supervised) ...")
 
             # -----------------------------
@@ -382,12 +383,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA + KMeans novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-
-
-
-
-
-
+            '''
 
             '''
             print("\n🧠 Using PCA + Mahalanobis for robust semi-supervised novelty detection ...")
@@ -503,12 +499,6 @@ class FeaturesEngineering:
             print(classification_report(y_train_truth, y_train, digits=3))
             '''
 
-
-
-
-
-            '''
-
             print("\n🧠 Using PCA for novelty detection (robust, semi-supervised) ...")
 
             # Train on normal logs only
@@ -619,7 +609,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA robust novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-            '''
+
 
 
 
