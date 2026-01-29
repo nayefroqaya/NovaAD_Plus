@@ -735,7 +735,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-            exit()
+            #exit()
 
 
             '''
