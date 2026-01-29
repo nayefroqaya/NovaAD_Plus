@@ -56,6 +56,12 @@ from pyspark.ml.linalg import Vectors, DenseVector
 from pyspark.sql.functions import udf
 from pyspark.sql.types import DoubleType
 import numpy as np
+from pyspark.ml.feature import PCA
+from pyspark.sql.functions import col, when, udf
+from pyspark.sql.types import DoubleType
+import numpy as np
+from scipy.stats import chi2
+from sklearn.metrics import classification_report
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -230,7 +236,7 @@ class FeaturesEngineering:
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
 
     @staticmethod
-    def novelty_detection_label_establishment(sequences_df: DataFrame, method: str = "gmm"
+    def novelty_detection_label_establishment(sequences_df: DataFrame, method: str = "gmm", spark
                                               # options: "IsolationForest" or "rf"
                                               ):
         sequences_df.printSchema()
@@ -271,6 +277,124 @@ class FeaturesEngineering:
         #--------------------------------------------------------------------------------
         # Ensure feature column is vector type
         if method.lower() == "gmm":
+
+            print("\n🧠 Using PCA + Mahalanobis for robust semi-supervised novelty detection ...")
+
+            # -----------------------------
+            # 0. Prepare datasets
+            # -----------------------------
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for PCA novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1. Probe PCA to get energy curve
+            # -----------------------------
+            pca_probe = PCA(k=min(60, train_normal_df.select(feature_col).first()[0].size), inputCol=feature_col,
+                            outputCol="pca_tmp")
+            pca_probe_model = pca_probe.fit(train_normal_df)
+
+            explained = np.array(pca_probe_model.explainedVariance.toArray())
+            cum_energy = np.cumsum(explained)
+
+            target_energy = 0.95  # 🔧 tune 0.90,0.95,0.99
+            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
+            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
+
+            # -----------------------------
+            # 2. Fit final PCA
+            # -----------------------------
+            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 3. Mahalanobis distance in PCA space
+            # -----------------------------
+            pdf_train_pca = train_pca.select("pca_features").toPandas()
+            Z = np.vstack(pdf_train_pca["pca_features"].apply(lambda v: v.toArray()))
+            mu = Z.mean(axis=0)
+            cov = np.cov(Z, rowvar=False)
+            cov += np.eye(cov.shape[0]) * 1e-6  # regularization
+            inv_cov = np.linalg.inv(cov)
+
+            bc_mu = spark.sparkContext.broadcast(mu)
+            bc_inv_cov = spark.sparkContext.broadcast(inv_cov)
+
+            @udf(DoubleType())
+            def mahalanobis_score(pca_vec):
+                z = np.array(pca_vec.toArray())
+                d = z - bc_mu.value
+                return float(np.sqrt(d.T @ bc_inv_cov.value @ d))
+
+            train_pca = train_pca.withColumn("anomaly_score", mahalanobis_score(col("pca_features")))
+            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score", mahalanobis_score(col("pca_features")))
+
+            # -----------------------------
+            # 4. Statistical threshold (Chi-square)
+            # -----------------------------
+            alpha = 0.99  # 🔧 tune 0.99, 0.995, 0.999
+            threshold = float(np.sqrt(chi2.ppf(alpha, k_opt)))
+            print(f"📏 PCA-Mahalanobis threshold (Chi2, alpha={alpha}): {threshold:.6f}")
+
+            # -----------------------------
+            # 5. Two-zone pseudo-labeling (optional)
+            # -----------------------------
+            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
+            print(f"📏 Two-zone thresholds: low={low_thr:.6f}, high={threshold:.6f}")
+
+            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
+                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
+
+            # Drop uncertain samples
+            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
+
+            # -----------------------------
+            # 6. Evaluate pseudo-labels (optional)
+            # -----------------------------
+            unlabeled_eval_df = pseudo_labels_df.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
+            y_true = pdf_unlabeled["true_label"]
+            y_pred = pdf_unlabeled["pseudo_label"]
+            print('Classification_report on pseudo-labels (PCA-Mahalanobis)')
+            print(classification_report(y_true, y_pred, digits=3))
+
+            # -----------------------------
+            # 7. Merge pseudo-labeled + normal
+            # -----------------------------
+            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
+            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+
+            df_final_train.printSchema()
+            df_test.printSchema()
+
+            # -----------------------------
+            # 8. Full training label quality (diagnostic)
+            # -----------------------------
+            pdf_final = df_final_train.toPandas()
+            y_train = pdf_final["Final_Label"].values
+            y_train_truth = pdf_final["Label"].values
+
+            print('Classification_report full training data (PCA-Mahalanobis)')
+            print(classification_report(y_train_truth, y_train, digits=3))
+
+
+
+
+
+            '''
 
             print("\n🧠 Using PCA for novelty detection (robust, semi-supervised) ...")
 
@@ -382,6 +506,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA robust novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
+            '''
 
 
 

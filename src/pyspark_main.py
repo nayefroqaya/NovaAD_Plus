@@ -413,7 +413,7 @@ def main():
     start_Novelty= time.time()
     df_final_train, df_test ,df_val = \
         features_engineering_obj.novelty_detection_label_establishment(
-            sequences_df,  method ="gmm"
+            sequences_df,  method ="gmm", spark
             #x_train_normal_labelled,
             #x_unlabeled_from_train,
             #ground_truth_unlabeled_data_from_train
