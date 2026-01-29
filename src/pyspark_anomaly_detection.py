@@ -294,7 +294,7 @@ class AnomalyDetector:
 
                 metrics = MulticlassMetrics(preds_and_labels)
 
-                # ✅ Version-safe way to get labels from confusion matrix
+                # Version-safe labels from confusion matrix
                 cm = metrics.confusionMatrix().toArray()
                 num_classes = cm.shape[0]
                 labels = list(range(num_classes))
@@ -303,9 +303,11 @@ class AnomalyDetector:
                 print(f"{'Class':<8}{'Precision':<12}{'Recall':<12}{'F1':<12}{'Support':<10}")
 
                 for lbl in labels:
-                    precision = metrics.precision(lbl)
-                    recall = metrics.recall(lbl)
-                    f1 = metrics.fMeasure(lbl)
+                    lbl_f = float(lbl)  # ✅ IMPORTANT for old Spark / Py4J
+
+                    precision = metrics.precision(lbl_f)
+                    recall = metrics.recall(lbl_f)
+                    f1 = metrics.fMeasure(lbl_f)
                     support = int(cm[lbl].sum())
 
                     print(f"{lbl:<8}{precision:<12.4f}{recall:<12.4f}{f1:<12.4f}{support:<10}")
