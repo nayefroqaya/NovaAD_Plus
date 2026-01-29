@@ -629,14 +629,14 @@ class FeaturesEngineering:
             feature_col = "features_vec_final"
 
 
-            candidate_ks = [10, 20, 40, 50]
+            candidate_ks = [10, 20, 30, 40, 50]
             best_k = candidate_ks[-1]
             target_variance = 0.90  # or 0.95
 
             for k in candidate_ks:
                 print(f"[INFO] Testing PCA with k={k}")
 
-                pca = SparkPCA(k=k, inputCol="vector_emb", outputCol=f"pca_features_k{k}")
+                pca = SparkPCA(k=k, inputCol="features_vec_final", outputCol=f"pca_features_k{k}")
 
                 model = pca.fit(train_normal_df)
 
