@@ -323,7 +323,7 @@ class AnomalyDetector:
             # 5. RUN REPORTS
             # =====================================================
             #print_classification_report(val_preds, name="RF Validation")
-            print_classification_report(test_preds, name="RF Test")
+            #print_classification_report(test_preds, name="RF Test")
 
 
             exit()

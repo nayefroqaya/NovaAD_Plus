@@ -244,7 +244,7 @@ def main():
     DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
-    mode = 'X'
+    mode = 'M'
     Mix_or_stable = '0'
 
     # Paths
