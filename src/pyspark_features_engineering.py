@@ -272,6 +272,122 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
+            print("\n🧠 Using PCA for novelty detection (robust, semi-supervised) ...")
+
+            # Train on normal logs only
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for PCA novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1. First PCA to get energy curve
+            # -----------------------------
+            pca_probe = PCA(k=200, inputCol=feature_col, outputCol="pca_tmp")
+            pca_probe_model = pca_probe.fit(train_normal_df)
+
+            explained = np.array(pca_probe_model.explainedVariance.toArray())
+            cum_energy = np.cumsum(explained)
+
+            target_energy = 0.95  # 🔧 try 0.90, 0.95, 0.99
+            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
+
+            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
+
+            # -----------------------------
+            # 2. Fit final PCA with optimal k
+            # -----------------------------
+            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 3. Reconstruction error UDF (squared error = better tails)
+            # -----------------------------
+            pc = pca_model.pc.toArray()
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray())
+                z = np.array(pca_vec.toArray())
+                x_hat = np.dot(pc, z)
+                return float(np.sum((x - x_hat) ** 2))
+
+            train_pca = train_pca.withColumn("anomaly_score",
+                reconstruction_error(col(feature_col), col("pca_features")))
+
+            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score",
+                reconstruction_error(col(feature_col), col("pca_features")))
+
+            # -----------------------------
+            # 4. Contamination-based threshold (OCSVM equivalent)
+            # -----------------------------
+            expected_anomaly_rate = 0.03  # 🔧 try 0.01, 0.03, 0.05
+
+            threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
+
+            print(f"📏 PCA threshold (contamination={expected_anomaly_rate * 100:.1f}%): {threshold:.6f}")
+
+            # -----------------------------
+            # 5. Two-zone pseudo-labeling (reduce noise)
+            # -----------------------------
+            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
+
+            print(f"📏 Two-zone thresholds: low={low_thr:.6f}, high={threshold:.6f}")
+
+            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
+                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
+
+            # Drop uncertain samples
+            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
+
+            # -----------------------------
+            # 6. Evaluate pseudo-labels (for analysis only)
+            # -----------------------------
+            unlabeled_eval_df = pseudo_labels_df.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
+            y_true = pdf_unlabeled["true_label"]
+            y_pred = pdf_unlabeled["pseudo_label"]
+
+            print('Classification_report only for pseudo-label on unlabeled data (PCA robust)')
+            print(classification_report(y_true, y_pred, digits=3))
+
+            # -----------------------------
+            # 7. Merge pseudo-labeled + normal
+            # -----------------------------
+            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
+            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+
+            df_final_train.printSchema()
+            df_test.printSchema()
+
+            # -----------------------------
+            # 8. Full training label quality (diagnostic)
+            # -----------------------------
+            pdf_final = df_final_train.toPandas()
+            y_train = pdf_final["Final_Label"].values
+            y_train_truth = pdf_final["Label"].values
+
+            print('Classification_report full training data (PCA robust novelty)')
+            print(classification_report(y_train_truth, y_train, digits=3))
+
+
+
+
+
+            '''
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
 
             # Train on normal logs only
@@ -351,11 +467,11 @@ class FeaturesEngineering:
 
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
 
-            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
+            #df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
 
             df_final_train.printSchema()
             df_test.printSchema()
-            df_val.printSchema()
+            #df_val.printSchema()
 
             # -----------------------------
             # 7. Full training label quality
@@ -366,16 +482,8 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-
-
-
-
-
-
-
-
-
-
+            
+            '''
 
 
             '''
