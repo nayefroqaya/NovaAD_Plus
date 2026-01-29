@@ -320,7 +320,7 @@ class AnomalyDetector:
             # 7. THRESHOLD TUNING (POST-PROCESS TO IMPROVE CLASS 1)
             # =====================================================
 
-            for THRESHOLD in [0.35, 0.4, 0.45, 0.5]:
+            for THRESHOLD in [ 0.4, 0.45, 0.5, 0.6, 0.7]:
                 tmp = test_preds.withColumn("prediction", (col("p_class1") >= THRESHOLD).cast("double"))
 
                 print_binary_classification_report(tmp, name=f"RF Test (threshold={THRESHOLD})")
