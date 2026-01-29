@@ -287,28 +287,28 @@ class AnomalyDetector:
 
                 if df2_count == 0:
                     print(f"❌ ERROR: {name} preds+labels EMPTY after dropna.")
-                    print("👉 Likely cause: label cast issue, NaNs in features, or null predictions.")
                     df.select(label_col, pred_col).show(20, truncate=False)
                     return
 
                 preds_and_labels = df2.rdd.map(lambda r: (r["prediction"], r["label"]))
 
                 metrics = MulticlassMetrics(preds_and_labels)
-                labels = sorted(metrics.labels)
+
+                # ✅ Version-safe way to get labels from confusion matrix
+                cm = metrics.confusionMatrix().toArray()
+                num_classes = cm.shape[0]
+                labels = list(range(num_classes))
 
                 print(f"\n================ CLASSIFICATION REPORT: {name} ================")
                 print(f"{'Class':<8}{'Precision':<12}{'Recall':<12}{'F1':<12}{'Support':<10}")
 
-                cm = metrics.confusionMatrix().toArray()
-
                 for lbl in labels:
-                    lbl_int = int(lbl)
                     precision = metrics.precision(lbl)
                     recall = metrics.recall(lbl)
                     f1 = metrics.fMeasure(lbl)
-                    support = int(cm[lbl_int].sum())
+                    support = int(cm[lbl].sum())
 
-                    print(f"{lbl_int:<8}{precision:<12.4f}{recall:<12.4f}{f1:<12.4f}{support:<10}")
+                    print(f"{lbl:<8}{precision:<12.4f}{recall:<12.4f}{f1:<12.4f}{support:<10}")
 
                 print("\nConfusion Matrix (rows=true, cols=pred):")
                 print(cm)
