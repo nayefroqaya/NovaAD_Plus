@@ -236,7 +236,7 @@ class FeaturesEngineering:
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
 
     @staticmethod
-    def novelty_detection_label_establishment(sequences_df: DataFrame, method: str = "gmm", spark
+    def novelty_detection_label_establishment(sequences_df: DataFrame, method: str = "gmm"
                                               # options: "IsolationForest" or "rf"
                                               ):
         sequences_df.printSchema()
