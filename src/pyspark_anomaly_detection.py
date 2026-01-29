@@ -238,7 +238,7 @@ class AnomalyDetector:
             total_count = sum(count_dict.values())
 
             # Boost minority class
-            minority_boost = 1.3  # can tune 1.2–1.6
+            minority_boost = 1.2  # can tune 1.2–1.6
             class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
                 1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
 
