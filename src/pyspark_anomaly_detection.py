@@ -93,6 +93,7 @@ class AnomalyDetector:
         train_df.count()
         val_df.count()
         test_df.count()
+        exit()
 
         if mode == 'M':
             # =====================================================
@@ -241,11 +242,11 @@ class AnomalyDetector:
             train_df = train_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
 
-            val_df = val_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-            row_count = val_df.count()
-            print(f"\n[DEBUG] DataFrame row count = {row_count}")
-            exit()
+            #val_df = val_df.withColumn("class_weight",
+            #    when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            #row_count = val_df.count()
+            #print(f"\n[DEBUG] DataFrame row count = {row_count}")
+            #exit()
 
 
             test_df = test_df.withColumn("class_weight",
