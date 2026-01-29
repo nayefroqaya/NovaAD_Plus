@@ -227,116 +227,11 @@ class AnomalyDetector:
                 "predict_time": predict_time}
 
         else:   # -----------------------------------
-            '''
-            # =====================================================
-            # 1. AUTOMATIC CLASS WEIGHTS
-            # =====================================================
-            label_counts = train_df.groupBy("label").count().collect()
-            total_count = sum(r["count"] for r in label_counts)
-
-            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
-            print("Class weights:", class_weights)
-
-            train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            val_df = val_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            test_df = test_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            print("TRAIN COLS:", train_df.columns)
-
-            # =====================================================
-            # 2. DEFINE RANDOM FOREST
-            # =====================================================
-            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", seed=42)
-
-            # =====================================================
-            # 3. HYPERPARAMETER GRID
-            # =====================================================
-            paramGrid = ParamGridBuilder().addGrid(rf.numTrees, [300, 400, 500]) \
-                .addGrid(rf.maxDepth, [20, 25, 30]).addGrid(rf.minInstancesPerNode, [3, 5, 7]) \
-                .build()
-
-            # =====================================================
-            # 4. CROSS-VALIDATION
-            # =====================================================
-            evaluator = MulticlassClassificationEvaluator(
-                labelCol="label",
-                predictionCol="prediction",
-                metricName="f1"
-            )
-
-            cv = CrossValidator(
-                estimator=rf,
-                estimatorParamMaps=paramGrid,
-                evaluator=evaluator,
-                numFolds=3
-            )
-
-            cv_model = cv.fit(train_df)
-            best_model = cv_model.bestModel
-
-            print("Best RF hyperparameters:")
-            print(f"  numTrees = {best_model.getNumTrees}")
-            print(f"  maxDepth = {best_model.getOrDefault('maxDepth')}")
-            print(f"  minInstancesPerNode = {best_model.getOrDefault('minInstancesPerNode')}")
-
-            # =====================================================
-            # 5. MAKE PREDICTIONS
-            # =====================================================
-            val_preds = best_model.transform(val_df)
-            test_preds = best_model.transform(test_df)
-
-            # =====================================================
-            # 6. SKLEARN-STYLE CLASSIFICATION REPORT
-            # =====================================================
-            def print_classification_report(df, label_col="label", pred_col="prediction", name=""):
-                # Convert to (prediction, label) RDD
-                preds_and_labels = (
-                    df.select(
-                        col(pred_col).cast("double"),
-                        col(label_col).cast("double")
-                    ).rdd.map(lambda row: (row[0], row[1]))
-                )
-                metrics = MulticlassMetrics(preds_and_labels)
-                labels = sorted(metrics.labels)
-
-                print(f"\n================ CLASSIFICATION REPORT: {name} ================")
-                print(f"{'Class':<8}{'Precision':<12}{'Recall':<12}{'F1':<12}{'Support':<10}")
-
-                cm = metrics.confusionMatrix().toArray()
-
-                for lbl in labels:
-                    lbl_int = int(lbl)
-                    precision = metrics.precision(lbl)
-                    recall = metrics.recall(lbl)
-                    f1 = metrics.fMeasure(lbl)
-                    support = int(cm[lbl_int].sum())
-
-                    print(f"{lbl_int:<8}{precision:<12.4f}{recall:<12.4f}{f1:<12.4f}{support:<10}")
-
-                print("\nConfusion Matrix (rows=true, cols=pred):")
-                print(cm)
-
-                print(f"\nWeighted Precision: {metrics.weightedPrecision():.4f}")
-                print(f"Weighted Recall:    {metrics.weightedRecall():.4f}")
-                print(f"Weighted F1:        {metrics.weightedFMeasure():.4f}")
-
-            # =====================================================
-            # 7. PRINT REPORTS
-            # =====================================================
-            print_classification_report(val_preds, name="RF Validation")
-            print_classification_report(test_preds, name="RF Test")
-            exit()
-            '''
 
             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS
             # =====================================================
+
             label_counts = train_df.groupBy("label").count().collect()
             total_count = sum(r["count"] for r in label_counts)
 
@@ -373,8 +268,26 @@ class AnomalyDetector:
             # 4. SKLEARN-STYLE CLASSIFICATION REPORT
             # =====================================================
             def print_classification_report(df, label_col="label", pred_col="prediction", name=""):
-                preds_and_labels = (df.select(col(pred_col).cast("double"), col(label_col).cast("double")).rdd.map(
-                    lambda row: (row[0], row[1])))
+                row_count = df.count()
+                print(f"\n[DEBUG] {name} DataFrame row count = {row_count}")
+
+                if row_count == 0:
+                    print(f"❌ ERROR: {name} DataFrame is EMPTY.")
+                    return
+
+                df2 = df.select(col(pred_col).cast("double").alias("prediction"),
+                    col(label_col).cast("double").alias("label")).dropna()
+
+                df2_count = df2.count()
+                print(f"[DEBUG] {name} after dropna row count = {df2_count}")
+
+                if df2_count == 0:
+                    print(f"❌ ERROR: {name} preds+labels EMPTY after dropna.")
+                    print("👉 Likely cause: label cast issue, NaNs in features, or null predictions.")
+                    df.select(label_col, pred_col).show(20, truncate=False)
+                    return
+
+                preds_and_labels = df2.rdd.map(lambda r: (r["prediction"], r["label"]))
 
                 metrics = MulticlassMetrics(preds_and_labels)
                 labels = sorted(metrics.labels)
