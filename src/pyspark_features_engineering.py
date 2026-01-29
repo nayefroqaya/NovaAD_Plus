@@ -554,7 +554,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 4. Contamination-based threshold (OCSVM equivalent)
             # -----------------------------
-            expected_anomaly_rate = 0.05  # 🔧 try 0.01, 0.03, 0.05
+            expected_anomaly_rate = 0.01  # 🔧 try 0.01, 0.03, 0.05
 
             threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
 
@@ -563,7 +563,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 5. Two-zone pseudo-labeling (reduce noise)
             # -----------------------------
-            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
+            low_thr = train_pca.approxQuantile("anomaly_score", [0.95], 0.01)[0]
 
             print(f"📏 Two-zone thresholds: low={low_thr:.6f}, high={threshold:.6f}")
 
