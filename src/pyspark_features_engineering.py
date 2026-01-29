@@ -342,7 +342,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 5. Two-zone pseudo-labeling
             # -----------------------------
-            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
+            low_thr = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
             pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
                 when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
 
