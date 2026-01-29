@@ -629,9 +629,9 @@ class FeaturesEngineering:
             feature_col = "features_vec_final"
 
 
-            candidate_ks = [10, 20, 30, 40, 50]
+            candidate_ks = [10, 20, 30, 50]
             best_k = candidate_ks[-1]
-            target_variance = 0.95  # or 0.95
+            target_variance = 0.99  # or 0.95
 
             for k in candidate_ks:
                 print(f"[INFO] Testing PCA with k={k}")
