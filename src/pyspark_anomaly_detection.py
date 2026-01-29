@@ -91,7 +91,7 @@ class AnomalyDetector:
         val_df.count()
         test_df.count()
 
-        if mode == 'M':
+        if mode == 'X':
             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
             # =====================================================
