@@ -62,7 +62,6 @@ from pyspark.sql.types import DoubleType
 import numpy as np
 from scipy.stats import chi2
 from sklearn.metrics import classification_report
-from sklearn.metrics import classification_report
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -612,155 +611,12 @@ class FeaturesEngineering:
             print(classification_report(y_train_truth, y_train, digits=3))
             '''
 
-            print("\n🧠 PCA novelty detection (auto-k + normalized error + MAD threshold)")
-
-            feature_col = "features_vec_final"
-
-            # --------------------------------------------
-            # 0. Split data
-            # --------------------------------------------
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for PCA novelty detection.")
-
-            # --------------------------------------------
-            # 1. Fit PCA with large k_max
-            # --------------------------------------------
-            # Get feature dimension safely
-            sample_vec = train_normal_df.select(feature_col).first()[0]
-            feature_dim = len(sample_vec)
-
-            k_max = min(200, feature_dim)
-
-            print(f"🔧 Feature dim = {feature_dim}, fitting PCA with k_max = {k_max}")
-
-            pca_full = PCA(k=k_max, inputCol=feature_col, outputCol="pca_features_full")
-            pca_full_model = pca_full.fit(train_normal_df)
-
-            # --------------------------------------------
-            # 2. Auto-select k by explained variance
-            # --------------------------------------------
-            explained = pca_full_model.explainedVariance.toArray()
-            cum_explained = np.cumsum(explained)
-
-            target_var = 0.95  # 🔧 TUNE: 0.90, 0.95, 0.99
-            k_auto = int(np.searchsorted(cum_explained, target_var) + 1)
-
-            k_auto = max(5, k_auto)  # safety floor
-
-            print(f"✅ Auto-selected k = {k_auto} for {target_var * 100:.1f}% variance")
-
-            # --------------------------------------------
-            # 3. Refit PCA with k_auto
-            # --------------------------------------------
-            pca = PCA(k=k_auto, inputCol=feature_col, outputCol="pca_features")
-            pca_model = pca.fit(train_normal_df)
-
-            train_pca = pca_model.transform(train_normal_df)
-            unlabeled_pca = pca_model.transform(unlabeled_df)
-
-            pc = pca_model.pc.toArray()  # shape: [feature_dim, k_auto]
-
-            # --------------------------------------------
-            # 4. Normalized reconstruction error UDF
-            # --------------------------------------------
-            @udf(DoubleType())
-            def reconstruction_error_norm(orig_vec, pca_vec):
-                x = np.array(orig_vec.toArray())
-                z = np.array(pca_vec.toArray())
-
-                x_hat = np.dot(pc, z)
-
-                err = np.linalg.norm(x - x_hat)
-                denom = np.linalg.norm(x) + 1e-8
-
-                return float(err / denom)
-
-            train_pca = train_pca.withColumn("anomaly_score",
-                reconstruction_error_norm(col(feature_col), col("pca_features")))
-
-            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score",
-                reconstruction_error_norm(col(feature_col), col("pca_features")))
-
-            # --------------------------------------------
-            # 5. Robust MAD-based threshold
-            # --------------------------------------------
-            stats = train_pca.selectExpr("percentile_approx(anomaly_score, 0.5) as median", """
-                percentile_approx(
-                    abs(anomaly_score - percentile_approx(anomaly_score, 0.5)),
-                    0.5
-                ) as mad
-                """).collect()[0]
-
-            median = float(stats["median"])
-            mad = float(stats["mad"])
-
-            z = 3.5  # 🔧 TUNE: 3.0 – 5.0
-            threshold = median + z * mad
-
-            print(f"✅ PCA threshold = median + {z}*MAD = {threshold:.6f}")
-            print(f"   median = {median:.6f}, MAD = {mad:.6f}")
-
-            # --------------------------------------------
-            # 6. Pseudo-label unlabeled
-            # --------------------------------------------
-            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
-                when(col("anomaly_score") > threshold, 1).otherwise(0))
-
-            # --------------------------------------------
-            # 7. Evaluate pseudo-labels (if true labels exist)
-            # --------------------------------------------
-            unlabeled_eval_df = pseudo_labels_df.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
-                how="inner")
-
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
 
 
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
-
-            print("\n📊 Classification report (PCA pseudo-labels on unlabeled):")
-            print(classification_report(y_true, y_pred, digits=3))
-
-            # --------------------------------------------
-            # 8. Merge normal + pseudo-labeled for training
-            # --------------------------------------------
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-
-            # --------------------------------------------
-            # 9. Test set
-            # --------------------------------------------
-            df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
-
-            print("\nSchemas:")
-            df_final_train.printSchema()
-            df_test.printSchema()
-
-            # --------------------------------------------
-            # 10. Full training label quality (diagnostic)
-            # --------------------------------------------
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-
-            print("\n📊 Full training data label quality (PCA novelty):")
-            print(classification_report(y_train_truth, y_train, digits=3))
-            print("\n✅ PCA novelty detection pipeline complete.")
-            exit()
+            from pyspark.ml.feature import PCA as SparkPCA
 
 
-
-
-
-            '''
-            # good ----------------------------------------------------------------------------------------------
+            # good ------
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
 
             # Train on normal logs only
@@ -771,6 +627,36 @@ class FeaturesEngineering:
                 raise ValueError("❌ Not enough data for PCA novelty detection.")
 
             feature_col = "features_vec_final"
+
+
+            candidate_ks = [10, 20, 40, 50]
+            best_k = candidate_ks[-1]
+            target_variance = 0.90  # or 0.95
+
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+
+                pca = SparkPCA(k=k, inputCol="vector_emb", outputCol=f"pca_features_k{k}")
+
+                model = pca.fit(train_normal_df)
+
+                # explainedVariance is a DenseVector of length k
+                explained_variance = float(sum(model.explainedVariance))
+
+                print(f"[INFO] PCA k={k}, explained variance={explained_variance:.4f}")
+
+                if explained_variance >= target_variance:
+                    best_k = k
+                    break
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+            exit()
+
+
+
+
+
+
 
             # -----------------------------
             # 1. Fit PCA on normal only
@@ -855,8 +741,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-            #------------------------------------------------------------
-            '''
+
 
             '''
             print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
