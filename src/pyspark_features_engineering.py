@@ -626,7 +626,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1. Fit PCA on normal only
             # -----------------------------
-            k_pca = 30 # 50  # 🔧 TUNE: try 20, 50, 100
+            k_pca = 50 # 50  # 🔧 TUNE: try 20, 50, 100
             pca = PCA(k=k_pca, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
 
