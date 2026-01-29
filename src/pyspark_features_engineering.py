@@ -278,6 +278,118 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
+            print("\n🧠 Using PCA + KMeans for novelty detection (robust, semi-supervised) ...")
+
+            # -----------------------------
+            # 0. Filter normal and unlabeled logs
+            # -----------------------------
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for PCA + KMeans novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1. Fit PCA on normal logs
+            # -----------------------------
+            pca_probe = PCA(k=min(100, len(train_normal_df.columns)), inputCol=feature_col, outputCol="pca_tmp")
+            pca_probe_model = pca_probe.fit(train_normal_df)
+
+            explained = np.array(pca_probe_model.explainedVariance.toArray())
+            cum_energy = np.cumsum(explained)
+            target_energy = 0.95  # 🔧 tune: 0.90, 0.95, 0.99
+            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
+            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
+
+            # Final PCA
+            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 2. Fit KMeans on PCA features of normal logs
+            # -----------------------------
+            n_clusters = min(5, train_normal_df.count())  # 🔧 tune: 2,3,5,7
+            kmeans = KMeans(featuresCol="pca_features", predictionCol="cluster", k=n_clusters, seed=42)
+            kmeans_model = kmeans.fit(train_pca)
+
+            # -----------------------------
+            # 3. Compute distance to nearest centroid
+            # -----------------------------
+            centers = np.array(kmeans_model.clusterCenters())
+            bc_centers = spark.sparkContext.broadcast(centers)
+
+            @udf(DoubleType())
+            def dist_to_nearest_centroid(vec):
+                x = np.array(vec.toArray())
+                dists = np.linalg.norm(bc_centers.value - x, axis=1)
+                return float(np.min(dists))
+
+            train_pca = train_pca.withColumn("anomaly_score", dist_to_nearest_centroid(col("pca_features")))
+            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score", dist_to_nearest_centroid(col("pca_features")))
+
+            # -----------------------------
+            # 4. Threshold selection (contamination)
+            # -----------------------------
+            expected_anomaly_rate = 0.05  # 🔧 tune: 0.01, 0.03, 0.05
+            threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
+            print(f"📏 PCA + KMeans threshold (contamination={expected_anomaly_rate * 100:.1f}%): {threshold:.6f}")
+
+            # -----------------------------
+            # 5. Two-zone pseudo-labeling
+            # -----------------------------
+            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
+            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
+                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
+
+            # Drop uncertain samples
+            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
+
+            # -----------------------------
+            # 6. Evaluate pseudo-labels
+            # -----------------------------
+            unlabeled_eval_df = pseudo_labels_df.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
+            y_true = pdf_unlabeled["true_label"]
+            y_pred = pdf_unlabeled["pseudo_label"]
+
+            print('Classification_report pseudo-labels (PCA + KMeans)')
+            print(classification_report(y_true, y_pred, digits=3))
+
+            # -----------------------------
+            # 7. Merge pseudo-labeled + normal logs
+            # -----------------------------
+            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
+            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+
+            df_final_train.printSchema()
+            df_test.printSchema()
+
+            # -----------------------------
+            # 8. Full training label quality
+            # -----------------------------
+            pdf_final = df_final_train.toPandas()
+            y_train = pdf_final["Final_Label"].values
+            y_train_truth = pdf_final["Label"].values
+
+            print('Classification_report full training data (PCA + KMeans novelty)')
+            print(classification_report(y_train_truth, y_train, digits=3))
+
+
+
+
+
+
+
+            '''
             print("\n🧠 Using PCA + Mahalanobis for robust semi-supervised novelty detection ...")
 
             # -----------------------------
@@ -389,6 +501,7 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA-Mahalanobis)')
             print(classification_report(y_train_truth, y_train, digits=3))
+            '''
 
 
 
