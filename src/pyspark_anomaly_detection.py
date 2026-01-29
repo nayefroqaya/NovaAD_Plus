@@ -1,22 +1,22 @@
 import time
 import warnings
-from pyspark.sql.functions import when, col
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml import Pipeline
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 import colorama
 import numpy as np
 from pyspark import StorageLevel
 from pyspark.ml import Pipeline
 from pyspark.ml import Pipeline
+from pyspark.ml import Pipeline
+from pyspark.ml.classification import GBTClassifier
 from pyspark.ml.classification import GBTClassifier, RandomForestClassifier
 from pyspark.ml.classification import LogisticRegression, GBTClassifier
 # from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
 from pyspark.ml.classification import LogisticRegression, GBTClassifier
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, DecisionTreeClassifier
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, LinearSVC
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
+from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import (RandomForestClassifier, DecisionTreeClassifier, LogisticRegression)
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
@@ -26,6 +26,7 @@ from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler
@@ -34,22 +35,29 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.sql import DataFrame
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.functions import col
 from pyspark.sql.functions import col, expr
+from pyspark.sql.functions import col, log, when, abs as _abs
 from pyspark.sql.functions import col, monotonically_increasing_id
 from pyspark.sql.functions import col, when
 from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when, abs, log
 from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
 from pyspark.sql.functions import col, when, lit, udf, sum as spark_sum
 from pyspark.sql.functions import lit
 from pyspark.sql.functions import udf, col
+from pyspark.sql.functions import when, col
 # from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.types import ArrayType, DoubleType
@@ -57,14 +65,6 @@ from scipy.stats import randint, uniform
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
-from pyspark.sql.functions import col, when, abs, log
-from pyspark.sql.functions import col, log, when, abs as _abs
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, LinearSVC
-from pyspark.sql.functions import col, when
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.sql.functions import col
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -79,26 +79,36 @@ class AnomalyDetector:
     @staticmethod
     def anomaly_detector(df_final_train, df_val, df_test, mode):
 
-        df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
-        df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
-        df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
+        # -------------------------
+        # 1️⃣ Prepare Data
+        # -------------------------
+        train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                                "features").withColumnRenamed(
+            "Final_Label", "label").cache()
 
-        train_df = (df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                                 "features").withColumnRenamed(
-            "Final_Label", "label").cache())
+        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                        "features").withColumnRenamed(
+            "Final_Label", "label").cache()
+        val_df = df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                      "features").withColumnRenamed(
+            "Final_Label", "label").cache()
 
-        val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                       "features").withColumnRenamed(
-            "Final_Label", "label").cache())
+        # -------------------------
+        # 2️⃣ Calculate Class Weights
+        # -------------------------
+        label_counts = train_df.groupBy("label").count().collect()
+        count_dict = {r["label"]: r["count"] for r in label_counts}
+        total_count = sum(count_dict.values())
 
-        test_df = (df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                         "features").withColumnRenamed(
-            "Final_Label", "label").cache())
+        minority_boost = 1.6
+        class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
+            1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
 
-        train_df.count()
-        val_df.count()
-        test_df.count()
-        #exit()
+        train_df = train_df.withColumn("class_weigh",
+                                       when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+        test_df = test_df.withColumn("class_weigh",
+                                     when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+        print("Class weights applied:", class_weights)
 
         if mode == 'M':
             # =====================================================
@@ -108,17 +118,17 @@ class AnomalyDetector:
             total_count = sum(r["count"] for r in label_counts)
 
             class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
-    
+
             print("Class weights:", class_weights)
 
-            train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            train_df = train_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
 
-            val_df = val_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            val_df = val_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
 
-            test_df = test_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            test_df = test_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
 
             print("TRAIN COLS:", train_df.columns)
             # -------------------------------
@@ -128,14 +138,16 @@ class AnomalyDetector:
             # 2. Define base models
             # -----------------------------
             lr_model = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
+                                          probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01,
+                                          elasticNetParam=0.0)
 
             rf_model = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=20,
-                minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
+                                              probabilityCol="rf_prob", rawPredictionCol="rf_raw",
+                                              predictionCol="rf_pred", numTrees=200, maxDepth=20,
+                                              minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
 
             svc_model = LinearSVC(featuresCol="features", labelCol="label", weightCol="class_weight",
-                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
+                                  predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
 
             # -----------------------------
             # 3. Train base models
@@ -159,8 +171,8 @@ class AnomalyDetector:
                                                                            abs(col(f"{prefix}_1") - col(
                                                                                f"{prefix}_0"))).withColumn(
                         f"{prefix}_entropy", -(
-                                    col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
-                                col(f"{prefix}_0") + 1e-9))))
+                                col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
+                            col(f"{prefix}_0") + 1e-9))))
 
             def prepare_meta(df):
                 df = add_probs(df, lr_model, "lr_prob", "lr")
@@ -189,8 +201,8 @@ class AnomalyDetector:
             # 6. Train meta LogisticRegression
             # -----------------------------
             meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
-                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
-                regParam=0.01, elasticNetParam=0.0)
+                                         predictionCol="last_pred_label", probabilityCol="final_prob",
+                                         rawPredictionCol="meta_raw", maxIter=100, regParam=0.01, elasticNetParam=0.0)
 
             stack_model = meta_lr.fit(train_meta)
 
@@ -222,7 +234,7 @@ class AnomalyDetector:
             start_predict = time.time()
             test_preds = stack_model.transform(test_meta).withColumn("prob_1", vector_to_array("final_prob")[1])
             final_test_predictions = test_preds.withColumn("last_pred_label",
-                when(col("prob_1") >= best_threshold, 1).otherwise(0))
+                                                           when(col("prob_1") >= best_threshold, 1).otherwise(0))
             end_predict = time.time()
             predict_time = (end_predict - start_predict) / 60
 
@@ -230,31 +242,53 @@ class AnomalyDetector:
             # 9. Return results
             # -----------------------------
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
-                "predict_time": predict_time}
+                    "predict_time": predict_time}
 
-        else:   # -----------------------------------
+        else:  # -----------------------------------
 
-            # GBT directly
+            # -------------------------
+            # 3️⃣ Define GBTClassifier
+            # -------------------------
             gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="class_weight", seed=42)
 
-            # Param grid
-            paramGrid = (ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]).addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]).build())
+            # -------------------------
+            # 4️⃣ Hyperparameter Grid
+            # -------------------------
+            paramGrid = ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]).addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]).build()
 
-            # F1 evaluator
-            f1_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction"
-                                                             , metricName="f1")
+            f1_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction",
+                metricName="f1")
 
-            # CrossValidator
-            crossval = CrossValidator(
-                estimator=gbt,       # use gbt directly
-                estimatorParamMaps=paramGrid,
-                evaluator=f1_evaluator,
-                numFolds=3,
-                parallelism=4
+            # -------------------------
+            # 5️⃣ CrossValidator (directly with GBTClassifier)
+            # -------------------------
+            crossval = CrossValidator(estimator=gbt,  # pass GBT directly
+                estimatorParamMaps=paramGrid, evaluator=f1_evaluator, numFolds=3, parallelism=4)
+
+            # -------------------------
+            # 6️⃣ Train Best Model
+            # -------------------------
+            cv_model = crossval.fit(train_df)
+            best_model = cv_model.bestModel
+
+            # -------------------------
+            # 7️⃣ Evaluate on Test Set
+            # -------------------------
+            predictions = best_model.transform(test_df)
+
+            precision_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedPrecision"
             )
+            recall_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="weightedRecall"
+            )
+            f1 = f1_evaluator.evaluate(predictions)
+            precision = precision_evaluator.evaluate(predictions)
+            recall = recall_evaluator.evaluate(predictions)
 
+            print(f"Best Model Test F1-score: {f1:.4f}")
+            print(f"Weighted Precision: {precision:.4f}")
+            print(f"Weighted Recall: {recall:.4f}")
 
-
+            exit()
 
             # -------------------------
             # 5️⃣ Train Best Model
@@ -267,8 +301,10 @@ class AnomalyDetector:
             # -------------------------
             predictions = best_model.transform(test_df)
 
-            precision_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedPrecision")
-            recall_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedRecall")
+            precision_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio",
+                                                                    metricName="weightedPrecision")
+            recall_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio",
+                                                                 metricName="weightedRecall")
 
             f1 = f1_evaluator.evaluate(predictions)
             precision = precision_evaluator.evaluate(predictions)
@@ -290,15 +326,15 @@ class AnomalyDetector:
             # Boost minority class
             minority_boost = 1.6  # can tune 1.2–1.6
             class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
-                1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
+                             1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
 
             print("Improved Class weights:", class_weights)
 
             train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+                                           when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
 
             test_df = test_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+                                         when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
 
             print("TRAIN COLS:", train_df.columns)
 
@@ -307,11 +343,11 @@ class AnomalyDetector:
             # =====================================================
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
+                                        probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
 
-                numTrees=600, maxDepth=18, minInstancesPerNode=10, minInfoGain=1e-4,
+                                        numTrees=600, maxDepth=18, minInstancesPerNode=10, minInfoGain=1e-4,
 
-                subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
+                                        subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
 
             rf_model = rf.fit(train_df)
 
@@ -336,7 +372,7 @@ class AnomalyDetector:
                 print(f"\n================ {name} ================")
 
                 df2 = df.select(col(pred_col).cast("double").alias("prediction"),
-                    col(label_col).cast("double").alias("label")).dropna()
+                                col(label_col).cast("double").alias("label")).dropna()
 
                 if df2.count() == 0:
                     print("❌ Empty DataFrame for metrics.")
@@ -370,11 +406,10 @@ class AnomalyDetector:
             # 7. THRESHOLD TUNING (POST-PROCESS TO IMPROVE CLASS 1)
             # =====================================================
 
-            for THRESHOLD in [ 0.4, 0.45, 0.5, 0.6, 0.7]:
+            for THRESHOLD in [0.4, 0.45, 0.5, 0.6, 0.7]:
                 tmp = test_preds.withColumn("prediction", (col("p_class1") >= THRESHOLD).cast("double"))
 
                 print_binary_classification_report(tmp, name=f"RF Test (threshold={THRESHOLD})")
-
 
             exit()
 
@@ -388,33 +423,33 @@ class AnomalyDetector:
             class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
             print("Class weights:", class_weights)
 
-            train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            train_df = train_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
 
-            #val_df = val_df.withColumn("class_weight",
+            # val_df = val_df.withColumn("class_weight",
             #    when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-            #row_count = val_df.count()
-            #print(f"\n[DEBUG] DataFrame validation  row count = {row_count}")
-            #exit()
+            # row_count = val_df.count()
+            # print(f"\n[DEBUG] DataFrame validation  row count = {row_count}")
+            # exit()
 
-
-            test_df = test_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            test_df = test_df.withColumn("class_weight", when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(
+                class_weights.get(1, 1.0)))
             print("TRAIN COLS:", train_df.columns)
 
             # =====================================================
             # 2. RANDOM FOREST TRAINING
             # =====================================================
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
-                maxDepth=25, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
+                                        probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
+                                        numTrees=400, maxDepth=25, minInstancesPerNode=5, subsamplingRate=0.8,
+                                        featureSubsetStrategy="sqrt", seed=42)
 
             rf_model = rf.fit(train_df)
 
             # =====================================================
             # 3. PREDICTIONS
             # =====================================================
-            #val_preds = rf_model.transform(val_df)
+            # val_preds = rf_model.transform(val_df)
             test_preds = rf_model.transform(test_df)
 
             # =====================================================
@@ -429,7 +464,7 @@ class AnomalyDetector:
                     return
 
                 df2 = df.select(col(pred_col).cast("double").alias("prediction"),
-                    col(label_col).cast("double").alias("label")).dropna()
+                                col(label_col).cast("double").alias("label")).dropna()
 
                 df2_count = df2.count()
                 print(f"[DEBUG] {name} after dropna row count = {df2_count}")
@@ -471,9 +506,8 @@ class AnomalyDetector:
             # =====================================================
             # 5. RUN REPORTS
             # =====================================================
-            #print_classification_report(val_preds, name="RF Validation")
+            # print_classification_report(val_preds, name="RF Validation")
             print_classification_report(test_preds, name="RF Test")
-
 
             exit()
 
@@ -499,11 +533,11 @@ class AnomalyDetector:
             print("TRAIN COLS:", train_df.columns)
 
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction", numTrees=400,
-                # try 200–600
-                maxDepth=25,  # try 20–30
-                minInstancesPerNode=5,  # allow rare patterns
-                subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
+                                        probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
+                                        numTrees=400, # try 200–600
+                                        maxDepth=25,  # try 20–30
+                                        minInstancesPerNode=5,  # allow rare patterns
+                                        subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
 
             rf_model = rf.fit(train_df)
 
@@ -671,32 +705,7 @@ class AnomalyDetector:
             
             '''
 
-
             exit()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
             # ------- it is ok but not perfect :
             start_fit = time.time()
@@ -832,61 +841,6 @@ class AnomalyDetector:
             # =====================================================
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                     "predict_time": predict_time}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     '''
     def anomaly_detector(df_final,df_val, df_test , X_train, y_train, X_test, y_test_truth, X_val, y_val_truth):
