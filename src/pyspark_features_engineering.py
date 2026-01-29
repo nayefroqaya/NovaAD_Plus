@@ -286,7 +286,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1. First PCA to get energy curve
             # -----------------------------
-            pca_probe = PCA(k=200, inputCol=feature_col, outputCol="pca_tmp")
+            pca_probe = PCA(k=59, inputCol=feature_col, outputCol="pca_tmp")
             pca_probe_model = pca_probe.fit(train_normal_df)
 
             explained = np.array(pca_probe_model.explainedVariance.toArray())
