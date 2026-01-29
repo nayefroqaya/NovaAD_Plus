@@ -655,7 +655,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (from normal)
             # -----------------------------
-            threshold = train_pca.approxQuantile("anomaly_score", [0.95], 0.01)[0]
+            threshold = train_pca.approxQuantile("anomaly_score", [0.85], 0.01)[0]
 
             print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
 
