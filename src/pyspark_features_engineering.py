@@ -335,7 +335,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 4. Threshold selection (contamination)
             # -----------------------------
-            expected_anomaly_rate = 0.05  # 🔧 tune: 0.01, 0.03, 0.05
+            expected_anomaly_rate = 0.1  # 🔧 tune: 0.01, 0.03, 0.05
             threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
             print(f"📏 PCA + KMeans threshold (contamination={expected_anomaly_rate * 100:.1f}%): {threshold:.6f}")
 
