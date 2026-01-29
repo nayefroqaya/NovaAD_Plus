@@ -51,6 +51,11 @@ from pyspark.sql.functions import col, when, array_max
 from pyspark.sql.types import DoubleType
 from pyspark.sql.functions import udf
 import numpy as np
+from pyspark.ml.feature import PCA
+from pyspark.ml.linalg import Vectors, DenseVector
+from pyspark.sql.functions import udf
+from pyspark.sql.types import DoubleType
+import numpy as np
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -263,9 +268,116 @@ class FeaturesEngineering:
             raise ValueError("❌ No normal logs (Temp_label=0) found for training.")
         if unlabeled_train_df.count() == 0:
             raise ValueError("❌ No unlabeled logs (Temp_label=999) found for novelty detection.")
-
+        #--------------------------------------------------------------------------------
         # Ensure feature column is vector type
         if method.lower() == "gmm":
+
+            print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
+
+            # Train on normal logs only
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for PCA novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1. Fit PCA on normal only
+            # -----------------------------
+            k_pca = 50  # 🔧 TUNE: try 20, 50, 100
+            pca = PCA(k=k_pca, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            # Transform
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 2. Reconstruction error UDF
+            # -----------------------------
+            pc = pca_model.pc.toArray()
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray())
+                z = np.array(pca_vec.toArray())
+                x_hat = np.dot(pc, z)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca = train_pca.withColumn("anomaly_score",
+                reconstruction_error(col(feature_col), col("pca_features")))
+
+            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score",
+                reconstruction_error(col(feature_col), col("pca_features")))
+
+            # -----------------------------
+            # 3. Thresholds (from normal)
+            # -----------------------------
+            threshold = train_pca.approxQuantile("anomaly_score", [0.99], 0.01)[0]
+
+            print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
+
+            # -----------------------------
+            # 4. Pseudo-labels (same style)
+            # -----------------------------
+            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
+                when(col("anomaly_score") > threshold, 1).otherwise(0))
+
+            # -----------------------------
+            # 5. Evaluate pseudo-labels
+            # -----------------------------
+            unlabeled_eval_df = pseudo_labels_df.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
+
+            y_true = pdf_unlabeled["true_label"]
+            y_pred = pdf_unlabeled["pseudo_label"]
+
+            print('Classification_report only for pseudo-label on unlabeled data (PCA)')
+            print(classification_report(y_true, y_pred, digits=3))
+
+            # -----------------------------
+            # 6. Merge pseudo-labeled + normal
+            # -----------------------------
+            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
+
+            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+            df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
+
+            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
+
+            df_final_train.printSchema()
+            df_test.printSchema()
+            df_val.printSchema()
+
+            # -----------------------------
+            # 7. Full training label quality
+            # -----------------------------
+            pdf_final = df_final_train.toPandas()
+            y_train = pdf_final["Final_Label"].values
+            y_train_truth = pdf_final["Label"].values
+
+            print('Classification_report full training data (PCA novelty)')
+            print(classification_report(y_train_truth, y_train, digits=3))
+
+
+
+
+
+
+
+
+
+
+
+
             '''
             print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
 
@@ -386,6 +498,8 @@ class FeaturesEngineering:
 
             exit()
             '''
+
+            '''
             print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
             # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
@@ -462,8 +576,9 @@ class FeaturesEngineering:
             y_train_truth = pdf_final["Label"].values
             print('Classification_report full training data')
             print(classification_report(y_train_truth, y_train, digits=3))
+            '''
 
-            #exit()
+            exit()
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
