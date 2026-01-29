@@ -626,7 +626,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1. Fit PCA on normal only
             # -----------------------------
-            k_pca = 60  # 🔧 TUNE: try 20, 50, 100
+            k_pca = 50  # 🔧 TUNE: try 20, 50, 100
             pca = PCA(k=k_pca, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
 
@@ -655,7 +655,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (from normal)
             # -----------------------------
-            threshold = train_pca.approxQuantile("anomaly_score", [0.99], 0.01)[0]
+            threshold = train_pca.approxQuantile("anomaly_score", [0.95], 0.01)[0]
 
             print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
 
