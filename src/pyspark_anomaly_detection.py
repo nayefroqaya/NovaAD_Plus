@@ -230,6 +230,105 @@ class AnomalyDetector:
         else:   # -----------------------------------
 
             # =====================================================
+            # 1. AUTOMATIC CLASS WEIGHTS (IMPROVED)
+            # =====================================================
+
+            label_counts = train_df.groupBy("label").count().collect()
+            count_dict = {r["label"]: r["count"] for r in label_counts}
+            total_count = sum(count_dict.values())
+
+            # Boost minority class
+            minority_boost = 1.3  # can tune 1.2–1.6
+            class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
+                1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
+
+            print("Improved Class weights:", class_weights)
+
+            train_df = train_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+
+            test_df = test_df.withColumn("class_weight",
+                when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
+
+            print("TRAIN COLS:", train_df.columns)
+
+            # =====================================================
+            # 2. RANDOM FOREST TRAINING (REGULARIZED)
+            # =====================================================
+
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
+                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
+
+                numTrees=600, maxDepth=18, minInstancesPerNode=10, minInfoGain=1e-4,
+
+                subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
+
+            rf_model = rf.fit(train_df)
+
+            # =====================================================
+            # 3. PREDICTIONS
+            # =====================================================
+
+            test_preds = rf_model.transform(test_df)
+
+            # =====================================================
+            # 4. PROBABILITY EXTRACTION (FOR THRESHOLDING)
+            # =====================================================
+
+            get_p1 = udf(lambda v: float(v[1]), DoubleType())
+            test_preds = test_preds.withColumn("p_class1", get_p1(col("rf_prob")))
+
+            # =====================================================
+            # 5. PER-CLASS PRECISION, RECALL, F1 FUNCTION
+            # =====================================================
+
+            def print_binary_classification_report(df, label_col="label", pred_col="prediction", name=""):
+                print(f"\n================ {name} ================")
+
+                df2 = df.select(col(pred_col).cast("double").alias("prediction"),
+                    col(label_col).cast("double").alias("label")).dropna()
+
+                if df2.count() == 0:
+                    print("❌ Empty DataFrame for metrics.")
+                    return
+
+                preds_and_labels = df2.rdd.map(lambda r: (r["prediction"], r["label"]))
+                metrics = MulticlassMetrics(preds_and_labels)
+
+                # Confusion matrix to get support
+                cm = metrics.confusionMatrix().toArray()
+
+                for cls in [0.0, 1.0]:
+                    precision = metrics.precision(cls)
+                    recall = metrics.recall(cls)
+                    f1 = metrics.fMeasure(cls)
+                    support = int(cm[int(cls)].sum())
+
+                    print(f"Class {int(cls)}:")
+                    print(f"  Precision = {precision:.4f}")
+                    print(f"  Recall    = {recall:.4f}")
+                    print(f"  F1-score  = {f1:.4f}")
+                    print(f"  Support   = {support}\n")
+
+            # =====================================================
+            # 6. BASELINE (DEFAULT THRESHOLD 0.5)
+            # =====================================================
+
+            print_binary_classification_report(test_preds, name="RF Test (default threshold=0.5)")
+
+            # =====================================================
+            # 7. THRESHOLD TUNING (POST-PROCESS TO IMPROVE CLASS 1)
+            # =====================================================
+
+            for THRESHOLD in [0.35, 0.4, 0.45, 0.5]:
+                tmp = test_preds.withColumn("prediction", (col("p_class1") >= THRESHOLD).cast("double"))
+
+                print_binary_classification_report(tmp, name=f"RF Test (threshold={THRESHOLD})")
+
+
+            exit()
+
+            # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS
             # =====================================================
 
