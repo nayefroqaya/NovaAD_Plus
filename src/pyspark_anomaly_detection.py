@@ -243,6 +243,10 @@ class AnomalyDetector:
 
             val_df = val_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
+            row_count = val_df.count()
+            print(f"\n[DEBUG] DataFrame row count = {row_count}")
+            exit()
+
 
             test_df = test_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
@@ -261,7 +265,7 @@ class AnomalyDetector:
             # =====================================================
             # 3. PREDICTIONS
             # =====================================================
-            val_preds = rf_model.transform(val_df)
+            #val_preds = rf_model.transform(val_df)
             test_preds = rf_model.transform(test_df)
 
             # =====================================================
@@ -316,7 +320,7 @@ class AnomalyDetector:
             # =====================================================
             # 5. RUN REPORTS
             # =====================================================
-            print_classification_report(val_preds, name="RF Validation")
+            #print_classification_report(val_preds, name="RF Validation")
             print_classification_report(test_preds, name="RF Test")
 
 
