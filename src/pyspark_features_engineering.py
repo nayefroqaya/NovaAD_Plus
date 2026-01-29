@@ -498,7 +498,7 @@ class FeaturesEngineering:
             print('Classification_report full training data (PCA-Mahalanobis)')
             print(classification_report(y_train_truth, y_train, digits=3))
             '''
-
+            '''
             print("\n🧠 Using PCA for novelty detection (robust, semi-supervised) ...")
 
             # Train on normal logs only
@@ -609,13 +609,9 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA robust novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-
-
-
-
-
-
             '''
+
+
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
 
             # Train on normal logs only
@@ -711,7 +707,7 @@ class FeaturesEngineering:
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
             
-            '''
+
 
 
             '''
