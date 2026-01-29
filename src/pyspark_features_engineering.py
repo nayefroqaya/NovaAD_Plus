@@ -327,7 +327,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 4. Contamination-based threshold (OCSVM equivalent)
             # -----------------------------
-            expected_anomaly_rate = 0.03  # 🔧 try 0.01, 0.03, 0.05
+            expected_anomaly_rate = 0.05  # 🔧 try 0.01, 0.03, 0.05
 
             threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
 
