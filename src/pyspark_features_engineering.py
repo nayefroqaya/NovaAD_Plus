@@ -720,7 +720,7 @@ class FeaturesEngineering:
 
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
 
-            #df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
+            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
 
             df_final_train.printSchema()
             df_test.printSchema()
