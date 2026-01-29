@@ -42,3 +42,7 @@ BGL_Topic_sentiment_diff_df.parquet/
 BGL_Topic_sentiment_diff_semantic_df.parquet/
 BGL_sentiment_df.parquet/
 __pycache__/pyspark_anomaly_detection.cpython-310.pyc
+HDFS_Topic_sentiment_df.parquet/
+HDFS_Topic_sentiment_diff_df.parquet/
+HDFS_Topic_sentiment_diff_semantic_df.parquet/
+HDFS_sentiment_df.parquet/
