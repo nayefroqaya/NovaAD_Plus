@@ -628,29 +628,36 @@ class FeaturesEngineering:
 
             feature_col = "features_vec_final"
 
+            candidate_ks = [10, 20, 30, 50, 60, 70]
+            target_variance = 0.999
 
-            candidate_ks = [10, 20, 30, 50]
-            best_k = candidate_ks[-1]
-            target_variance = 0.999  # or 0.95
+            best_k = None
 
             for k in candidate_ks:
                 print(f"[INFO] Testing PCA with k={k}")
 
                 pca = SparkPCA(k=k, inputCol="features_vec_final", outputCol=f"pca_features_k{k}")
 
-                model = pca.fit(train_normal_df)
+                pca_model = pca.fit(train_normal_df)
 
                 # explainedVariance is a DenseVector of length k
-                explained_variance = float(sum(model.explainedVariance))
+                explained_variance = float(sum(pca_model.explainedVariance))
 
-                print(f"[INFO] PCA k={k}, explained variance={explained_variance:.4f}")
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
 
+                # ✅ Take FIRST k that reaches target variance
                 if explained_variance >= target_variance:
                     best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
                     break
 
+            # Fallback if none reached target variance
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
             print(f"[RESULT] Selected PCA components (best_k): {best_k}")
-            #exit()
+            exit()
 
             # -----------------------------
             # 1. Fit PCA on normal only
