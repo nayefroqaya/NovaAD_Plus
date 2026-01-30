@@ -87,7 +87,7 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesExtractor:
 
     @staticmethod
-    def features_extracting_configuring_tuning(features_extracting_obj, doc_topic_df_path, sentiment_df_path,
+    def features_extracting_configuring_tuning(round_id,features_extracting_obj, doc_topic_df_path, sentiment_df_path,
                                                Dataset_name, pre_final_global_features_pkl_path, df_features, spark):
 
         """
@@ -153,7 +153,7 @@ class FeaturesExtractor:
         print("[INFO] Starting semantic feature extraction using BERT embeddings...")
         df_feature_full_dataset = df_features
 
-        number_component, final_all_features_df = features_extracting_obj.start_semantic_extraction(Dataset_name, spark,
+        number_component, final_all_features_df = features_extracting_obj.start_semantic_extraction(round_id,Dataset_name, spark,
                                                                                                     df_feature_full_dataset,
                                                                                                     text_col="processed_EventTemplate",
                                                                                                     device="cpu",
@@ -446,7 +446,7 @@ class FeaturesExtractor:
     # ---------------------------------------------------------
     # 3️⃣ Semantic feature extraction with PCA fine-tuning
     # ---------------------------------------------------------
-    def start_semantic_extraction(self, Dataset_name, spark, sdf_features, text_col="processed_EventTemplate",
+    def start_semantic_extraction(self, round_id,Dataset_name, spark, sdf_features, text_col="processed_EventTemplate",
                                   device="cpu", batch_size=64, target_variance=0.95, max_pca_k=50):
 
         # -------------------------------
@@ -542,7 +542,7 @@ class FeaturesExtractor:
                                       how="left")
         sdf_final.printSchema()
 
-        output_path = Dataset_name + "_Topic_sentiment_diff_semantic_df.parquet"
+        output_path =round_id + '_'+ Dataset_name + "_Topic_sentiment_diff_semantic_df.parquet"
         sdf_final.write.mode("overwrite").parquet(output_path)
         print(f"✅ Topic_sentiment_diff_semanti  saved successfully to {output_path}")
 

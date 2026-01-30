@@ -111,6 +111,39 @@ class Utilities:
         # =============================
         # Dataset splitting
         # =============================
+        # =============================
+        # Dataset splitting (FIXED)- New
+        # =============================
+        unique_ids_df = df_features.select("Node_block_id").distinct()
+        total_ids = unique_ids_df.count()
+
+        if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB', 'TH_1G', 'TH_2G', 'TH_5G', 'S_BGL']:
+
+            # Deterministic shuffle with row numbers (pandas-equivalent)
+            seed = 42
+            w = Window.orderBy(F.rand(seed))
+
+            shuffled = unique_ids_df.withColumn("rn", F.row_number().over(w))
+
+            train_size = int(0.6 * total_ids)
+            val_size = int(0.1 * total_ids)
+
+            train_ids = shuffled.filter(F.col("rn") <= train_size).select("Node_block_id")
+
+            val_ids = shuffled.filter(
+                (F.col("rn") > train_size) &
+                (F.col("rn") <= train_size + val_size)
+            ).select("Node_block_id")
+
+            test_ids = shuffled.filter(
+                F.col("rn") > train_size + val_size
+            ).select("Node_block_id")
+
+        else:
+            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
+
+        '''
+        # old split 
         unique_ids_df = df_features.select("Node_block_id").distinct()
         total_ids = unique_ids_df.count()
 
@@ -128,7 +161,7 @@ class Utilities:
 
         else:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
-
+        '''
         # =============================
         # Check for overlaps
         # =============================
