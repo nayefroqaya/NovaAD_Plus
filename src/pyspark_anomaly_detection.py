@@ -1,10 +1,5 @@
 import time
 import warnings
-from pyspark.sql.functions import when, col
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml import Pipeline
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
 
 import colorama
 import numpy as np
@@ -79,35 +74,26 @@ class AnomalyDetector:
     @staticmethod
     def anomaly_detector(df_final_train, df_val, df_test, mode):
 
-        # -------------------------
-        # 1️⃣ Prepare Data
-        # -------------------------
-        train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final"
-                                                                                                , "features").withColumnRenamed("Final_Label", "label").cache()
+        df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
+        df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
+        df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
 
-        test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final", "features").withColumnRenamed("Final_Label", "label") \
-            .cache()
+        train_df = (df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                                 "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
+        val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                       "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
-        '''
+        test_df = (df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+                                                                                         "features").withColumnRenamed(
+            "Final_Label", "label").cache())
 
-        # -------------------------
-        # 2️⃣ Calculate Class Weights
-        # -------------------------
-        label_counts = train_df.groupBy("label").count().collect()
-        count_dict = {r["label"]: r["count"] for r in label_counts}
-        total_count = sum(count_dict.values())
-
-        minority_boost = 1.6
-        class_weights = {
-            0: total_count / (2.0 * count_dict.get(0, 1)),
-            1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))
-        }
-
-        train_df = train_df.withColumn("class_weigh", when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
-        test_df = test_df.withColumn("class_weigh", when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
-        print("Class weights applied:", class_weights)
-        '''
+        train_df.count()
+        val_df.count()
+        test_df.count()
+        #exit()
 
         if mode == 'M':
             # =====================================================
@@ -241,128 +227,8 @@ class AnomalyDetector:
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                 "predict_time": predict_time}
 
-        else:   # -----------------------------------
-
-            # -------------------------
-            # 1️⃣ Prepare Data
-            # -------------------------
-            train_df = df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final", "features") \
-                .withColumnRenamed("Final_Label", "label") \
-                .cache()
-
-            test_df = df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final", "features") \
-                .withColumnRenamed("Final_Label", "label").cache()
-
-            # -------------------------
-            # 2️⃣ Upsample Minority Class
-            # -------------------------
-            # Count class distribution
-            label_counts = train_df.groupBy("label").count().collect()
-            count_dict = {r["label"]: r["count"] for r in label_counts}
-
-            # Calculate oversample fraction for minority class
-            # e.g., 1.6x minority
-            majority_count = count_dict.get(0, 1)
-            minority_count = count_dict.get(1, 1)
-            oversample_fraction = 1.6 * majority_count / minority_count
-
-            # Filter minority and majority
-            minority_df = train_df.filter(col("label") == 1)
-            majority_df = train_df.filter(col("label") == 0)
-
-            # Oversample minority
-            minority_oversampled = minority_df.sample(withReplacement=True, fraction=oversample_fraction, seed=42)
-
-            # Combine back to training set
-            train_df_balanced = majority_df.union(minority_oversampled).cache()
-            print("Balanced training set counts:")
-            train_df_balanced.groupBy("label").count().show()
-
-            # -------------------------
-            # 3️⃣ Define GBTClassifier
-            # -------------------------
-            gbt = GBTClassifier(featuresCol="features", labelCol="label", seed=42)
-
-            # -------------------------
-            # 4️⃣ Hyperparameter Grid
-            # -------------------------
-            paramGrid = ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5, 7]) \
-                .addGrid(gbt.maxIter, [50, 100]).addGrid(gbt.stepSize, [0.1, 0.2]) \
-                .build()
-
-            f1_evaluator = MulticlassClassificationEvaluator(
-                labelCol="label", predictionCol="prediction"
-                , metricName="f1"
-            )
-
-            # -------------------------
-            # 5️⃣ CrossValidator
-            # -------------------------
-            crossval = CrossValidator(
-                estimator=gbt,
-                estimatorParamMaps=paramGrid,
-                evaluator=f1_evaluator,
-                numFolds=3,
-                parallelism=4
-            )
-
-            # -------------------------
-            # 6️⃣ Train Best Model
-            # -------------------------
-            cv_model = crossval.fit(train_df_balanced)
-            best_model = cv_model.bestModel
-
-            # -------------------------
-            # 7️⃣ Evaluate on Test Set
-            # -------------------------
-            predictions = best_model.transform(test_df)
-
-            precision_evaluator = MulticlassClassificationEvaluator(
-                labelCol="label", predictionCol="prediction", metricName="weightedPrecision"
-            )
-            recall_evaluator = MulticlassClassificationEvaluator(
-                labelCol="label", predictionCol="prediction", metricName="weightedRecall"
-            )
-
-            f1 = f1_evaluator.evaluate(predictions)
-            precision = precision_evaluator.evaluate(predictions)
-            recall = recall_evaluator.evaluate(predictions)
-
-            print(f"Best Model Test F1-score: {f1:.4f}")
-            print(f"Weighted Precision: {precision:.4f}")
-            print(f"Weighted Recall: {recall:.4f}")
-
-
-
-
-            exit()
-
-
-
-            # -------------------------
-            # 5️⃣ Train Best Model
-            # -------------------------
-            cv_model = crossval.fit(train_df)
-            best_model = cv_model.bestModel
-
-            # -------------------------
-            # 6️⃣ Evaluate on Test Set
-            # -------------------------
-            predictions = best_model.transform(test_df)
-
-            precision_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedPrecision")
-            recall_evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="predictio", metricName="weightedRecall")
-
-            f1 = f1_evaluator.evaluate(predictions)
-            precision = precision_evaluator.evaluate(predictions)
-            recall = recall_evaluator.evaluate(predictions)
-
-            print(f"Best Model Test F1-score: {f1:.4f}")
-            print(f"Weighted Precision: {precision:.4f}")
-            print(f"Weighted Recall: {recall:.4f}")
-            exit()
-
-            # =====================================================
+        else:   # ------------------------------------------------------------------------------------------------------
+             # =====================================================
             # 1. AUTOMATIC CLASS WEIGHTS (IMPROVED)
             # =====================================================
 
@@ -453,7 +319,7 @@ class AnomalyDetector:
             # 7. THRESHOLD TUNING (POST-PROCESS TO IMPROVE CLASS 1)
             # =====================================================
 
-            for THRESHOLD in [ 0.4, 0.45, 0.5, 0.6, 0.7]:
+            for THRESHOLD in [ 0.5, 0.6, 0.7,0.8,0.9,0.95,0.99]:
                 tmp = test_preds.withColumn("prediction", (col("p_class1") >= THRESHOLD).cast("double"))
 
                 print_binary_classification_report(tmp, name=f"RF Test (threshold={THRESHOLD})")
