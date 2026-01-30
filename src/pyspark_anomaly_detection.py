@@ -258,7 +258,7 @@ class AnomalyDetector:
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
                 probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="prediction",
 
-                numTrees=600, maxDepth=18, minInstancesPerNode=10, minInfoGain=1e-4,
+                numTrees=800, maxDepth=22, minInstancesPerNode=2, minInfoGain=1e-4,
 
                 subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=42)
 
