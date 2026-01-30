@@ -243,7 +243,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '2'
     mode = 'x'
     Mix_or_stable = '0'
 
@@ -272,7 +272,7 @@ def main():
     #print(' Reading the file was done successfully ')
     #exit()
 
-
+    '''
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -342,11 +342,10 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     exit()
+    '''
 
 
     # ---------------- Load feature PKL → Spark ----------------
-
-
     # ✅ Load from Parquet
     output_path = round_id + '_'+DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
@@ -355,7 +354,6 @@ def main():
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
     os.makedirs(SPILL_DIR, exist_ok=True)
-
 
     start_agree_trans= time.time()
 
