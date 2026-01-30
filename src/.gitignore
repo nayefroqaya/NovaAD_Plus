@@ -18,6 +18,7 @@
 # Python cache
 __pycache__/
 *.pyc
+*.parquet/
 
 # Spark / PySpark artifacts
 tmp/spark-events/
