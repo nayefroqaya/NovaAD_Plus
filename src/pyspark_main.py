@@ -285,8 +285,8 @@ def main():
     train_df = train_df.persist(StorageLevel.MEMORY_AND_DISK)
     validate_df = validate_df.persist(StorageLevel.MEMORY_AND_DISK)
     test_df = test_df.persist(StorageLevel.MEMORY_AND_DISK)
-    train_df.count();
-    validate_df.count();
+    train_df.count()
+    validate_df.count()
     test_df.count()
     #exit()
 
@@ -341,7 +341,7 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    #exit()
+    exit()
 
     # ---------------- Load feature PKL → Spark ----------------
 
