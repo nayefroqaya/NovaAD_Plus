@@ -711,8 +711,17 @@ class FeaturesEngineering:
                 threshold = float(np.quantile(scores, 0.995))
                 print("[WARNING] Knee not found. Fallback threshold = 99.5% quantile.")
             else:
-                threshold = float(scores[knee.knee])
-                print(f"[INFO] Knee index = {knee.knee}")
+
+                knee_idx = knee.knee
+                knee_thr = float(scores[knee_idx])
+
+                alpha = 0.85  # try 0.9, 0.85, 0.8
+                threshold = alpha * knee_thr
+
+                print(f"[INFO] knee_thr={knee_thr:.6f}, relaxed threshold={threshold:.6f} (alpha={alpha})")
+
+                #threshold = float(scores[knee.knee])
+                #print(f"[INFO] Knee index = {knee.knee}")
 
             print(f"\n✅ PCA anomaly threshold (knee on normal): {threshold:.6f}")
 
