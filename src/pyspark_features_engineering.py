@@ -3,6 +3,8 @@ import math
 import numpy as np
 import pandas as pd
 import warnings
+from kneed import KneeLocator
+import numpy as np
 from itertools import product
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import RandomForestClassifier
@@ -691,9 +693,28 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (from normal)
             # -----------------------------
-            threshold = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
+            #threshold = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
+            #print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
+            # -----------------------------
+            # 3. Thresholds (knee/elbow from normal)
+            # -----------------------------
+            # Collect normal reconstruction errors to driver
+            scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
 
-            print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
+            scores = np.sort(scores)
+            x = np.arange(len(scores))
+
+            knee = KneeLocator(x, scores, curve="convex", direction="increasing")
+
+            if knee.knee is None:
+                # Fallback if knee not found (use a conservative high quantile)
+                threshold = float(np.quantile(scores, 0.995))
+                print("[WARNING] Knee not found. Fallback threshold = 99.5% quantile.")
+            else:
+                threshold = float(scores[knee.knee])
+                print(f"[INFO] Knee index = {knee.knee}")
+
+            print(f"\n✅ PCA anomaly threshold (knee on normal): {threshold:.6f}")
 
             # -----------------------------
             # 4. Pseudo-labels (same style)
