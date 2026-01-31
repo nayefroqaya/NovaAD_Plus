@@ -715,7 +715,7 @@ class FeaturesEngineering:
                 knee_idx = knee.knee
                 knee_thr = float(scores[knee_idx])
 
-                alpha = 0.85  # try 0.9, 0.85, 0.8
+                alpha = 0.90  # try 0.9, 0.85, 0.8
                 threshold = alpha * knee_thr
 
                 print(f"[INFO] knee_thr={knee_thr:.6f}, relaxed threshold={threshold:.6f} (alpha={alpha})")
