@@ -703,22 +703,26 @@ class FeaturesEngineering:
 
             scores = np.sort(scores)
             x = np.arange(len(scores))
-
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
+            knee_idx = knee.knee
+            p_knee = (knee_idx + 1) / len(scores)  # approx percentile of knee
+            p_use = max(p_knee - 0.02, 0.90)  # move 2% left, never below 90%
+            threshold = float(np.quantile(scores, p_use))
 
-            if knee.knee is None:
-                # Fallback if knee not found (use a conservative high quantile)
-                threshold = float(np.quantile(scores, 0.995))
-                print("[WARNING] Knee not found. Fallback threshold = 99.5% quantile.")
-            else:
+            print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
 
-                knee_idx = knee.knee
-                knee_thr = float(scores[knee_idx])
+            #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
+#           #if knee.knee is None:
+            #   # Fallback if knee not found (use a conservative high quantile)
+            #   threshold = float(np.quantile(scores, 0.995))
+            #    print("[WARNING] Knee not found. Fallback threshold = 99.5% quantile.")
+            #else:
+            #    knee_idx = knee.knee
+            #    knee_thr = float(scores[knee_idx])
+            #    alpha = 0.99  # try 0.9, 0.85, 0.8
+            #    threshold = alpha * knee_thr
 
-                alpha = 0.99  # try 0.9, 0.85, 0.8
-                threshold = alpha * knee_thr
-
-                print(f"[INFO] knee_thr={knee_thr:.6f}, relaxed threshold={threshold:.6f} (alpha={alpha})")
+            #   print(f"[INFO] knee_thr={knee_thr:.6f}, relaxed threshold={threshold:.6f} (alpha={alpha})")
 
                 #threshold = float(scores[knee.knee])
                 #print(f"[INFO] Knee index = {knee.knee}")
