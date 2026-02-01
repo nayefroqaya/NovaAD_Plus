@@ -706,9 +706,10 @@ class FeaturesEngineering:
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
             knee_idx = knee.knee
             p_knee = (knee_idx + 1) / len(scores)  # approx percentile of knee
-            p_use = max(p_knee - 0.02, 0.95)  # move 2% left, never below 90%
-            threshold = float(np.quantile(scores, p_use))
+            #p_use = max(p_knee - 0.02, 0.95)  # move 2% left, never below 90%
+            p_use = min(0.999, max(p_knee + 0.01, 0.97))  # move RIGHT, conservative
 
+            threshold = float(np.quantile(scores, p_use))
             print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
 
             #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
