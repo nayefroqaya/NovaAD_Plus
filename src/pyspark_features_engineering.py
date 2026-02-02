@@ -623,9 +623,7 @@ class FeaturesEngineering:
             '''
 
 
-
             from pyspark.ml.feature import PCA as SparkPCA
-
 
             # good ------
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
@@ -639,7 +637,7 @@ class FeaturesEngineering:
 
             feature_col = "features_vec_final"
 
-            '''
+
             # ------- Start the good idea ------------------------------------------------------------------------------
             candidate_ks = [10, 20, 30, 50, 60, 70]
             target_variance = 0.999
@@ -726,96 +724,6 @@ class FeaturesEngineering:
                 when(col("anomaly_score") > threshold, 1).otherwise(0))
 
             # ------- End the good idea ------------------------------------------------------------------------------
-            '''
-
-            # -----------------------------
-            # 1) Fit BisectingKMeans on normal only
-            # -----------------------------
-            k_clusters = 2  # 🔧 TUNE: try 5, 10, 20
-            bk = (BisectingKMeans().setK(k_clusters).setSeed(42).setFeaturesCol(feature_col).setPredictionCol(
-                "cluster_id"))
-
-            bk_model = bk.fit(train_normal_df)
-
-            centers = [c for c in bk_model.clusterCenters()]
-            bc_centers = spark.sparkContext.broadcast(centers)
-
-            # -----------------------------
-            # 2) Score = distance to assigned centroid
-            # -----------------------------
-            @udf(DoubleType())
-            def dist_to_center(features, cluster_id):
-                x = np.array(features.toArray(), dtype=float)
-                c = np.array(bc_centers.value[int(cluster_id)], dtype=float)
-                return float(np.linalg.norm(x - c))  # Euclidean distance
-
-            train_pred = bk_model.transform(train_normal_df)
-            unlab_pred = bk_model.transform(unlabeled_df)
-
-            train_scored = train_pred.withColumn("dist", dist_to_center(col(feature_col), col("cluster_id")))
-            unlab_scored = unlab_pred.withColumn("dist", dist_to_center(col(feature_col), col("cluster_id")))
-
-            # -----------------------------
-            # 3) Cluster-normalized novelty score (recommended)
-            #    norm_score = (dist - mean_dist_cluster) / std_dist_cluster
-            #    Compute cluster stats from NORMAL data only
-            # -----------------------------
-            cluster_stats = (train_scored.groupBy("cluster_id").agg(avg("dist").alias("mean_dist"),
-                stddev("dist").alias("std_dist")).withColumn("std_dist",
-                                                             when(col("std_dist").isNull(), lit(1e-9)).otherwise(
-                                                                 col("std_dist"))).withColumn("std_dist",
-                                                                                              when(col("std_dist") == 0,
-                                                                                                   lit(1e-9)).otherwise(
-                                                                                                  col("std_dist"))))
-
-            train_scored = train_scored.join(cluster_stats, on="cluster_id", how="left")
-            unlab_scored = unlab_scored.join(cluster_stats, on="cluster_id", how="left")
-
-            train_scored = train_scored.withColumn("anomaly_score",
-                (col("dist") - col("mean_dist")) / (col("std_dist") + lit(1e-9)))
-
-            unlab_scored = unlab_scored.withColumn("anomaly_score",
-                (col("dist") - col("mean_dist")) / (col("std_dist") + lit(1e-9)))
-
-            # Optional: quick score summaries
-            print("\n[INFO] Normal score summary:")
-            train_scored.selectExpr("min(anomaly_score) as min", "percentile_approx(anomaly_score, 0.5) as p50",
-                "percentile_approx(anomaly_score, 0.95) as p95", "percentile_approx(anomaly_score, 0.99) as p99",
-                "max(anomaly_score) as max").show(truncate=False)
-
-            print("[INFO] Unlabeled score summary:")
-            unlab_scored.selectExpr("min(anomaly_score) as min", "percentile_approx(anomaly_score, 0.5) as p50",
-                "percentile_approx(anomaly_score, 0.95) as p95", "percentile_approx(anomaly_score, 0.99) as p99",
-                "max(anomaly_score) as max").show(truncate=False)
-
-            # -----------------------------
-            # 4) Thresholding (choose ONE)
-            #    A) Rate-cap on UNLABELED (recommended for Thunderbird)
-            # -----------------------------
-            max_rate = 0.05  # 🔧 TUNE: 0.05 / 0.10 / 0.15
-            threshold = unlab_scored.approxQuantile("anomaly_score", [1 - max_rate], 0.001)[0]
-            print(f"\n✅ Threshold (top {max_rate:.1%} of unlabeled): {threshold:.6f}")
-
-
-
-
-
-
-
-
-
-
-
-
-            # -----------------------------
-            # 4) Pseudo-labels
-            # -----------------------------
-            pseudo_labels_df = unlab_scored.withColumn("pseudo_label",
-                when(col("anomaly_score") > threshold, 1).otherwise(0))
-
-            flagged = pseudo_labels_df.filter(col("pseudo_label") == 1).count()
-            total = pseudo_labels_df.count()
-            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
 
 
             # -----------------------------
