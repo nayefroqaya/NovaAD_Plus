@@ -723,7 +723,7 @@ class FeaturesEngineering:
             threshold_knee = threshold
 
             # ---- rate cap (unsupervised) ----
-            max_rate = 0.05  # allow at most 5% of unlabeled to be anomalies (try 0.01, 0.02, 0.05, 0.10)
+            max_rate = 0.01 # allow at most 5% of unlabeled to be anomalies (try 0.01, 0.02, 0.05, 0.10)
 
             unl_scores = (unlabeled_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
 
