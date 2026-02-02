@@ -698,6 +698,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (knee/elbow from normal)
             # -----------------------------
+
             # Collect normal reconstruction errors to driver
             scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
 
@@ -713,6 +714,11 @@ class FeaturesEngineering:
 
             threshold = float(np.quantile(scores, p_use))
             print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
+
+            flagged = unlabeled_pca.filter(col("anomaly_score") > threshold).count()
+            total = unlabeled_pca.count()
+            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
+            exit()
 
             #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
 #           #if knee.knee is None:
