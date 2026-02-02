@@ -709,7 +709,7 @@ class FeaturesEngineering:
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
             knee_idx = knee.knee
             p_knee = (knee_idx + 1) / len(scores)  # approx percentile of knee
-            p_use = max(p_knee - 0.5, 0.85)  # move 2% left, never below 90%  # case1
+            p_use = max(p_knee - 0.02, 0.95)  # move 2% left, never below 90%  # case1
             #p_use = min(0.999, max(p_knee + 0.01, 0.97))  # move RIGHT, conservative # case 2
             #p_use = min(0.999, max(p_knee + 0.03, 0.99))  # stronger conservative rule # case3
             #p_use = min(0.9999, max(p_knee + 0.03, 0.995))  # case 4
