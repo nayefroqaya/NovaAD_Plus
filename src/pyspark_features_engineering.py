@@ -765,8 +765,8 @@ class FeaturesEngineering:
             print(f"[INFO] knee flagged rate on unlabeled: {rate_knee:.3%}")
 
             # --- safety switch: if knee is too aggressive, apply rate-cap threshold ---
-            max_rate = 0.05  # allow at most 5% anomalies in unlabeled (try 0.02 / 0.05 / 0.10)
-            trigger_rate = 0.20  # if knee flags >20%, it's unreliable -> switch
+            max_rate = 0.01  # allow at most 5% anomalies in unlabeled (try 0.02 / 0.05 / 0.10)
+            trigger_rate = 0.10  # if knee flags >20%, it's unreliable -> switch
 
             if rate_knee > trigger_rate:
                 unl_scores = (unlabeled_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
