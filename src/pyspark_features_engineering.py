@@ -739,6 +739,44 @@ class FeaturesEngineering:
 
             print(f"\n✅ PCA anomaly threshold (knee on normal): {threshold:.6f}")
 
+            # --- normal scores for knee ---
+            scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
+            scores = np.sort(scores)
+            x = np.arange(len(scores))
+
+            knee = KneeLocator(x, scores, curve="convex", direction="increasing")
+            knee_idx = knee.knee
+
+            if knee_idx is None:
+                p_knee = 0.99
+            else:
+                p_knee = (knee_idx + 1) / len(scores)
+
+            # your case1 rule
+            p_use = max(p_knee - 0.02, 0.95)
+            threshold_knee = float(np.quantile(scores, p_use))
+
+            # --- check how aggressive knee is on unlabeled ---
+            total_unl = unlabeled_pca.count()
+            flagged_knee = unlabeled_pca.filter(col("anomaly_score") > threshold_knee).count()
+            rate_knee = flagged_knee / total_unl
+
+            print(f"[INFO] p_knee≈{p_knee:.4f}, p_use={p_use:.4f}, threshold_knee={threshold_knee:.6f}")
+            print(f"[INFO] knee flagged rate on unlabeled: {rate_knee:.3%}")
+
+            # --- safety switch: if knee is too aggressive, apply rate-cap threshold ---
+            max_rate = 0.05  # allow at most 5% anomalies in unlabeled (try 0.02 / 0.05 / 0.10)
+            trigger_rate = 0.20  # if knee flags >20%, it's unreliable -> switch
+
+            if rate_knee > trigger_rate:
+                unl_scores = (unlabeled_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
+                threshold_ratecap = float(np.quantile(unl_scores, 1 - max_rate))
+                threshold = max(threshold_knee, threshold_ratecap)
+                print(f"[INFO] switching to rate-cap: threshold_ratecap={threshold_ratecap:.6f}, final={threshold:.6f}")
+            else:
+                threshold = threshold_knee
+                print(f"[INFO] using knee threshold: final={threshold:.6f}")
+
             # -----------------------------
             # 4. Pseudo-labels (same style)
             # -----------------------------
