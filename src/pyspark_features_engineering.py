@@ -64,6 +64,10 @@ from pyspark.sql.types import DoubleType
 import numpy as np
 from scipy.stats import chi2
 from sklearn.metrics import classification_report
+import numpy as np
+from pyspark.sql.functions import col, when, udf
+from pyspark.sql.types import DoubleType
+from pyspark.ml.clustering import BisectingKMeans
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -630,6 +634,8 @@ class FeaturesEngineering:
 
             feature_col = "features_vec_final"
 
+            '''
+            # ------- Start the good idea ------------------------------------------------------------------------------
             candidate_ks = [10, 20, 30, 50, 60, 70]
             target_variance = 0.999
 
@@ -691,23 +697,10 @@ class FeaturesEngineering:
                 reconstruction_error(col(feature_col), col("pca_features")))
 
             # -----------------------------
-            # 3. Thresholds (from normal)
-            # -----------------------------
-#<<<<<<< HEAD
-            #threshold = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
-            #print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
-            # -----------------------------
             # 3. Thresholds (knee/elbow from normal)
             # -----------------------------
             # Collect normal reconstruction errors to driver
             scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
-#<<<<<<< HEAD
-#=======
-#=======
- #           threshold = train_pca.approxQuantile("anomaly_score", [0.98], 0.01)[0]
-#>>>>>>> 6277e85 (AD update model)
-
-#>>>>>>> 902171e (AD update model)
             scores = np.sort(scores)
             x = np.arange(len(scores))
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
@@ -719,32 +712,74 @@ class FeaturesEngineering:
             #p_use = min(0.9999, max(p_knee + 0.03, 0.995))  # case 4
             threshold = float(np.quantile(scores, p_use))
             print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
-
-            # -------------------------------------------
-            #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
-#           #if knee.knee is None:
-            #   # Fallback if knee not found (use a conservative high quantile)
-            #   threshold = float(np.quantile(scores, 0.995))
-            #    print("[WARNING] Knee not found. Fallback threshold = 99.5% quantile.")
-            #else:
-            #    knee_idx = knee.knee
-            #    knee_thr = float(scores[knee_idx])
-            #    alpha = 0.99  # try 0.9, 0.85, 0.8
-            #    threshold = alpha * knee_thr
-
-            #   print(f"[INFO] knee_thr={knee_thr:.6f}, relaxed threshold={threshold:.6f} (alpha={alpha})")
-
-                #threshold = float(scores[knee.knee])
-                #print(f"[INFO] Knee index = {knee.knee}")
-
             print(f"\n✅ PCA anomaly threshold (knee on normal): {threshold:.6f}")
-
-
+            
             # -----------------------------
             # 4. Pseudo-labels (same style)
             # -----------------------------
             pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
                 when(col("anomaly_score") > threshold, 1).otherwise(0))
+
+            # ------- End the good idea ------------------------------------------------------------------------------
+            '''
+
+            # -----------------------------
+            # 1) Fit BisectingKMeans on normal only
+            # -----------------------------
+            bk = (BisectingKMeans().setK(30)  # try 10, 20, 30, 50
+                  .setSeed(42).setFeaturesCol(feature_col).setPredictionCol("cluster_id"))
+
+            bk_model = bk.fit(train_normal_df)
+
+            # clusterCenters() returns list of centers (numpy arrays) in pyspark.ml
+            # (documented for BisectingKMeansModel) :contentReference[oaicite:1]{index=1}
+            centers = [c for c in bk_model.clusterCenters()]
+            bc_centers = spark.sparkContext.broadcast(centers)
+
+            # -----------------------------
+            # 2) Score = distance to assigned centroid
+            # -----------------------------
+            @udf(DoubleType())
+            def dist_to_center(features, cluster_id):
+                x = np.array(features.toArray(), dtype=float)
+                c = np.array(bc_centers.value[int(cluster_id)], dtype=float)
+                return float(np.linalg.norm(x - c))  # Euclidean distance
+
+            train_pred = bk_model.transform(train_normal_df)
+            unlab_pred = bk_model.transform(unlabeled_df)
+
+            train_scored = train_pred.withColumn("anomaly_score", dist_to_center(col(feature_col), col("cluster_id")))
+            unlab_scored = unlab_pred.withColumn("anomaly_score", dist_to_center(col(feature_col), col("cluster_id")))
+
+            # -----------------------------
+            # 3) Thresholding (recommended: rate-cap on unlabeled)
+            # -----------------------------
+            max_rate = 0.05  # try 0.02 / 0.05 / 0.10
+            threshold = unlab_scored.approxQuantile("anomaly_score", [1 - max_rate], 0.001)[0]
+
+            # -----------------------------
+            # 4) Pseudo-labels
+            # -----------------------------
+            pseudo_labels_df = unlab_scored.withColumn("pseudo_label",
+                when(col("anomaly_score") > threshold, 1).otherwise(0))
+
+            flagged = pseudo_labels_df.filter(col("pseudo_label") == 1).count()
+            total = pseudo_labels_df.count()
+            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
             # -----------------------------
             # 5. Evaluate pseudo-labels
