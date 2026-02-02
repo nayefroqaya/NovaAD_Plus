@@ -731,7 +731,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1) Fit BisectingKMeans on normal only
             # -----------------------------
-            k_clusters = 10  # 🔧 TUNE: try 5, 10, 20
+            k_clusters = 2  # 🔧 TUNE: try 5, 10, 20
             bk = (BisectingKMeans().setK(k_clusters).setSeed(42).setFeaturesCol(feature_col).setPredictionCol(
                 "cluster_id"))
 
@@ -792,7 +792,7 @@ class FeaturesEngineering:
             # 4) Thresholding (choose ONE)
             #    A) Rate-cap on UNLABELED (recommended for Thunderbird)
             # -----------------------------
-            max_rate = 0.10  # 🔧 TUNE: 0.05 / 0.10 / 0.15
+            max_rate = 0.05  # 🔧 TUNE: 0.05 / 0.10 / 0.15
             threshold = unlab_scored.approxQuantile("anomaly_score", [1 - max_rate], 0.001)[0]
             print(f"\n✅ Threshold (top {max_rate:.1%} of unlabeled): {threshold:.6f}")
 
