@@ -237,20 +237,16 @@ class AnomalyDetector:
             total_count = sum(count_dict.values())
 
             # Boost minority class
-            minority_boost = 1.0  # can tune 1.2–1.6
+            minority_boost = 1.1  # can tune 1.2–1.6
             class_weights = {0: total_count / (2.0 * count_dict.get(0, 1)),
                 1: minority_boost * total_count / (2.0 * count_dict.get(1, 1))}
 
             print("Improved Class weights:", class_weights)
-
             train_df = train_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
-
             test_df = test_df.withColumn("class_weight",
                 when(col("label") == 0, class_weights[0]).otherwise(class_weights[1]))
-
             print("TRAIN COLS:", train_df.columns)
-
             # =====================================================
             # 2. RANDOM FOREST TRAINING (REGULARIZED)
             # =====================================================
