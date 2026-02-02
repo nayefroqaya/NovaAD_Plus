@@ -721,26 +721,6 @@ class FeaturesEngineering:
             print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
 
             # -------------------------------------------
-            threshold_knee = float(np.quantile(scores, p_use))
-
-            # rate-cap policy on unlabeled
-            max_rate = 0.05  # try 0.02, 0.05, 0.10
-            unl_scores = (unlabeled_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
-            threshold_ratecap = float(np.quantile(unl_scores, 1 - max_rate))
-
-            # final threshold
-            threshold = max(threshold_knee, threshold_ratecap)
-
-            print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold_knee={threshold_knee:.6f}")
-            print(f"[INFO] threshold_ratecap={threshold_ratecap:.6f} (max_rate={max_rate:.2%})")
-            print(f"[INFO] final threshold={threshold:.6f}")
-
-
-
-            # -------------------------------------------
-
-            #exit()
-
             #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
 #           #if knee.knee is None:
             #   # Fallback if knee not found (use a conservative high quantile)
