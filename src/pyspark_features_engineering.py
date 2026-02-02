@@ -698,10 +698,8 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (knee/elbow from normal)
             # -----------------------------
-
             # Collect normal reconstruction errors to driver
             scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
-
             scores = np.sort(scores)
             x = np.arange(len(scores))
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
@@ -711,32 +709,29 @@ class FeaturesEngineering:
             #p_use = min(0.999, max(p_knee + 0.01, 0.97))  # move RIGHT, conservative # case 2
             #p_use = min(0.999, max(p_knee + 0.03, 0.99))  # stronger conservative rule # case3
             #p_use = min(0.9999, max(p_knee + 0.03, 0.995))  # case 4
-
             threshold = float(np.quantile(scores, p_use))
             print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={threshold:.6f}")
 
-            flagged = unlabeled_pca.filter(col("anomaly_score") > threshold).count()
-            total = unlabeled_pca.count()
-            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
+            # -------------------------------------------
+            threshold_knee = float(np.quantile(scores, p_use))
 
-            # knee threshold you already compute
-            threshold_knee = threshold
-
-            # ---- rate cap (unsupervised) ----
-            max_rate = 0.05  # allow at most 5% of unlabeled to be anomalies (try 0.01, 0.02, 0.05, 0.10)
-
+            # rate-cap policy on unlabeled
+            max_rate = 0.05  # try 0.02, 0.05, 0.10
             unl_scores = (unlabeled_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
-
-            # threshold that would flag only max_rate of unlabeled (top tail)
             threshold_ratecap = float(np.quantile(unl_scores, 1 - max_rate))
 
-            # final threshold cannot be lower than the rate-cap threshold
+            # final threshold
             threshold = max(threshold_knee, threshold_ratecap)
 
-            print(f"[INFO] threshold_knee    = {threshold_knee:.6f}")
-            print(f"[INFO] threshold_ratecap = {threshold_ratecap:.6f} (max_rate={max_rate:.2%})")
-            print(f"[INFO] final threshold   = {threshold:.6f}")
-            exit()
+            print(f"[INFO] p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold_knee={threshold_knee:.6f}")
+            print(f"[INFO] threshold_ratecap={threshold_ratecap:.6f} (max_rate={max_rate:.2%})")
+            print(f"[INFO] final threshold={threshold:.6f}")
+
+
+
+            # -------------------------------------------
+
+            #exit()
 
             #knee = KneeLocator(x, scores, curve="convex", direction="increasing")
 #           #if knee.knee is None:
