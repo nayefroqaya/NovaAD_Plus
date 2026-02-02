@@ -726,7 +726,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1) Fit BisectingKMeans on normal only
             # -----------------------------
-            bk = (BisectingKMeans().setK(30)  # try 10, 20, 30, 50
+            bk = (BisectingKMeans().setK(10)  # try 10, 20, 30, 50
                   .setSeed(42).setFeaturesCol(feature_col).setPredictionCol("cluster_id"))
 
             bk_model = bk.fit(train_normal_df)
