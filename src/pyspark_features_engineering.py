@@ -693,6 +693,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 3. Thresholds (from normal)
             # -----------------------------
+#<<<<<<< HEAD
             #threshold = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
             #print(f"\n✅ PCA anomaly threshold (99% quantile of normal): {threshold:.6f}")
             # -----------------------------
@@ -700,6 +701,13 @@ class FeaturesEngineering:
             # -----------------------------
             # Collect normal reconstruction errors to driver
             scores = (train_pca.select("anomaly_score").toPandas()["anomaly_score"].astype(float).values)
+<<<<<<< HEAD
+=======
+#=======
+ #           threshold = train_pca.approxQuantile("anomaly_score", [0.98], 0.01)[0]
+#>>>>>>> 6277e85 (AD update model)
+
+>>>>>>> 902171e (AD update model)
             scores = np.sort(scores)
             x = np.arange(len(scores))
             knee = KneeLocator(x, scores, curve="convex", direction="increasing")
