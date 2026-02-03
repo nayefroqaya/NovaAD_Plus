@@ -792,7 +792,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 1) Choose PCA k on normal only
             # -----------------------------
-            candidate_ks = [10, 20, 30, 50, 60, 70]
+            candidate_ks = [2,5,10, 20, 30, 50, 60, 70]
             target_variance = 0.999
 
             best_k = None
@@ -841,7 +841,7 @@ class FeaturesEngineering:
             # ============================================================
             # 4) Fit GMM on NORMAL in PCA space + choose k by BIC (Spark-safe)
             # ============================================================
-            candidate_gmm_ks = [ 2, 3, 4, 5, 6, 10, 15,16, 18, 20]  # adjust upper bound if you want
+            candidate_gmm_ks = [ 2, 3, 4, 5, 6, 10]  # adjust upper bound if you want
             gmm_tol = 1e-4
             gmm_maxIter = 100
             gmm_seed = 42
@@ -928,14 +928,14 @@ class FeaturesEngineering:
             # -----------------------------
             # 6) Fuse into one score
             # -----------------------------
-            w = 0.5
+            w = 0.4
             train_gmm = train_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
             unlab_gmm = unlab_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
 
             # ============================================================
             # 7) Threshold: MAD on NORMAL + safety cap on UNLABELED
             # ============================================================
-            alpha = 4.5  # robust threshold multiplier (good default)
+            alpha = 4.0  # robust threshold multiplier (good default)
             max_rate_cap = 0.20  # safety cap only (0.10–0.20 recommended)
 
             med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
