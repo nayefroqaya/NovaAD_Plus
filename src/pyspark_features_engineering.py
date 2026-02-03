@@ -728,7 +728,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 7) ONE unsupervised threshold for all datasets: rate-cap on unlabeled
             # -----------------------------
-            max_rate = 0.10  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
+            max_rate = 0.20  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
             thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
 
             print(f"[INFO] fused_score threshold by rate-cap (max_rate={max_rate:.1%}): {thr:.6f}")
