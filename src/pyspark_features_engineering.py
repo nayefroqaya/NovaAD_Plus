@@ -841,7 +841,7 @@ class FeaturesEngineering:
             # ============================================================
             # 4) Fit GMM on NORMAL in PCA space + choose k by BIC (Spark-safe)
             # ============================================================
-            candidate_gmm_ks = [ 2, 3, 4, 5, 6, 10, 15,20,25, 30]  # adjust upper bound if you want
+            candidate_gmm_ks = [ 2, 3, 4, 5, 6, 10, 15,20,25]  # adjust upper bound if you want
             gmm_tol = 1e-4
             gmm_maxIter = 100
             gmm_seed = 42
