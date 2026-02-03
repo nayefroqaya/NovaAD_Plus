@@ -621,7 +621,6 @@ class FeaturesEngineering:
                 raise ValueError("❌ Not enough data for novelty detection.")
 
             feature_col = "features_vec_final"
-
             # -----------------------------
             # 1) Choose PCA k on normal only (your good idea)
             # -----------------------------
@@ -674,16 +673,14 @@ class FeaturesEngineering:
             # -----------------------------
             # 4) Fit GMM on NORMAL in PCA space + score unlabeled
             # -----------------------------
-            gmm_k = 10  # fixed for paper (e.g., 5). (You can pick 5 or 10 and keep it fixed.)
+            gmm_k = 10 # keep fixed for paper
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
-                probabilityCol="gmm_prob")
-
+                                  probabilityCol="gmm_prob")
             gmm_model = gmm.fit(train_pca.select("pca_features"))
 
             train_gmm = gmm_model.transform(train_pca)
             unlab_gmm = gmm_model.transform(unlabeled_pca)
 
-            # membership confidence: max(probabilities); low -> anomaly
             train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
             unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
 
@@ -728,88 +725,46 @@ class FeaturesEngineering:
             # -----------------------------
             # 7) ONE unsupervised threshold for all datasets: rate-cap on unlabeled
             # -----------------------------
-            max_rate = 0.27  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
+#<<<<<<< HEAD
+#            max_rate = 0.27  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
+#=======
+            max_rate = 0.28  # fixed for paper; change once globally if needed
+#>>>>>>> fe11e7f (update Novelty)
             thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
 
             print(f"[INFO] fused_score threshold by rate-cap (max_rate={max_rate:.1%}): {thr:.6f}")
 
             unlab_gmm = unlab_gmm.withColumn("pseudo_label_final", when(col("fused_score") > thr, 1).otherwise(0))
 
-            # sanity check
             flagged = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
             total = unlab_gmm.count()
             print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
 
-            # -----------------------------
-            # 8) Evaluate pseudo-labels on unlabeled (if true Label exists)
-            # -----------------------------
+            # ============================================================
+            # REPORT 1) Classification report on UNLABELED only
+            # ============================================================
             unlabeled_eval_df = unlab_gmm.join(
                 sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
                 how="inner")
 
             pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
-            print("\n=== Classification_report on unlabeled (FUSED novelty) ===")
+
+            print("\n=== Classification_report on unlabeled_df (Temp_label==999) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
 
-            # -----------------------------
-            # 9) Build final training set (normal + pseudo-labeled)
-            # -----------------------------
-            df_normal = train_gmm.withColumn("Final_Label", lit(0)).withColumn("weight", lit(1.0))
-
-            # confidence weighting (optional but helps TH_1G)
-            # weight = 1 + |fused_score - threshold| ; anomalies get a bit more weight
-
-            unlab_gmm = unlab_gmm.withColumn("conf", Fabs(col("fused_score") - lit(thr)))
-            unlab_gmm = unlab_gmm.withColumn("weight", (lit(1.0) + col("conf")) * when(col("pseudo_label_final") == 1,
-                                                                                       lit(2.0)).otherwise(lit(1.0)))
-
+            # ============================================================
+            # REPORT 2) Classification report on (train_normal_df + unlabeled_df)
+            # (i.e., quality of your final pseudo-labeled training set)
+            # ============================================================
+            df_normal = train_gmm.withColumn("Final_Label", lit(0))
             df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
 
             df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
 
-            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
-            df_val = sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label"))
+            pdf_train_quality = df_final_train.select("Label", "Final_Label").toPandas()
 
-            # -----------------------------
-            # 10) OPTIONAL (Recommended): Train ONE classifier for ALL datasets (GBT)
-            #     Uses original features + scores to improve hard datasets (TH_1G)
-            # -----------------------------
-            USE_CLASSIFIER = True
-
-            if USE_CLASSIFIER:
-                # Need to carry score columns into test/val as well
-                test_pca = pca_model.transform(df_test).withColumn("score_pca", reconstruction_error(col(feature_col),
-                                                                                                     col("pca_features")))
-                test_gmm = gmm_model.transform(test_pca).withColumn("gmm_max_prob",
-                                                                    array_max(vector_to_array(col("gmm_prob"))))
-                test_gmm = test_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
-                test_gmm = test_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
-                                                                                            z_gmm(col("score_gmm")))
-                test_gmm = test_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
-
-                assembler = VectorAssembler(inputCols=[feature_col, "score_pca", "score_gmm", "fused_score"],
-                    outputCol="features_all")
-
-                train_ready = assembler.transform(df_final_train)
-                test_ready = assembler.transform(test_gmm)
-
-                gbt = GBTClassifier(labelCol="Final_Label", featuresCol="features_all", weightCol="weight", maxIter=80,
-                    maxDepth=5, seed=42)
-
-                model = gbt.fit(train_ready)
-                pred_test = model.transform(test_ready)
-
-                pdf_test = pred_test.select(col("Final_Label").alias("y_true"),
-                                            col("prediction").alias("y_pred")).toPandas()
-                print("\n=== Test Classification_report (GBT after FUSED novelty) ===")
-                print(classification_report(pdf_test["y_true"], pdf_test["y_pred"], digits=3))
-
-            # -----------------------------
-            # 11) Training label quality report (pseudo labels vs true labels in train+unlabeled)
-            # -----------------------------
-            pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
-            print("\n[INFO] Full training label quality (FUSED pseudo labels):")
-            print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
+            print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
+            print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
 
             exit()
 
