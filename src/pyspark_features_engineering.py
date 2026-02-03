@@ -728,7 +728,7 @@ class FeaturesEngineering:
 #<<<<<<< HEAD
 #            max_rate = 0.27  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
 #=======
-            max_rate = 0.25  # fixed for paper; change once globally if needed
+            max_rate = 0.30  # fixed for paper; change once globally if needed
 #>>>>>>> fe11e7f (update Novelty)
             thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
 
