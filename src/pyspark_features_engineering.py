@@ -73,6 +73,17 @@ import numpy as np
 from pyspark.sql.functions import col, when, udf, avg, stddev, lit
 from pyspark.sql.types import DoubleType
 from pyspark.ml.clustering import BisectingKMeans
+from pyspark.ml.feature import PCA as SparkPCA
+import numpy as np
+from kneed import KneeLocator
+
+from pyspark.sql.functions import col, when, lit, array_max
+from pyspark.sql.types import DoubleType
+from pyspark.sql.functions import udf
+
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.functions import vector_to_array
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -622,10 +633,8 @@ class FeaturesEngineering:
             print(classification_report(y_train_truth, y_train, digits=3))
             '''
 
-
-            from pyspark.ml.feature import PCA as SparkPCA
-
-            # good ------
+            '''
+            # good ----------------------------------------------------------------------------------------------------
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
 
             # Train on normal logs only
@@ -767,208 +776,178 @@ class FeaturesEngineering:
 
             print('Classification_report full training data (PCA novelty)')
             print(classification_report(y_train_truth, y_train, digits=3))
-            exit()
-
-
+            #exit()
+            # end good -------------------------------------------------------------------------------------------------
             '''
-            print("\n☁️ Using KMeans Distance-based Novelty Detection ...")
+            # -----------------------------
+            # 0) Split data
+            # -----------------------------
+            print("\n🧠 Using PCA + GMM for novelty detection (semi-supervised) ...")
 
-            # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 
             if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for KMeans novelty detection.")
+                raise ValueError("❌ Not enough data for novelty detection.")
 
-    
             feature_col = "features_vec_final"
 
             # -----------------------------
-            # 1. Train KMeans on NORMAL data
+            # 1) Choose PCA k on normal only (your "good idea")
             # -----------------------------
-            k_values = [2,3, 5, 10,15, 20]
-            best_model, best_score, best_k = None, -np.inf, None
+            candidate_ks = [10, 20, 30, 50, 60, 70]
+            target_variance = 0.999
 
-            for k in k_values:
-                print(f"🔍 Testing KMeans: k={k}")
-                try:
-                    kmeans = KMeans(featuresCol=feature_col, predictionCol="km_cluster", k=k, seed=42, maxIter=50)
-                    model = kmeans.fit(train_normal_df)
+            best_k = None
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_df)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+                if explained_variance >= target_variance:
+                    best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
+                    break
 
-                    # Use negative avg distance on normal as score (lower distance is better)
-                    centers = model.clusterCenters()
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
 
-                    def dist_to_center(cluster_id, features):
-                        center = centers[int(cluster_id)]
-                        return float(np.linalg.norm(np.array(features) - np.array(center)))
-
-                    dist_udf = udf(dist_to_center, DoubleType())
-
-                    preds_norm = model.transform(train_normal_df)
-                    preds_norm = preds_norm.withColumn("dist", dist_udf(col("km_cluster"), col(feature_col)))
-
-                    avg_dist = preds_norm.selectExpr("avg(dist) as avg_dist").collect()[0]["avg_dist"]
-
-                    score = -avg_dist  # minimize distance
-                    if score > best_score:
-                        best_score = score
-                        best_k = k
-                        best_model = model
-
-                except Exception as e:
-                    print(f"⚠️ Failed for KMeans k={k}: {e}")
-                    continue
-
-            if best_model is None:
-                raise RuntimeError("❌ No valid KMeans model found.")
-
-            print(f"\n✅ Optimal KMeans k = {best_k}")
-            print(f"   Best avg normal distance = {-best_score:.6f}")
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
 
             # -----------------------------
-            # 2. Score UNLABELED using distance to centroid
+            # 2) Fit PCA on normal only + transform normal/unlabeled
             # -----------------------------
-            centers = best_model.clusterCenters()
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
 
-            def dist_to_center(cluster_id, features):
-                center = centers[int(cluster_id)]
-                return float(np.linalg.norm(np.array(features) - np.array(center)))
-
-            dist_udf = udf(dist_to_center, DoubleType())
-
-            preds = best_model.transform(unlabeled_df)
-            preds = preds.withColumn("anomaly_score", dist_udf(col("km_cluster"), col(feature_col)))
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
 
             # -----------------------------
-            # 3. Thresholding (percentile-based)
+            # 3) PCA reconstruction error -> anomaly_score_pca
             # -----------------------------
-            threshold = 0.09  #preds.approxQuantile("anomaly_score", [0.95], 0.01)[0]
-            #print(f"🔥 KMeans anomaly threshold (95th pct): {threshold:.6f}")
+            pc = pca_model.pc.toArray()
 
-            pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                x_hat = np.dot(pc, z)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca = train_pca.withColumn("anomaly_score_pca",
+                                             reconstruction_error(col(feature_col), col("pca_features")))
+
+            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score_pca",
+                                                     reconstruction_error(col(feature_col), col("pca_features")))
 
             # -----------------------------
-            # 4. Evaluate pseudo-labels on unlabeled (if true labels exist)
+            # 4) Threshold for PCA score using knee on normal
             # -----------------------------
-            unlabeled_eval_df = pseudo_labels_df.join(
+            scores_pca = (train_pca.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
+            scores_pca = np.sort(scores_pca)
+            x = np.arange(len(scores_pca))
+
+            knee = KneeLocator(x, scores_pca, curve="convex", direction="increasing")
+            knee_idx = knee.knee
+            p_knee = (knee_idx + 1) / len(scores_pca) if knee_idx is not None else 0.99
+
+            p_use = max(p_knee - 0.02, 0.95)  # keep your default; change if you want
+            thr_pca = float(np.quantile(scores_pca, p_use))
+
+            print(f"[INFO] PCA p_knee≈{p_knee:.4f}, using p={p_use:.4f}, threshold={thr_pca:.6f}")
+
+            unlabeled_pca = unlabeled_pca.withColumn("pseudo_label_pca",
+                when(col("anomaly_score_pca") > thr_pca, 1).otherwise(0))
+
+            # -----------------------------
+            # 5) Fit GMM on NORMAL in PCA space + score unlabeled
+            # -----------------------------
+            gmm_k = 5  # 🔧 TUNE: 2, 3, 5, 8, 10
+            gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
+                probabilityCol="gmm_prob")
+
+            gmm_model = gmm.fit(train_pca.select("pca_features"))
+            train_gmm = gmm_model.transform(train_pca)
+            unlab_gmm = gmm_model.transform(unlabeled_pca)
+
+            # membership confidence: max(probabilities); low -> anomaly
+            train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+            unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+
+            train_gmm = train_gmm.withColumn("anomaly_score_gmm", lit(1.0) - col("gmm_max_prob"))
+            unlab_gmm = unlab_gmm.withColumn("anomaly_score_gmm", lit(1.0) - col("gmm_max_prob"))
+
+            # -----------------------------
+            # 6) Threshold for GMM score using knee on normal (GMM)
+            # -----------------------------
+            scores_gmm = (train_gmm.select("anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values)
+            scores_gmm = np.sort(scores_gmm)
+            x2 = np.arange(len(scores_gmm))
+
+            knee2 = KneeLocator(x2, scores_gmm, curve="convex", direction="increasing")
+            knee2_idx = knee2.knee
+            p2_knee = (knee2_idx + 1) / len(scores_gmm) if knee2_idx is not None else 0.99
+
+            p2_use = max(p2_knee - 0.02, 0.95)
+            thr_gmm = float(np.quantile(scores_gmm, p2_use))
+
+            print(f"[INFO] GMM(k={gmm_k}) p_knee≈{p2_knee:.4f}, using p={p2_use:.4f}, threshold={thr_gmm:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_gmm",
+                when(col("anomaly_score_gmm") > thr_gmm, 1).otherwise(0))
+
+            # -----------------------------
+            # 7) Combine PCA + GMM pseudo-labels (choose ONE)
+            # -----------------------------
+            combine_rule = "AND"  # "AND" for higher precision, "OR" for higher recall
+
+            if combine_rule.upper() == "AND":
+                unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
+                    when((col("pseudo_label_pca") == 1) & (col("pseudo_label_gmm") == 1), 1).otherwise(0))
+            else:
+                unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
+                    when((col("pseudo_label_pca") == 1) | (col("pseudo_label_gmm") == 1), 1).otherwise(0))
+
+            # -----------------------------
+            # 8) Evaluate (PCA vs GMM vs Combined) on unlabeled (if you have true Label)
+            # -----------------------------
+            unlabeled_eval_df = unlab_gmm.join(
                 sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
                 how="inner")
 
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
+                "pseudo_label_final").toPandas()
 
-            print('Classification_report only for pseudo-labels for unlabeled data')
-            print(classification_report(y_true, y_pred, digits=3))
+            print("\n=== Classification_report on unlabeled (PCA-only) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_pca"], digits=3))
+
+            print("\n=== Classification_report on unlabeled (GMM-only) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_gmm"], digits=3))
+
+            print("\n=== Classification_report on unlabeled (Combined) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
 
             # -----------------------------
-            # 5. Merge pseudo-labeled + normal logs
+            # 9) Build final training set using COMBINED pseudo labels
             # -----------------------------
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
+            df_normal = train_normal_df.withColumn("Final_Label", lit(0))
+            df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
 
             df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
 
             df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+            df_val = sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label"))
 
-            df_val = sequences_df.filter(col("Temp_label") == 777) \
-                .withColumn("Final_Label", col("Label"))
-
-            df_final_train.printSchema()
-            df_test.printSchema()
-            df_val.printSchema()
-
-            # -----------------------------
-            # 6. Training label sanity check
-            # -----------------------------
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-
-            print('Classification_report full training data')
-            print(classification_report(y_train_truth, y_train, digits=3))
-
+            print("\n[INFO] Full training label quality (Combined pseudo labels):")
+            pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
+            print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
             exit()
-            '''
 
-            '''
-            print("\n☁️ Using Gaussian Mixture Model (semi-supervised) ...")
-            # Train on normal logs only
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for GMM novelty detection.")
 
-            feature_col = "features_vec_final"
-
-            # GMM hyperparameter grid
-            k_values = [2,3,5]  # [2,3,5,7,9,11]  # number of mixture components
-            max_iter_values =  [5,10, 20, 50, 100,150, 200]
-            best_model, best_score, best_params = None, -np.inf, None
-
-            for k, max_iter in product(k_values, max_iter_values):
-                print(f"🔍 Testing GMM: k={k}, maxIter={max_iter}")
-                try:
-                    gmm = GaussianMixture(featuresCol=feature_col, predictionCol="gmm_pred",
-                                          probabilityCol="probability", k=k, maxIter=max_iter, seed=42)
-                    model = gmm.fit(train_normal_df)
-
-                    # Compute mean log-likelihood on unlabeled data
-                    preds = model.transform(unlabeled_df)
-                    mean_ll = preds.select("probability").rdd.map(lambda x: float(x[0][0])).mean()
-
-                    if mean_ll > best_score:
-                        best_score = mean_ll
-                        best_params = (k, max_iter)
-                        best_model = model
-                except Exception as e:
-                    print(f"⚠️ Failed for GMM params ({k}, {max_iter}): {e}")
-                    continue
-
-            if best_model is None:
-                raise RuntimeError("❌ No valid GMM model found.")
-
-            print(f"\n✅ Optimal GMM parameters: k={best_params[0]}, maxIter={best_params[1]}")
-            print(f"   Best mean log-likelihood: {best_score:.6f}")
-            # Assign pseudo-labels based on likelihood
-            preds = best_model.transform(unlabeled_df)
-
-            preds = preds.withColumn("prob_array", vector_to_array("probability"))
-            preds = preds.withColumn("anomaly_score", 1 - array_max(col("prob_array")))
-
-            threshold = 0.1  # float(np.percentile(scores, 90))
-            pseudo_labels_df = preds.withColumn("pseudo_label", when(col("anomaly_score") > threshold, 1).otherwise(0))
-
-            unlabeled_eval_df = pseudo_labels_df.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")  # rename to avoid ambiguity
-                                    ), on="Node_block_id", how="inner")
-
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
-            print('Classification_report only for pseudo-code label for unlabeled data')
-            print(classification_report(y_true, y_pred, digits=3))
-            #            exit()
-
-            # Merge pseudo-labeled + normal logs
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-            df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
-            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
-
-            df_final_train.printSchema()
-            df_test.printSchema()
-            df_val.printSchema()
-
-            # Convert to Pandas
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-            print('Classification_report full training data')
-            print(classification_report(y_train_truth, y_train, digits=3))
-            '''
 
 
 
