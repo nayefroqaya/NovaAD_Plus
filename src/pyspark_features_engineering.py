@@ -6,6 +6,13 @@ import warnings
 from kneed import KneeLocator
 import numpy as np
 from pyspark.sql.functions import abs as Fabs
+import numpy as np
+from pyspark.sql.functions import col, lit, when, array_max, udf
+from pyspark.sql.types import DoubleType
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.functions import vector_to_array
+from pyspark.ml.stat import Summarizer
 
 from itertools import product
 from pyspark.ml.classification import RandomForestClassifier
@@ -775,7 +782,7 @@ class FeaturesEngineering:
             exit()
             # end good ----------------idea 3------------------------------------------------------------------------
             '''
-
+            '''
             # start good ----------------idea 4-----------------------------------------------------------------------
 
             # -----------------------------
@@ -986,6 +993,292 @@ class FeaturesEngineering:
 
             print(f"[RESULT] Selected PCA components (best_k): {best_k}")
             print(f"[RESULT] Selected GMM components (best_gmm_k) by BIC: {best_gmm_k}")
+            
+            # end good ----------------idea 4------------------------------------------------------------------------
+            '''
+            # start good ----------------idea 5-----------------------------------------------------------------------
+
+            # ============================================================
+            # FULL UPDATED VERSION OF YOUR CODE (WITH POST-PROCESSING)
+            # - PCA k selected on NORMAL only by explained variance
+            # - GMM k selected on NORMAL only by BIC (Spark-safe)
+            # - score_pca: PCA reconstruction error
+            # - score_gmm: 1 - max posterior probability
+            # - robust z-scores using NORMAL median+MAD (Spark approxQuantile)
+            # - fused_score = w*z_pca + (1-w)*z_gmm
+            # - threshold (STANDARD): MAD-first, apply cap only if MAD flags too many
+            # - POST-PROCESSING (uses NORMAL only, unsupervised):
+            #     (A) rescue normal-like anomalies using GMM max prob gate
+            #     (B) rescue normal-like anomalies using distance-to-normal-centroid gate
+            # - reports (optional): uses Label if present
+            # ============================================================
+
+
+
+            # -----------------------------
+            # 0) Split
+            # -----------------------------
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1) Choose PCA k on normal only
+            # -----------------------------
+            candidate_ks = [2, 5, 10, 20, 30, 50, 60, 70]
+            target_variance = 0.999
+
+            best_k = None
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_df)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+                if explained_variance >= target_variance:
+                    best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
+                    break
+
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+
+            # -----------------------------
+            # 2) Fit PCA on normal only + transform normal/unlabeled
+            # -----------------------------
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 3) PCA reconstruction error -> score_pca
+            # -----------------------------
+            pc = pca_model.pc.toArray()
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                x_hat = np.dot(pc, z)  # (orig_dim,)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca = train_pca.withColumn("score_pca", reconstruction_error(col(feature_col), col("pca_features")))
+            unlabeled_pca = unlabeled_pca.withColumn("score_pca",
+                                                     reconstruction_error(col(feature_col), col("pca_features")))
+
+            # ============================================================
+            # 4) Fit GMM on NORMAL in PCA space + choose k by BIC (Spark-safe)
+            # ============================================================
+            candidate_gmm_ks = [2, 3, 4, 5, 6, 10]  # standard safe range (avoid very large k in high-d)
+            gmm_tol = 1e-4
+            gmm_maxIter = 100
+            gmm_seed = 42
+
+            N_normal = train_pca.count()
+            d = best_k  # PCA dimension
+
+            def approx_num_params(k, d):
+                # Rough param count for full-covariance GMM
+                # means: k*d
+                # covariances: k*d*(d+1)/2
+                # weights: (k-1)
+                return int(k * d + k * (d * (d + 1) // 2) + (k - 1))
+
+            best_gmm_k = None
+            best_bic = float("inf")
+            best_gmm_model = None
+
+            for k in candidate_gmm_ks:
+                print(f"[INFO] Fitting GMM with k={k} on NORMAL (PCA space)")
+                gmm_tmp = GaussianMixture(k=k, featuresCol="pca_features", predictionCol="gmm_cluster",
+                    probabilityCol="gmm_prob", tol=gmm_tol, maxIter=gmm_maxIter, seed=gmm_seed)
+                model_tmp = gmm_tmp.fit(train_pca.select("pca_features"))
+
+                summ = model_tmp.summary
+                if hasattr(summ, "avgLogLikelihood"):
+                    avg_ll = float(summ.avgLogLikelihood)
+                    logL = avg_ll * N_normal
+                    ll_info = f"avgLogL={avg_ll:.6f}"
+                else:
+                    logL = float(summ.logLikelihood)  # total log-likelihood
+                    ll_info = f"logL={logL:.3f}"
+
+                p = approx_num_params(k, d)
+                bic = -2.0 * logL + p * np.log(max(N_normal, 2))
+
+                print(f"[INFO] k={k}, {ll_info}, BIC={bic:.3f} (params~{p})")
+
+                if bic < best_bic:
+                    best_bic = bic
+                    best_gmm_k = k
+                    best_gmm_model = model_tmp
+
+            print(f"[RESULT] Selected GMM components (best_gmm_k) by BIC: {best_gmm_k}")
+
+            gmm_model = best_gmm_model
+
+            train_gmm = gmm_model.transform(train_pca)
+            unlab_gmm = gmm_model.transform(unlabeled_pca)
+
+            train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+            unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+
+            train_gmm = train_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+            unlab_gmm = unlab_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+
+            # ============================================================
+            # 5) Robust normalization using NORMAL stats (median + MAD) via Spark approxQuantile
+            # ============================================================
+            def median_mad_spark(df, colname, rel_error=0.001):
+                med = df.approxQuantile(colname, [0.5], rel_error)[0]
+                df_abs = df.selectExpr(f"abs({colname} - {med}) as abs_dev")
+                mad = df_abs.approxQuantile("abs_dev", [0.5], rel_error)[0]
+                scale = 1.4826 * (mad + 1e-12)
+                return float(med), float(scale)
+
+            med_pca, sc_pca = median_mad_spark(train_gmm, "score_pca", rel_error=0.001)
+            med_gmm, sc_gmm = median_mad_spark(train_gmm, "score_gmm", rel_error=0.001)
+
+            @udf(DoubleType())
+            def z_pca(v):
+                return float((float(v) - med_pca) / sc_pca)
+
+            @udf(DoubleType())
+            def z_gmm(v):
+                return float((float(v) - med_gmm) / sc_gmm)
+
+            train_gmm = train_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+            unlab_gmm = unlab_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+
+            # -----------------------------
+            # 6) Fuse into one score
+            # -----------------------------
+            w = 0.4
+            train_gmm = train_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+            unlab_gmm = unlab_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+
+            # ============================================================
+            # 7) Threshold (STANDARD):
+            #    MAD on NORMAL first; apply cap ONLY if MAD flags too many
+            # ============================================================
+            alpha = 4.0
+            max_rate_cap = 0.20  # standard safety cap (NOT 0.40)
+
+            med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
+            thr_mad = med_fused + alpha * sc_fused
+
+            thr_cap = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate_cap], 0.001)[0]
+
+            # start with MAD threshold
+            thr = thr_mad
+
+            flagged_mad = unlab_gmm.filter(col("fused_score") > lit(thr_mad)).count()
+            total = unlab_gmm.count()
+            rate_mad = flagged_mad / max(total, 1)
+
+            print(f"[INFO] thr_mad (NORMAL): {thr_mad:.6f} = median + {alpha}*MAD | rate_mad={rate_mad:.3%}")
+            print(f"[INFO] thr_cap (UNLABELED): {thr_cap:.6f} = quantile(1-{max_rate_cap:.1%})")
+
+            if rate_mad > max_rate_cap:
+                thr = thr_cap
+                print(f"[RESULT] MAD flagged too many. Using thr = thr_cap = {thr:.6f}")
+            else:
+                print(f"[RESULT] Using thr = thr_mad = {thr:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_final", when(col("fused_score") > lit(thr), 1).otherwise(0))
+
+            flagged = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
+            print(f"[INFO] flagged anomalies in unlabeled (initial): {flagged}/{total} = {flagged / max(total, 1):.3%}")
+
+            # ============================================================
+            # 8) POST-PROCESS (A): Rescue normal-like points using GMM prob gate
+            # ============================================================
+            # If a predicted anomaly has gmm_max_prob typical of normal (above normal 5% quantile), relabel to normal.
+            p_rescue = 0.05
+            prob_thr = train_gmm.approxQuantile("gmm_max_prob", [p_rescue], 0.001)[0]
+            print(f"[POST] prob_thr (normal {p_rescue:.0%} quantile of gmm_max_prob) = {prob_thr:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_post",
+                when((col("pseudo_label_final") == 1) & (col("gmm_max_prob") >= lit(prob_thr)), 0).otherwise(
+                    col("pseudo_label_final")))
+            unlab_gmm = unlab_gmm.drop("pseudo_label_final").withColumnRenamed("pseudo_label_post",
+                                                                               "pseudo_label_final")
+
+            flagged_postA = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
+            print(
+                f"[POST] flagged anomalies after prob rescue: {flagged_postA}/{total} = {flagged_postA / max(total, 1):.3%}")
+
+            # ============================================================
+            # 9) POST-PROCESS (B): Rescue points close to NORMAL centroid in PCA space
+            # ============================================================
+            centroid_vec = train_pca.select(Summarizer.mean(col("pca_features")).alias("mean_vec")).collect()[0][
+                "mean_vec"]
+            centroid_np = np.array(centroid_vec.toArray(), dtype=float)
+
+            @udf(DoubleType())
+            def dist_to_centroid(pca_vec):
+                x = np.array(pca_vec.toArray(), dtype=float)
+                return float(np.linalg.norm(x - centroid_np))
+
+            # threshold on NORMAL distances (95th percentile)
+            train_dist = train_pca.withColumn("dist_centroid", dist_to_centroid(col("pca_features")))
+            dist_thr = train_dist.approxQuantile("dist_centroid", [0.95], 0.001)[0]
+            print(f"[POST] dist_thr (normal 95% quantile of dist_to_centroid) = {dist_thr:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("dist_centroid", dist_to_centroid(col("pca_features")))
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_post",
+                when((col("pseudo_label_final") == 1) & (col("dist_centroid") <= lit(dist_thr)), 0).otherwise(
+                    col("pseudo_label_final")))
+            unlab_gmm = unlab_gmm.drop("pseudo_label_final").withColumnRenamed("pseudo_label_post",
+                                                                               "pseudo_label_final")
+
+            flagged_postB = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
+            print(
+                f"[POST] flagged anomalies after centroid rescue: {flagged_postB}/{total} = {flagged_postB / max(total, 1):.3%}")
+
+            # ============================================================
+            # REPORTS (kept as your code: uses Label if present)
+            # ============================================================
+            try:
+                from sklearn.metrics import classification_report
+
+                unlabeled_eval_df = unlab_gmm.join(
+                    sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                    how="inner")
+
+                pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
+
+                print("\n=== Classification_report on unlabeled_df (Temp_label==999) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
+
+                df_normal = train_gmm.withColumn("Final_Label", lit(0))
+                df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
+                df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+                pdf_train_quality = df_final_train.select("Label", "Final_Label").toPandas()
+
+                print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
+                print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
+
+            except Exception as e:
+                print(f"[WARNING] Skipping sklearn reports (Label missing or sklearn not available): {e}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+            print(f"[RESULT] Selected GMM components (best_gmm_k) by BIC: {best_gmm_k}")
+
+
 
 
             exit()
