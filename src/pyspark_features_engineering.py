@@ -70,6 +70,17 @@ from pyspark.sql.types import DoubleType
 from pyspark.ml.clustering import BisectingKMeans
 import numpy as np
 
+import numpy as np
+from pyspark.sql.functions import col, when, lit, array_max
+from pyspark.sql.types import DoubleType
+from pyspark.sql.functions import udf
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.functions import vector_to_array
+
+# Optional classifier stage (recommended to rescue TH_1G)
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.classification import GBTClassifier
 from pyspark.sql.functions import col, when, udf, avg, stddev, lit
 from pyspark.sql.types import DoubleType
 from pyspark.ml.clustering import BisectingKMeans
@@ -296,375 +307,34 @@ class FeaturesEngineering:
             raise ValueError("❌ No normal logs (Temp_label=0) found for training.")
         if unlabeled_train_df.count() == 0:
             raise ValueError("❌ No unlabeled logs (Temp_label=999) found for novelty detection.")
+
+        feature_col = "features_vec_final"
+
         #--------------------------------------------------------------------------------
         # Ensure feature column is vector type
         if method.lower() == "gmm":
-
-            '''
-            print("\n🧠 Using PCA + KMeans for novelty detection (robust, semi-supervised) ...")
-
-            # -----------------------------
-            # 0. Filter normal and unlabeled logs
-            # -----------------------------
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for PCA + KMeans novelty detection.")
-
-            feature_col = "features_vec_final"
-
-            # -----------------------------
-            # 1. Fit PCA on normal logs
-            # -----------------------------
-            pca_probe = PCA(k=min(100, len(train_normal_df.columns)), inputCol=feature_col, outputCol="pca_tmp")
-            pca_probe_model = pca_probe.fit(train_normal_df)
-
-            explained = np.array(pca_probe_model.explainedVariance.toArray())
-            cum_energy = np.cumsum(explained)
-            target_energy = 0.95  # 🔧 tune: 0.90, 0.95, 0.99
-            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
-            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
-
-            # Final PCA
-            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
-            pca_model = pca.fit(train_normal_df)
-
-            train_pca = pca_model.transform(train_normal_df)
-            unlabeled_pca = pca_model.transform(unlabeled_df)
-
-            # -----------------------------
-            # 2. Fit KMeans on PCA features of normal logs
-            # -----------------------------
-            n_clusters = min(5, train_normal_df.count())  # 🔧 tune: 2,3,5,7
-            kmeans = KMeans(featuresCol="pca_features", predictionCol="cluster", k=n_clusters, seed=42)
-            kmeans_model = kmeans.fit(train_pca)
-
-            # -----------------------------
-            # 3. Compute distance to nearest centroid
-            # -----------------------------
-            centers = np.array(kmeans_model.clusterCenters())
-            bc_centers = spark.sparkContext.broadcast(centers)
-
-            @udf(DoubleType())
-            def dist_to_nearest_centroid(vec):
-                x = np.array(vec.toArray())
-                dists = np.linalg.norm(bc_centers.value - x, axis=1)
-                return float(np.min(dists))
-
-            train_pca = train_pca.withColumn("anomaly_score", dist_to_nearest_centroid(col("pca_features")))
-            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score", dist_to_nearest_centroid(col("pca_features")))
-
-            # -----------------------------
-            # 4. Threshold selection (contamination)
-            # -----------------------------
-            expected_anomaly_rate = 0.1  # 🔧 tune: 0.01, 0.03, 0.05
-            threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
-            print(f"📏 PCA + KMeans threshold (contamination={expected_anomaly_rate * 100:.1f}%): {threshold:.6f}")
-
-            # -----------------------------
-            # 5. Two-zone pseudo-labeling
-            # -----------------------------
-            low_thr = train_pca.approxQuantile("anomaly_score", [0.90], 0.01)[0]
-            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
-                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
-
-            # Drop uncertain samples
-            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
-
-            # -----------------------------
-            # 6. Evaluate pseudo-labels
-            # -----------------------------
-            unlabeled_eval_df = pseudo_labels_df.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
-                how="inner")
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
-
-            print('Classification_report pseudo-labels (PCA + KMeans)')
-            print(classification_report(y_true, y_pred, digits=3))
-
-            # -----------------------------
-            # 7. Merge pseudo-labeled + normal logs
-            # -----------------------------
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
-
-            df_final_train.printSchema()
-            df_test.printSchema()
-
-            # -----------------------------
-            # 8. Full training label quality
-            # -----------------------------
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-
-            print('Classification_report full training data (PCA + KMeans novelty)')
-            print(classification_report(y_train_truth, y_train, digits=3))
-            '''
-
-            '''
-            print("\n🧠 Using PCA + Mahalanobis for robust semi-supervised novelty detection ...")
-
-            # -----------------------------
-            # 0. Prepare datasets
-            # -----------------------------
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for PCA novelty detection.")
-
-            feature_col = "features_vec_final"
-
-            # -----------------------------
-            # 1. Probe PCA to get energy curve
-            # -----------------------------
-            pca_probe = PCA(k=min(60, train_normal_df.select(feature_col).first()[0].size), inputCol=feature_col,
-                            outputCol="pca_tmp")
-            pca_probe_model = pca_probe.fit(train_normal_df)
-
-            explained = np.array(pca_probe_model.explainedVariance.toArray())
-            cum_energy = np.cumsum(explained)
-
-            target_energy = 0.95  # 🔧 tune 0.90,0.95,0.99
-            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
-            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
-
-            # -----------------------------
-            # 2. Fit final PCA
-            # -----------------------------
-            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
-            pca_model = pca.fit(train_normal_df)
-
-            train_pca = pca_model.transform(train_normal_df)
-            unlabeled_pca = pca_model.transform(unlabeled_df)
-
-            # -----------------------------
-            # 3. Mahalanobis distance in PCA space
-            # -----------------------------
-            pdf_train_pca = train_pca.select("pca_features").toPandas()
-            Z = np.vstack(pdf_train_pca["pca_features"].apply(lambda v: v.toArray()))
-            mu = Z.mean(axis=0)
-            cov = np.cov(Z, rowvar=False)
-            cov += np.eye(cov.shape[0]) * 1e-6  # regularization
-            inv_cov = np.linalg.inv(cov)
-
-            bc_mu = spark.sparkContext.broadcast(mu)
-            bc_inv_cov = spark.sparkContext.broadcast(inv_cov)
-
-            @udf(DoubleType())
-            def mahalanobis_score(pca_vec):
-                z = np.array(pca_vec.toArray())
-                d = z - bc_mu.value
-                return float(np.sqrt(d.T @ bc_inv_cov.value @ d))
-
-            train_pca = train_pca.withColumn("anomaly_score", mahalanobis_score(col("pca_features")))
-            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score", mahalanobis_score(col("pca_features")))
-
-            # -----------------------------
-            # 4. Statistical threshold (Chi-square)
-            # -----------------------------
-            alpha = 0.99  # 🔧 tune 0.99, 0.995, 0.999
-            threshold = float(np.sqrt(chi2.ppf(alpha, k_opt)))
-            print(f"📏 PCA-Mahalanobis threshold (Chi2, alpha={alpha}): {threshold:.6f}")
-
-            # -----------------------------
-            # 5. Two-zone pseudo-labeling (optional)
-            # -----------------------------
-            low_thr = train_pca.approxQuantile("anomaly_score", [0.80], 0.01)[0]
-            print(f"📏 Two-zone thresholds: low={low_thr:.6f}, high={threshold:.6f}")
-
-            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
-                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
-
-            # Drop uncertain samples
-            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
-
-            # -----------------------------
-            # 6. Evaluate pseudo-labels (optional)
-            # -----------------------------
-            unlabeled_eval_df = pseudo_labels_df.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
-                how="inner")
-
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
-            print('Classification_report on pseudo-labels (PCA-Mahalanobis)')
-            print(classification_report(y_true, y_pred, digits=3))
-
-            # -----------------------------
-            # 7. Merge pseudo-labeled + normal
-            # -----------------------------
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
-
-            df_final_train.printSchema()
-            df_test.printSchema()
-
-            # -----------------------------
-            # 8. Full training label quality (diagnostic)
-            # -----------------------------
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-
-            print('Classification_report full training data (PCA-Mahalanobis)')
-            print(classification_report(y_train_truth, y_train, digits=3))
-            '''
-            '''
-            print("\n🧠 Using PCA for novelty detection (robust, semi-supervised) ...")
-
-            # Train on normal logs only
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for PCA novelty detection.")
-
-            feature_col = "features_vec_final"
-
-            # -----------------------------
-            # 1. First PCA to get energy curve
-            # -----------------------------
-            pca_probe = PCA(k=59, inputCol=feature_col, outputCol="pca_tmp")
-            pca_probe_model = pca_probe.fit(train_normal_df)
-
-            explained = np.array(pca_probe_model.explainedVariance.toArray())
-            cum_energy = np.cumsum(explained)
-
-            target_energy = 0.95  # 🔧 try 0.90, 0.95, 0.99
-            k_opt = int(np.searchsorted(cum_energy, target_energy) + 1)
-
-            print(f"📊 PCA target energy={target_energy}, optimal k={k_opt}")
-
-            # -----------------------------
-            # 2. Fit final PCA with optimal k
-            # -----------------------------
-            pca = PCA(k=k_opt, inputCol=feature_col, outputCol="pca_features")
-            pca_model = pca.fit(train_normal_df)
-
-            train_pca = pca_model.transform(train_normal_df)
-            unlabeled_pca = pca_model.transform(unlabeled_df)
-
-            # -----------------------------
-            # 3. Reconstruction error UDF (squared error = better tails)
-            # -----------------------------
-            pc = pca_model.pc.toArray()
-
-            @udf(DoubleType())
-            def reconstruction_error(orig_vec, pca_vec):
-                x = np.array(orig_vec.toArray())
-                z = np.array(pca_vec.toArray())
-                x_hat = np.dot(pc, z)
-                return float(np.sum((x - x_hat) ** 2))
-
-            train_pca = train_pca.withColumn("anomaly_score",
-                reconstruction_error(col(feature_col), col("pca_features")))
-
-            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score",
-                reconstruction_error(col(feature_col), col("pca_features")))
-
-            # -----------------------------
-            # 4. Contamination-based threshold (OCSVM equivalent)
-            # -----------------------------
-            expected_anomaly_rate = 0.01  # 🔧 try 0.01, 0.03, 0.05
-
-            threshold = train_pca.approxQuantile("anomaly_score", [1 - expected_anomaly_rate], 0.01)[0]
-
-            print(f"📏 PCA threshold (contamination={expected_anomaly_rate * 100:.1f}%): {threshold:.6f}")
-
-            # -----------------------------
-            # 5. Two-zone pseudo-labeling (reduce noise)
-            # -----------------------------
-            low_thr = train_pca.approxQuantile("anomaly_score", [0.95], 0.01)[0]
-
-            print(f"📏 Two-zone thresholds: low={low_thr:.6f}, high={threshold:.6f}")
-
-            pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
-                when(col("anomaly_score") >= threshold, 1).when(col("anomaly_score") <= low_thr, 0).otherwise(None))
-
-            # Drop uncertain samples
-            pseudo_labels_df = pseudo_labels_df.filter(col("pseudo_label").isNotNull())
-
-            # -----------------------------
-            # 6. Evaluate pseudo-labels (for analysis only)
-            # -----------------------------
-            unlabeled_eval_df = pseudo_labels_df.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
-                how="inner")
-
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label").toPandas()
-            y_true = pdf_unlabeled["true_label"]
-            y_pred = pdf_unlabeled["pseudo_label"]
-
-            print('Classification_report only for pseudo-label on unlabeled data (PCA robust)')
-            print(classification_report(y_true, y_pred, digits=3))
-
-            # -----------------------------
-            # 7. Merge pseudo-labeled + normal
-            # -----------------------------
-            df_normal = train_normal_df.withColumn("Final_Label", when(col("Temp_label") == 0, 0))
-            df_unlabeled = pseudo_labels_df.withColumnRenamed("pseudo_label", "Final_Label")
-
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-
-            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
-
-            df_final_train.printSchema()
-            df_test.printSchema()
-
-            # -----------------------------
-            # 8. Full training label quality (diagnostic)
-            # -----------------------------
-            pdf_final = df_final_train.toPandas()
-            y_train = pdf_final["Final_Label"].values
-            y_train_truth = pdf_final["Label"].values
-
-            print('Classification_report full training data (PCA robust novelty)')
-            print(classification_report(y_train_truth, y_train, digits=3))
-            '''
-
             '''
             # good ----------------------------------------------------------------------------------------------------
             print("\n🧠 Using PCA for novelty detection (semi-supervised) ...")
-
             # Train on normal logs only
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
             if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
                 raise ValueError("❌ Not enough data for PCA novelty detection.")
-
             feature_col = "features_vec_final"
-
-
             # ------- Start the good idea ------------------------------------------------------------------------------
             candidate_ks = [10, 20, 30, 50, 60, 70]
             target_variance = 0.999
-
             best_k = None
 
             for k in candidate_ks:
                 print(f"[INFO] Testing PCA with k={k}")
 
                 pca = SparkPCA(k=k, inputCol="features_vec_final", outputCol=f"pca_features_k{k}")
-
                 pca_model = pca.fit(train_normal_df)
-
                 # explainedVariance is a DenseVector of length k
                 explained_variance = float(sum(pca_model.explainedVariance))
-
                 print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
-
                 # ✅ Take FIRST k that reaches target variance
                 if explained_variance >= target_variance:
                     best_k = k
@@ -675,26 +345,21 @@ class FeaturesEngineering:
             if best_k is None:
                 best_k = candidate_ks[-1]
                 print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
-
             print(f"[RESULT] Selected PCA components (best_k): {best_k}")
             #exit()
-
             # -----------------------------
             # 1. Fit PCA on normal only
             # -----------------------------
             k_pca = best_k # 50  # 🔧 TUNE: try 20, 50, 100
             pca = PCA(k=k_pca, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
-
             # Transform
             train_pca = pca_model.transform(train_normal_df)
             unlabeled_pca = pca_model.transform(unlabeled_df)
-
             # -----------------------------
             # 2. Reconstruction error UDF
             # -----------------------------
             pc = pca_model.pc.toArray()
-
             @udf(DoubleType())
             def reconstruction_error(orig_vec, pca_vec):
                 x = np.array(orig_vec.toArray())
@@ -704,7 +369,6 @@ class FeaturesEngineering:
 
             train_pca = train_pca.withColumn("anomaly_score",
                 reconstruction_error(col(feature_col), col("pca_features")))
-
             unlabeled_pca = unlabeled_pca.withColumn("anomaly_score",
                 reconstruction_error(col(feature_col), col("pca_features")))
 
@@ -731,9 +395,6 @@ class FeaturesEngineering:
             # -----------------------------
             pseudo_labels_df = unlabeled_pca.withColumn("pseudo_label",
                 when(col("anomaly_score") > threshold, 1).otherwise(0))
-
-            # ------- End the good idea ------------------------------------------------------------------------------
-
 
             # -----------------------------
             # 5. Evaluate pseudo-labels
@@ -779,6 +440,8 @@ class FeaturesEngineering:
             #exit()
             # end good -------------------------------------------------------------------------------------------------
             '''
+            '''
+            #  good ---Idea2 -----------------------------------------------------------------------------------
             # -----------------------------
             # 0) Split data
             # -----------------------------
@@ -945,6 +608,212 @@ class FeaturesEngineering:
             pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
             print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
             exit()
+            # end good ----------------idea 2------------------------------------------------------------------------
+            '''
+            # start good ----------------idea 3-----------------------------------------------------------------------
+
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1) Choose PCA k on normal only (your good idea)
+            # -----------------------------
+            candidate_ks = [10, 20, 30, 50, 60, 70]
+            target_variance = 0.999
+
+            best_k = None
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_df)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+                if explained_variance >= target_variance:
+                    best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
+                    break
+
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+
+            # -----------------------------
+            # 2) Fit PCA on normal only + transform normal/unlabeled
+            # -----------------------------
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 3) PCA reconstruction error -> score_pca
+            # -----------------------------
+            pc = pca_model.pc.toArray()
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                x_hat = np.dot(pc, z)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca = train_pca.withColumn("score_pca", reconstruction_error(col(feature_col), col("pca_features")))
+            unlabeled_pca = unlabeled_pca.withColumn("score_pca",
+                                                     reconstruction_error(col(feature_col), col("pca_features")))
+
+            # -----------------------------
+            # 4) Fit GMM on NORMAL in PCA space + score unlabeled
+            # -----------------------------
+            gmm_k = 10  # fixed for paper (e.g., 5). (You can pick 5 or 10 and keep it fixed.)
+            gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
+                probabilityCol="gmm_prob")
+
+            gmm_model = gmm.fit(train_pca.select("pca_features"))
+
+            train_gmm = gmm_model.transform(train_pca)
+            unlab_gmm = gmm_model.transform(unlabeled_pca)
+
+            # membership confidence: max(probabilities); low -> anomaly
+            train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+            unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+
+            train_gmm = train_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+            unlab_gmm = unlab_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+
+            # -----------------------------
+            # 5) Robust normalization using NORMAL stats (median + MAD)
+            # -----------------------------
+            pdf_norm = train_gmm.select("score_pca", "score_gmm").toPandas()
+
+            def median_mad(arr):
+                arr = np.asarray(arr, dtype=float)
+                med = float(np.median(arr))
+                mad = float(np.median(np.abs(arr - med))) + 1e-12
+                scale = 1.4826 * mad
+                return med, scale
+
+            med_pca, sc_pca = median_mad(pdf_norm["score_pca"].values)
+            med_gmm, sc_gmm = median_mad(pdf_norm["score_gmm"].values)
+
+            @udf(DoubleType())
+            def z_pca(v):
+                return float((float(v) - med_pca) / sc_pca)
+
+            @udf(DoubleType())
+            def z_gmm(v):
+                return float((float(v) - med_gmm) / sc_gmm)
+
+            train_gmm = train_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+            unlab_gmm = unlab_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+
+            # -----------------------------
+            # 6) Fuse into one score (fixed weight for paper)
+            # -----------------------------
+            w = 0.5
+            train_gmm = train_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+            unlab_gmm = unlab_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+
+            # -----------------------------
+            # 7) ONE unsupervised threshold for all datasets: rate-cap on unlabeled
+            # -----------------------------
+            max_rate = 0.10  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
+            thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
+
+            print(f"[INFO] fused_score threshold by rate-cap (max_rate={max_rate:.1%}): {thr:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_final", when(col("fused_score") > thr, 1).otherwise(0))
+
+            # sanity check
+            flagged = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
+            total = unlab_gmm.count()
+            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / total:.3%}")
+
+            # -----------------------------
+            # 8) Evaluate pseudo-labels on unlabeled (if true Label exists)
+            # -----------------------------
+            unlabeled_eval_df = unlab_gmm.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
+            print("\n=== Classification_report on unlabeled (FUSED novelty) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
+
+            # -----------------------------
+            # 9) Build final training set (normal + pseudo-labeled)
+            # -----------------------------
+            df_normal = train_gmm.withColumn("Final_Label", lit(0)).withColumn("weight", lit(1.0))
+
+            # confidence weighting (optional but helps TH_1G)
+            # weight = 1 + |fused_score - threshold| ; anomalies get a bit more weight
+            unlab_gmm = unlab_gmm.withColumn("conf", (col("fused_score") - lit(thr)).__abs__())
+            unlab_gmm = unlab_gmm.withColumn("weight", (lit(1.0) + col("conf")) * when(col("pseudo_label_final") == 1,
+                                                                                       lit(2.0)).otherwise(lit(1.0)))
+
+            df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+            df_val = sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label"))
+
+            # -----------------------------
+            # 10) OPTIONAL (Recommended): Train ONE classifier for ALL datasets (GBT)
+            #     Uses original features + scores to improve hard datasets (TH_1G)
+            # -----------------------------
+            USE_CLASSIFIER = True
+
+            if USE_CLASSIFIER:
+                # Need to carry score columns into test/val as well
+                test_pca = pca_model.transform(df_test).withColumn("score_pca", reconstruction_error(col(feature_col),
+                                                                                                     col("pca_features")))
+                test_gmm = gmm_model.transform(test_pca).withColumn("gmm_max_prob",
+                                                                    array_max(vector_to_array(col("gmm_prob"))))
+                test_gmm = test_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+                test_gmm = test_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                            z_gmm(col("score_gmm")))
+                test_gmm = test_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+
+                assembler = VectorAssembler(inputCols=[feature_col, "score_pca", "score_gmm", "fused_score"],
+                    outputCol="features_all")
+
+                train_ready = assembler.transform(df_final_train)
+                test_ready = assembler.transform(test_gmm)
+
+                gbt = GBTClassifier(labelCol="Final_Label", featuresCol="features_all", weightCol="weight", maxIter=80,
+                    maxDepth=5, seed=42)
+
+                model = gbt.fit(train_ready)
+                pred_test = model.transform(test_ready)
+
+                pdf_test = pred_test.select(col("Final_Label").alias("y_true"),
+                                            col("prediction").alias("y_pred")).toPandas()
+                print("\n=== Test Classification_report (GBT after FUSED novelty) ===")
+                print(classification_report(pdf_test["y_true"], pdf_test["y_pred"], digits=3))
+
+            # -----------------------------
+            # 11) Training label quality report (pseudo labels vs true labels in train+unlabeled)
+            # -----------------------------
+            pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
+            print("\n[INFO] Full training label quality (FUSED pseudo labels):")
+            print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
+
+            exit()
+
+
+
+
+
 
 
 
