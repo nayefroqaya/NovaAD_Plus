@@ -5,6 +5,8 @@ import pandas as pd
 import warnings
 from kneed import KneeLocator
 import numpy as np
+from pyspark.sql.functions import abs as Fabs
+
 from itertools import product
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import RandomForestClassifier
@@ -756,7 +758,8 @@ class FeaturesEngineering:
 
             # confidence weighting (optional but helps TH_1G)
             # weight = 1 + |fused_score - threshold| ; anomalies get a bit more weight
-            unlab_gmm = unlab_gmm.withColumn("conf", (col("fused_score") - lit(thr)).__abs__())
+
+            unlab_gmm = unlab_gmm.withColumn("conf", Fabs(col("fused_score") - lit(thr)))
             unlab_gmm = unlab_gmm.withColumn("weight", (lit(1.0) + col("conf")) * when(col("pseudo_label_final") == 1,
                                                                                        lit(2.0)).otherwise(lit(1.0)))
 
