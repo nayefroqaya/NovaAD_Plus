@@ -673,7 +673,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 4) Fit GMM on NORMAL in PCA space + score unlabeled
             # -----------------------------
-            gmm_k = 5 # keep fixed for paper
+            gmm_k = 2 # keep fixed for paper
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
                                   probabilityCol="gmm_prob")
             gmm_model = gmm.fit(train_pca.select("pca_features"))
@@ -728,7 +728,7 @@ class FeaturesEngineering:
 #<<<<<<< HEAD
 #            max_rate = 0.27  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
 #=======
-            max_rate = 0.30  # fixed for paper; change once globally if needed
+            max_rate = 0.40  # fixed for paper; change once globally if needed
 #>>>>>>> fe11e7f (update Novelty)
             thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
 
