@@ -935,7 +935,7 @@ class FeaturesEngineering:
             # ============================================================
             # 7) Threshold: MAD on NORMAL + safety cap on UNLABELED
             # ============================================================
-            alpha = 4.0  # robust threshold multiplier (good default)
+            alpha = 4 # robust threshold multiplier (good default)
             max_rate_cap = 0.20  # safety cap only (0.10–0.20 recommended)
 
             med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
