@@ -832,7 +832,7 @@ class FeaturesEngineering:
             # ============================================================
             # 4) Fit GMM on NORMAL in PCA space with k selected by BIC
             # ============================================================
-            candidate_gmm_ks = [1, 2, 3, 4, 5, 6,10]  # adjust if needed
+            candidate_gmm_ks = [2, 3, 4, 5, 6,10]  # adjust if needed
             gmm_maxIter = 100
             gmm_tol = 1e-4
             gmm_seed = 42
