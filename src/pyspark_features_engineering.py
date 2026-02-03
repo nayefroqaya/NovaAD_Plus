@@ -865,7 +865,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 5) Fit GMM on NORMAL in PCA space + score unlabeled
             # -----------------------------
-            gmm_k = 10  # 🔧 TUNE: 2, 3, 5, 8, 10
+            gmm_k = 2  # 🔧 TUNE: 2, 3, 5, 8, 10
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
                 probabilityCol="gmm_prob")
 
