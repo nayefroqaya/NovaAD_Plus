@@ -89,6 +89,7 @@ from pyspark.ml.clustering import BisectingKMeans
 from pyspark.ml.feature import PCA as SparkPCA
 import numpy as np
 from kneed import KneeLocator
+from sklearn.metrics import classification_report
 
 from pyspark.sql.functions import col, when, lit, array_max
 from pyspark.sql.types import DoubleType
@@ -612,8 +613,9 @@ class FeaturesEngineering:
             exit()
             # end good ----------------idea 2------------------------------------------------------------------------
             '''
-            # start good ----------------idea 3-----------------------------------------------------------------------
 
+            '''
+            # start good ----------------idea 3-----------------------------------------------------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 
@@ -725,11 +727,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 7) ONE unsupervised threshold for all datasets: rate-cap on unlabeled
             # -----------------------------
-#<<<<<<< HEAD
-#            max_rate = 0.27  # fixed for paper (e.g., 10% maximum anomalies in unlabeled)
-#=======
             max_rate = 0.40  # fixed for paper; change once globally if needed
-#>>>>>>> fe11e7f (update Novelty)
             thr = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate], 0.001)[0]
 
             print(f"[INFO] fused_score threshold by rate-cap (max_rate={max_rate:.1%}): {thr:.6f}")
@@ -765,8 +763,217 @@ class FeaturesEngineering:
 
             print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
             print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
-
             exit()
+            # end good ----------------idea 3------------------------------------------------------------------------
+            '''
+
+            # start good ----------------idea 4-----------------------------------------------------------------------
+
+            # ============================================================
+            # 0) Split
+            # ============================================================
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for novelty detection.")
+
+            feature_col = "features_vec_final"
+
+            # -----------------------------
+            # 1) Choose PCA k on normal only
+            # -----------------------------
+            candidate_ks = [10, 20, 30, 50, 60, 70]
+            target_variance = 0.999
+
+            best_k = None
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_df)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+                if explained_variance >= target_variance:
+                    best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
+                    break
+
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+
+            # -----------------------------
+            # 2) Fit PCA on normal only + transform normal/unlabeled
+            # -----------------------------
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(train_normal_df)
+
+            train_pca = pca_model.transform(train_normal_df)
+            unlabeled_pca = pca_model.transform(unlabeled_df)
+
+            # -----------------------------
+            # 3) PCA reconstruction error -> score_pca
+            # -----------------------------
+            pc = pca_model.pc.toArray()
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                x_hat = np.dot(pc, z)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca = train_pca.withColumn("score_pca", reconstruction_error(col(feature_col), col("pca_features")))
+            unlabeled_pca = unlabeled_pca.withColumn("score_pca",
+                                                     reconstruction_error(col(feature_col), col("pca_features")))
+
+            # ============================================================
+            # 4) Fit GMM on NORMAL in PCA space with k selected by BIC
+            # ============================================================
+            candidate_gmm_ks = [1, 2, 3, 4, 5, 6,10]  # adjust if needed
+            gmm_maxIter = 100
+            gmm_tol = 1e-4
+            gmm_seed = 42
+
+            N_normal = train_pca.count()
+            d = best_k  # PCA dimension
+
+            def approx_num_params(k, d):
+                # Rough param count for full-cov GMM:
+                # means: k*d
+                # covariances: k*d*(d+1)/2
+                # weights: (k-1)
+                return int(k * d + k * (d * (d + 1) // 2) + (k - 1))
+
+            best_gmm_k = None
+            best_bic = float("inf")
+            best_gmm_model = None
+
+            for k in candidate_gmm_ks:
+                print(f"[INFO] Fitting GMM with k={k} on NORMAL (PCA space)")
+                gmm_tmp = GaussianMixture(k=k, featuresCol="pca_features", predictionCol="gmm_cluster",
+                    probabilityCol="gmm_prob", tol=gmm_tol, maxIter=gmm_maxIter, seed=gmm_seed)
+                model_tmp = gmm_tmp.fit(train_pca.select("pca_features"))
+
+                # Spark provides avgLogLikelihood; total logL ≈ avgLogL * N
+                avg_logL = float(model_tmp.summary.avgLogLikelihood)
+                logL = avg_logL * N_normal
+
+                p = approx_num_params(k, d)
+                bic = -2.0 * logL + p * np.log(max(N_normal, 2))
+
+                print(f"[INFO] k={k}, avgLogL={avg_logL:.6f}, BIC={bic:.3f} (params~{p})")
+
+                if bic < best_bic:
+                    best_bic = bic
+                    best_gmm_k = k
+                    best_gmm_model = model_tmp
+
+            print(f"[RESULT] Selected GMM components (best_gmm_k) by BIC: {best_gmm_k}")
+
+            gmm_model = best_gmm_model
+
+            train_gmm = gmm_model.transform(train_pca)
+            unlab_gmm = gmm_model.transform(unlabeled_pca)
+
+            train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+            unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
+
+            train_gmm = train_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+            unlab_gmm = unlab_gmm.withColumn("score_gmm", lit(1.0) - col("gmm_max_prob"))
+
+            # ============================================================
+            # 5) Robust normalization using NORMAL stats (median + MAD) via Spark approxQuantile
+            # ============================================================
+            def median_mad_spark(df, colname, rel_error=0.001):
+                med = df.approxQuantile(colname, [0.5], rel_error)[0]
+                df_abs = df.selectExpr(f"abs({colname} - {med}) as abs_dev")
+                mad = df_abs.approxQuantile("abs_dev", [0.5], rel_error)[0]
+                scale = 1.4826 * (mad + 1e-12)
+                return float(med), float(scale)
+
+            med_pca, sc_pca = median_mad_spark(train_gmm, "score_pca", rel_error=0.001)
+            med_gmm, sc_gmm = median_mad_spark(train_gmm, "score_gmm", rel_error=0.001)
+
+            @udf(DoubleType())
+            def z_pca(v):
+                return float((float(v) - med_pca) / sc_pca)
+
+            @udf(DoubleType())
+            def z_gmm(v):
+                return float((float(v) - med_gmm) / sc_gmm)
+
+            train_gmm = train_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+            unlab_gmm = unlab_gmm.withColumn("z_pca", z_pca(col("score_pca"))).withColumn("z_gmm",
+                                                                                          z_gmm(col("score_gmm")))
+
+            # -----------------------------
+            # 6) Fuse into one score (fixed weight for paper)
+            # -----------------------------
+            w = 0.5
+            train_gmm = train_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+            unlab_gmm = unlab_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
+
+            # ============================================================
+            # 7) Threshold (best unsupervised):
+            #    thr_mad from NORMAL + safety cap from UNLABELED
+            # ============================================================
+            alpha = 3.5  # robust multiplier
+            max_rate_cap = 0.20  # safety cap only (0.10–0.20 recommended)
+
+            med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
+            thr_mad = med_fused + alpha * sc_fused
+
+            thr_cap = unlab_gmm.approxQuantile("fused_score", [1.0 - max_rate_cap], 0.001)[0]
+
+            thr = min(thr_mad, thr_cap)
+
+            print(f"[INFO] thr_mad (NORMAL): {thr_mad:.6f} = median + {alpha}*MAD")
+            print(f"[INFO] thr_cap (UNLABELED): {thr_cap:.6f} = quantile(1-{max_rate_cap:.1%})")
+            print(f"[RESULT] final threshold thr = min(thr_mad, thr_cap) = {thr:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_final", when(col("fused_score") > lit(thr), 1).otherwise(0))
+
+            flagged = unlab_gmm.filter(col("pseudo_label_final") == 1).count()
+            total = unlab_gmm.count()
+            print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / max(total, 1):.3%}")
+
+            # ============================================================
+            # REPORT 1) Classification report on UNLABELED only
+            # (kept as in your code: uses ground truth Label if present)
+            # ============================================================
+
+            unlabeled_eval_df = unlab_gmm.join(
+                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                how="inner")
+
+            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
+
+            print("\n=== Classification_report on unlabeled_df (Temp_label==999) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
+
+            # ============================================================
+            # REPORT 2) Classification report on (train_normal_df + unlabeled_df)
+            # (quality of your final pseudo-labeled training set)
+            # ============================================================
+            df_normal = train_gmm.withColumn("Final_Label", lit(0))
+            df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
+
+            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+
+            pdf_train_quality = df_final_train.select("Label", "Final_Label").toPandas()
+
+            print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
+            print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
+            exit()
+
+
+
+
+
 
 
 
