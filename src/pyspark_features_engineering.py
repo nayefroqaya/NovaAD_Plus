@@ -673,7 +673,7 @@ class FeaturesEngineering:
             # -----------------------------
             # 4) Fit GMM on NORMAL in PCA space + score unlabeled
             # -----------------------------
-            gmm_k = 10 # keep fixed for paper
+            gmm_k = 5 # keep fixed for paper
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
                                   probabilityCol="gmm_prob")
             gmm_model = gmm.fit(train_pca.select("pca_features"))
