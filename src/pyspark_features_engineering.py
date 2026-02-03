@@ -935,7 +935,7 @@ class FeaturesEngineering:
             # ============================================================
             # 7) Threshold: MAD on NORMAL + safety cap on UNLABELED
             # ============================================================
-            alpha = 3.5  # robust threshold multiplier (good default)
+            alpha = 4.5  # robust threshold multiplier (good default)
             max_rate_cap = 0.20  # safety cap only (0.10–0.20 recommended)
 
             med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
@@ -983,6 +983,10 @@ class FeaturesEngineering:
 
             except Exception as e:
                 print(f"[WARNING] Skipping sklearn reports (Label missing or sklearn not available): {e}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+            print(f"[RESULT] Selected GMM components (best_gmm_k) by BIC: {best_gmm_k}")
+
 
             exit()
 
