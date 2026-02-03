@@ -55,6 +55,15 @@ from pyspark.sql.functions import col, when, array_max
 from pyspark.sql.types import DoubleType
 from pyspark.sql.functions import udf
 import numpy as np
+import numpy as np
+
+from pyspark.sql.functions import col, lit, when, array_max, udf
+from pyspark.sql.types import DoubleType
+
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.functions import vector_to_array
+
 from pyspark.ml.feature import PCA
 from pyspark.ml.linalg import Vectors, DenseVector
 from pyspark.sql.functions import udf
@@ -79,6 +88,7 @@ from pyspark.sql.functions import udf
 from pyspark.ml.feature import PCA as SparkPCA
 from pyspark.ml.clustering import GaussianMixture
 from pyspark.ml.functions import vector_to_array
+from sklearn.metrics import classification_report
 
 # Optional classifier stage (recommended to rescue TH_1G)
 from pyspark.ml.feature import VectorAssembler
@@ -89,7 +99,6 @@ from pyspark.ml.clustering import BisectingKMeans
 from pyspark.ml.feature import PCA as SparkPCA
 import numpy as np
 from kneed import KneeLocator
-from sklearn.metrics import classification_report
 
 from pyspark.sql.functions import col, when, lit, array_max
 from pyspark.sql.types import DoubleType
@@ -769,9 +778,9 @@ class FeaturesEngineering:
 
             # start good ----------------idea 4-----------------------------------------------------------------------
 
-            # ============================================================
+            # -----------------------------
             # 0) Split
-            # ============================================================
+            # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 
@@ -822,7 +831,7 @@ class FeaturesEngineering:
             def reconstruction_error(orig_vec, pca_vec):
                 x = np.array(orig_vec.toArray(), dtype=float)
                 z = np.array(pca_vec.toArray(), dtype=float)
-                x_hat = np.dot(pc, z)
+                x_hat = np.dot(pc, z)  # (orig_dim,)
                 return float(np.linalg.norm(x - x_hat))
 
             train_pca = train_pca.withColumn("score_pca", reconstruction_error(col(feature_col), col("pca_features")))
@@ -830,18 +839,18 @@ class FeaturesEngineering:
                                                      reconstruction_error(col(feature_col), col("pca_features")))
 
             # ============================================================
-            # 4) Fit GMM on NORMAL in PCA space with k selected by BIC
+            # 4) Fit GMM on NORMAL in PCA space + choose k by BIC (Spark-safe)
             # ============================================================
-            candidate_gmm_ks = [2, 3, 4, 5, 6,10]  # adjust if needed
-            gmm_maxIter = 100
+            candidate_gmm_ks = [ 2, 3, 4, 5, 6, 10]  # adjust upper bound if you want
             gmm_tol = 1e-4
+            gmm_maxIter = 100
             gmm_seed = 42
 
             N_normal = train_pca.count()
             d = best_k  # PCA dimension
 
             def approx_num_params(k, d):
-                # Rough param count for full-cov GMM:
+                # Rough parameter count for full-covariance GMM
                 # means: k*d
                 # covariances: k*d*(d+1)/2
                 # weights: (k-1)
@@ -857,14 +866,20 @@ class FeaturesEngineering:
                     probabilityCol="gmm_prob", tol=gmm_tol, maxIter=gmm_maxIter, seed=gmm_seed)
                 model_tmp = gmm_tmp.fit(train_pca.select("pca_features"))
 
-                # Spark provides avgLogLikelihood; total logL ≈ avgLogL * N
-                avg_logL = float(model_tmp.summary.avgLogLikelihood)
-                logL = avg_logL * N_normal
+                # Spark version compatibility: some have avgLogLikelihood, others have logLikelihood
+                summ = model_tmp.summary
+                if hasattr(summ, "avgLogLikelihood"):
+                    avg_ll = float(summ.avgLogLikelihood)
+                    logL = avg_ll * N_normal
+                    ll_info = f"avgLogL={avg_ll:.6f}"
+                else:
+                    logL = float(summ.logLikelihood)  # total log-likelihood
+                    ll_info = f"logL={logL:.3f}"
 
                 p = approx_num_params(k, d)
                 bic = -2.0 * logL + p * np.log(max(N_normal, 2))
 
-                print(f"[INFO] k={k}, avgLogL={avg_logL:.6f}, BIC={bic:.3f} (params~{p})")
+                print(f"[INFO] k={k}, {ll_info}, BIC={bic:.3f} (params~{p})")
 
                 if bic < best_bic:
                     best_bic = bic
@@ -911,17 +926,16 @@ class FeaturesEngineering:
                                                                                           z_gmm(col("score_gmm")))
 
             # -----------------------------
-            # 6) Fuse into one score (fixed weight for paper)
+            # 6) Fuse into one score
             # -----------------------------
             w = 0.5
             train_gmm = train_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
             unlab_gmm = unlab_gmm.withColumn("fused_score", lit(w) * col("z_pca") + lit(1.0 - w) * col("z_gmm"))
 
             # ============================================================
-            # 7) Threshold (best unsupervised):
-            #    thr_mad from NORMAL + safety cap from UNLABELED
+            # 7) Threshold: MAD on NORMAL + safety cap on UNLABELED
             # ============================================================
-            alpha = 3.5  # robust multiplier
+            alpha = 3.5  # robust threshold multiplier (good default)
             max_rate_cap = 0.20  # safety cap only (0.10–0.20 recommended)
 
             med_fused, sc_fused = median_mad_spark(train_gmm, "fused_score", rel_error=0.001)
@@ -942,48 +956,35 @@ class FeaturesEngineering:
             print(f"[INFO] flagged anomalies in unlabeled: {flagged}/{total} = {flagged / max(total, 1):.3%}")
 
             # ============================================================
-            # REPORT 1) Classification report on UNLABELED only
-            # (kept as in your code: uses ground truth Label if present)
+            # REPORT 1) Classification report on UNLABELED only (if Label exists)
             # ============================================================
+            try:
 
-            unlabeled_eval_df = unlab_gmm.join(
-                sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
-                how="inner")
+                unlabeled_eval_df = unlab_gmm.join(
+                    sequences_df.select(col("Node_block_id"), col("Label").alias("true_label")), on="Node_block_id",
+                    how="inner")
 
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
+                pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_final").toPandas()
 
-            print("\n=== Classification_report on unlabeled_df (Temp_label==999) ===")
-            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
+                print("\n=== Classification_report on unlabeled_df (Temp_label==999) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
 
-            # ============================================================
-            # REPORT 2) Classification report on (train_normal_df + unlabeled_df)
-            # (quality of your final pseudo-labeled training set)
-            # ============================================================
-            df_normal = train_gmm.withColumn("Final_Label", lit(0))
-            df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
+                # ============================================================
+                # REPORT 2) Classification report on (train_normal_df + unlabeled_df)
+                # ============================================================
+                df_normal = train_gmm.withColumn("Final_Label", lit(0))
+                df_unlabeled = unlab_gmm.withColumnRenamed("pseudo_label_final", "Final_Label")
+                df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
 
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
+                pdf_train_quality = df_final_train.select("Label", "Final_Label").toPandas()
 
-            pdf_train_quality = df_final_train.select("Label", "Final_Label").toPandas()
+                print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
+                print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
 
-            print("\n=== Classification_report on (train_normal_df + unlabeled_df) ===")
-            print(classification_report(pdf_train_quality["Label"], pdf_train_quality["Final_Label"], digits=3))
+            except Exception as e:
+                print(f"[WARNING] Skipping sklearn reports (Label missing or sklearn not available): {e}")
+
             exit()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
