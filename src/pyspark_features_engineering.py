@@ -1213,20 +1213,29 @@ class FeaturesEngineering:
             # ============================================================
             # 9) Build final training set using SELECTED pseudo labels
             # ============================================================
-            train_df_normal = train_normal_df.withColumn("Final_Label", lit(0))
-            train_df_unlabeled = unlab_gmm  # already has Final_Label
-            df_final_train = train_df_normal.unionByName(train_df_unlabeled, allowMissingColumns=True)
+            # Normal part MUST come from train_pca_normal (has pca_features)
+            train_df_normal = train_pca_normal.withColumn("Final_Label", lit(0))
+            # Unlabeled already has pca_features and Final_Label
+            train_df_unlabeled = unlab_gmm
+            keep_cols = [id_col, "pca_features", "Final_Label"]
+            df_final_train_cls = train_df_normal.select(*keep_cols).unionByName(train_df_unlabeled.select(*keep_cols),
+                allowMissingColumns=False)
+            df_test_cls = (test_pca.withColumn("Final_Label", col("Label").cast("int")).select(id_col, "pca_features",
+                                                                                               "Final_Label"))
+
+            df_val_cls = (val_pca.withColumn("Final_Label", col("Label").cast("int")).select(id_col, "pca_features",
+                                                                                             "Final_Label"))
 
             print('df_normal------')
-            train_df_normal.printSchema()
+            train_pca_normal.printSchema()
             print('df_unlabeled from train------')
             train_df_unlabeled.printSchema()
             print('full train------')
-            df_final_train.printSchema()
+            df_final_train_cls.printSchema()
             print('full test------')
-            df_test.printSchema()
+            df_test_cls.printSchema()
             print('full val------')
-            df_val.printSchema()
+            df_val_cls.printSchema()
             exit()
 
 
