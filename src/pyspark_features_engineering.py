@@ -910,7 +910,7 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings for unsupervised selection
             # -----------------------------
-            EXPECTED_ANOM_RATE =  0.02 #0.03  # r0: expected anomaly fraction (tune: 0.02, 0.05)
+            EXPECTED_ANOM_RATE = 0.03  # r0: expected anomaly fraction (tune: 0.02, 0.05)
             RATE_ALPHA = 2.0  # penalty strength
             STABILITY_SEED1 = 21
             STABILITY_SEED2 = 99
