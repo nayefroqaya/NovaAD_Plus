@@ -1219,10 +1219,6 @@ class FeaturesEngineering:
             pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
             print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
 
-            exit()
-
-            exit()
-
 
 
             '''
@@ -1591,10 +1587,6 @@ class FeaturesEngineering:
             
             # end good ----------------idea 4------------------------------------------------------------------------
             '''
-
-
-
-            exit()
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
