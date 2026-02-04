@@ -1481,45 +1481,81 @@ class FeaturesEngineering:
             print(f"  Combined(OR)   : fpr={fpr_or:.6f}")
 
             # ============================================================
-            # 7.2) Unsupervised selection using BALANCED F-beta score
-            #      score = F_beta(precision_proxy=1-fpr, recall_proxy=anomaly_rate) * stability
+            # 7.2) FIXED UNSUPERVISED SELECTION (no "anomaly-rate" recall proxy)
+            #      Uses:
+            #        - separation between normal/unlabeled score distributions
+            #        - stability (Jaccard)
+            #        - FPR on normal holdout
             # ============================================================
 
-            # Recall proxy (anomaly rate on unlabeled)
-            r_pca = anomaly_rate(unlab_gmm, "pseudo_label_pca")
-            r_gmm = anomaly_rate(unlab_gmm, "pseudo_label_gmm")
-            r_and = anomaly_rate(unlab_gmm, "pseudo_label_and")
-            r_or = anomaly_rate(unlab_gmm, "pseudo_label_or")
+            eps = 1e-9
 
-            # Stability (Jaccard) on unlabeled
-            u1 = unlab_gmm.sample(withReplacement=False, fraction=0.8, seed=STABILITY_SEED1)
-            u2 = unlab_gmm.sample(withReplacement=False, fraction=0.8, seed=STABILITY_SEED2)
+            def separation_z(norm_scores, unlab_scores):
+                mu_n = float(np.mean(norm_scores))
+                sd_n = float(np.std(norm_scores)) + eps
+                mu_u = float(np.mean(unlab_scores))
+                return (mu_u - mu_n) / sd_n
+
+            # --- Collect scores (avoid huge collect if too big; sample if needed) ---
+            SAMPLE_FRAC = 0.2  # if dataset huge, keep small sample; set 1.0 if manageable
+
+            norm_scores_pca = (train_pca_normal.sample(False, SAMPLE_FRAC, 1).select("anomaly_score_pca").toPandas()[
+                                   "anomaly_score_pca"].astype(float).values)
+
+            unlab_scores_pca = (
+                train_unlabeled_pca.sample(False, SAMPLE_FRAC, 2).select("anomaly_score_pca").toPandas()[
+                    "anomaly_score_pca"].astype(float).values)
+
+            norm_scores_gmm = (train_gmm.sample(False, SAMPLE_FRAC, 3).select("anomaly_score_gmm").toPandas()[
+                                   "anomaly_score_gmm"].astype(float).values)
+
+            unlab_scores_gmm = (unlab_gmm.sample(False, SAMPLE_FRAC, 4).select("anomaly_score_gmm").toPandas()[
+                                    "anomaly_score_gmm"].astype(float).values)
+
+            # --- Combined score for AND/OR:
+            # Use a continuous score that doesn't explode with OR:
+            # max(score_pca_normed, score_gmm_normed) is OK, but we’ll keep it simple:
+            # score_comb = anomaly_score_pca + anomaly_score_gmm (more stable than max)
+            unlab_scores_comb = (unlab_gmm.sample(False, SAMPLE_FRAC, 5).select(
+                (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
+                                     "comb_score"].astype(float).values)
+
+            norm_scores_comb = (train_gmm.sample(False, SAMPLE_FRAC, 6).select(
+                (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
+                                    "comb_score"].astype(float).values)
+
+            # --- separations ---
+            sep_pca = separation_z(norm_scores_pca, unlab_scores_pca)
+            sep_gmm = separation_z(norm_scores_gmm, unlab_scores_gmm)
+            sep_comb = separation_z(norm_scores_comb, unlab_scores_comb)
+
+            # --- stability (labels) ---
+            u1 = unlab_gmm.sample(False, 0.8, STABILITY_SEED1)
+            u2 = unlab_gmm.sample(False, 0.8, STABILITY_SEED2)
 
             stab_pca = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_pca")
             stab_gmm = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_gmm")
             stab_and = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_and")
             stab_or = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_or")
 
-            # Precision proxy = 1 - FPR (on normal holdout)
-            p_pca = 1.0 - fpr_pca
-            p_gmm = 1.0 - fpr_gmm
-            p_and = 1.0 - fpr_and
-            p_or = 1.0 - fpr_or
+            # --- score: separation * stability / FPR ---
+            score_pca = (sep_pca * stab_pca) / (fpr_pca + eps)
+            score_gmm = (sep_gmm * stab_gmm) / (fpr_gmm + eps)
 
-            score_pca = fbeta(p_pca, r_pca, BETA) * stab_pca
-            score_gmm = fbeta(p_gmm, r_gmm, BETA) * stab_gmm
-            score_and = fbeta(p_and, r_and, BETA) * stab_and
-            score_or = fbeta(p_or, r_or, BETA) * stab_or
+            # AND/OR share same separation (continuous), but differ in stability and FPR
+            score_and = (sep_comb * stab_and) / (fpr_and + eps)
+            score_or = (sep_comb * stab_or) / (fpr_or + eps)
 
-            print("\n[UNSUPERVISED SELECTION COMPONENTS]")
-            print(f"  PCA          : r={r_pca:.4f}, p~={p_pca:.4f}, stab={stab_pca:.4f}, score={score_pca:.6f}")
-            print(f"  GMM          : r={r_gmm:.4f}, p~={p_gmm:.4f}, stab={stab_gmm:.4f}, score={score_gmm:.6f}")
-            print(f"  Combined(AND): r={r_and:.4f}, p~={p_and:.4f}, stab={stab_and:.4f}, score={score_and:.6f}")
-            print(f"  Combined(OR) : r={r_or:.4f}, p~={p_or:.4f}, stab={stab_or:.4f}, score={score_or:.6f}")
+            print("\n[UNSUPERVISED SCORE (separation * stability / FPR)]")
+            print(f"  PCA          : sep={sep_pca:.4f},  stab={stab_pca:.4f}, fpr={fpr_pca:.6f}, score={score_pca:.6f}")
+            print(f"  GMM          : sep={sep_gmm:.4f},  stab={stab_gmm:.4f}, fpr={fpr_gmm:.6f}, score={score_gmm:.6f}")
+            print(f"  Combined(AND): sep={sep_comb:.4f}, stab={stab_and:.4f}, fpr={fpr_and:.6f}, score={score_and:.6f}")
+            print(f"  Combined(OR) : sep={sep_comb:.4f}, stab={stab_or:.4f},  fpr={fpr_or:.6f},  score={score_or:.6f}")
 
             best_method = \
             max([("pca", score_pca), ("gmm", score_gmm), ("and", score_and), ("or", score_or)], key=lambda x: x[1])[0]
-            print(f"\n[SELECTED] Best method (unsupervised balanced F-beta, beta={BETA}): {best_method}")
+
+            print(f"\n[SELECTED] Best method (fixed unsupervised): {best_method}")
 
             if best_method == "pca":
                 unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_pca"))
