@@ -1596,13 +1596,13 @@ class FeaturesEngineering:
             df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
             pdf_val = df_val.toPandas()
 
-            X_train = pdf_final["features_vec_final"].tolist()
-            y_train = pdf_final["Final_Label"].values
-            X_test = pdf_test["features_vec_final"].tolist()
-            y_test_truth = pdf_test["Final_Label"].values
+            #X_train = pdf_final["features_vec_final"].tolist()
+            #y_train = pdf_final["Final_Label"].values
+            #X_test = pdf_test["features_vec_final"].tolist()
+            #y_test_truth = pdf_test["Final_Label"].values
 
-            X_val = pdf_val["features_vec_final"].tolist()
-            y_val_truth = pdf_val["Final_Label"].values
+            #X_val = pdf_val["features_vec_final"].tolist()
+            #y_val_truth = pdf_val["Final_Label"].values
 
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
             #exit()
