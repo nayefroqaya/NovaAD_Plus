@@ -294,7 +294,7 @@ class AnomalyDetector:
                 col("features").isNotNull()).filter(col("label").isNotNull()))
 
             print(test_df.count())
-            exit()
+            #exit()
 
 
             # Quick diagnostics
