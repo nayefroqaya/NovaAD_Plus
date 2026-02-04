@@ -1225,7 +1225,9 @@ class FeaturesEngineering:
             df_final_train.printSchema()
             print('full test------')
             df_test.printSchema()
-            #exit()
+            print('full val------')
+            df_val.printSchema()
+            exit()
 
 
 
