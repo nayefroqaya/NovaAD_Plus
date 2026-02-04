@@ -308,7 +308,7 @@ class FeaturesEngineering:
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
 
     @staticmethod
-    def novelty_detection_label_establishment(sequences_df: DataFrame,    spark: SparkSession, method: str = "gmm"
+    def novelty_detection_label_establishment(sequences_df: DataFrame,  spark: SparkSession, method: str = "gmm"
                                               # options: "IsolationForest" or "rf"
                                               ):
         sequences_df.printSchema()
@@ -896,9 +896,12 @@ class FeaturesEngineering:
             # 0) Split data
             # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+            train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+            df_test = sequences_df.filter(col("Temp_label") == 888)
+            df_val = sequences_df.filter(col("Temp_label") == 777)
 
-            if train_normal_df.count() == 0 or unlabeled_df.count() == 0:
+
+            if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
                 raise ValueError("❌ Not enough data for novelty detection.")
 
             feature_col = "features_vec_final"
@@ -986,8 +989,10 @@ class FeaturesEngineering:
             pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
 
-            train_pca = pca_model.transform(train_normal_df)
-            unlabeled_pca = pca_model.transform(unlabeled_df)
+            train_pca_normal = pca_model.transform(train_normal_df)
+            train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
+            test_pca = pca_model.transform(test_df)
+            val_pca = pca_model.transform(val_df)
 
             # ============================================================
             # 3) PCA reconstruction error -> anomaly_score_pca
@@ -1002,21 +1007,21 @@ class FeaturesEngineering:
                 x_hat = np.dot(pc, z)
                 return float(np.linalg.norm(x - x_hat))
 
-            train_pca = train_pca.withColumn("anomaly_score_pca",
+            train_pca_normal = train_pca_normal.withColumn("anomaly_score_pca",
                                              reconstruction_error(col(feature_col), col("pca_features")))
-            unlabeled_pca = unlabeled_pca.withColumn("anomaly_score_pca",
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
                                                      reconstruction_error(col(feature_col), col("pca_features")))
 
             # ============================================================
             # 4) PCA threshold (knee on NORMAL)
             # ============================================================
-            scores_pca_np = train_pca.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values
+            scores_pca_np = train_pca_normal.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values
             thr_pca, p_knee_pca, p_use_pca = knee_threshold_from_scores(scores_pca_np, min_quantile_floor=0.95,
                                                                         knee_margin=0.02)
 
             print(f"[INFO] PCA p_knee≈{p_knee_pca:.4f}, using p={p_use_pca:.4f}, threshold={thr_pca:.6f}")
 
-            unlabeled_pca = unlabeled_pca.withColumn("pseudo_label_pca",
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("pseudo_label_pca",
                                                      when(col("anomaly_score_pca") > lit(thr_pca), 1).otherwise(0))
 
             # ============================================================
@@ -1026,9 +1031,9 @@ class FeaturesEngineering:
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
                 probabilityCol="gmm_prob")
 
-            gmm_model = gmm.fit(train_pca.select("pca_features"))
-            train_gmm = gmm_model.transform(train_pca)
-            unlab_gmm = gmm_model.transform(unlabeled_pca)
+            gmm_model = gmm.fit(train_pca_normal.select("pca_features"))
+            train_gmm = gmm_model.transform(train_pca_normal)
+            unlab_gmm = gmm_model.transform(train_unlabeled_pca)
 
             train_gmm = train_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
             unlab_gmm = unlab_gmm.withColumn("gmm_max_prob", array_max(vector_to_array(col("gmm_prob"))))
@@ -1187,10 +1192,10 @@ class FeaturesEngineering:
             # ============================================================
             # 8) (Optional) Evaluate on unlabeled if you have true Label (DEBUG ONLY)
             # ============================================================
-            unlabeled_eval_df = unlab_gmm.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
+            train_unlabeled_eval_df = unlab_gmm.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
                 on=id_col, how="inner")
 
-            pdf_unlabeled = unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
+            pdf_unlabeled = train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
                 "pseudo_label_final", "Final_Label").toPandas()
 
             print("\n=== Classification_report on unlabeled (PCA-only) ===")
@@ -1208,21 +1213,19 @@ class FeaturesEngineering:
             # ============================================================
             # 9) Build final training set using SELECTED pseudo labels
             # ============================================================
-            df_normal = train_normal_df.withColumn("Final_Label", lit(0))
-            df_unlabeled = unlab_gmm  # already has Final_Label
-
-            df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
-            df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
+            train_df_normal = train_normal_df.withColumn("Final_Label", lit(0))
+            train_df_unlabeled = unlab_gmm  # already has Final_Label
+            df_final_train = train_df_normal.unionByName(train_df_unlabeled, allowMissingColumns=True)
 
             print('df_normal------')
-            df_normal.printSchema()
+            train_df_normal.printSchema()
             print('df_unlabeled from train------')
-            df_unlabeled.printSchema()
+            train_df_unlabeled.printSchema()
             print('full train------')
             df_final_train.printSchema()
             print('full test------')
             df_test.printSchema()
-            exit()
+            #exit()
 
 
 
@@ -1234,5 +1237,5 @@ class FeaturesEngineering:
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
             #exit()
 
-            return df_final_train, df_test #,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final_train, df_test ,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
 
