@@ -242,36 +242,111 @@ class AnomalyDetector:
                 "predict_time": predict_time}
         '''
         if mode=='X':   # ------------------------------------------------------------------------------------------------------
-            # ------------------------------------------------
-            # Inputs expected:
-            #   df_final_train : has pca_features, Final_Label
-            #   df_test        : has pca_features, Final_Label  (true labels for final evaluation)
-            # ------------------------------------------------
 
-            # 1) Build train/holdout from df_final_train
-            full_train = df_final_train.select("pca_features", col("Final_Label").cast("int").alias("label"))
+            # ============================================================
+            # FULL COPY/PASTE BLOCK (NO pca_model REQUIRED)
+            # - Trains a supervised classifier on df_final_train
+            # - Handles class imbalance with weightCol
+            # - Creates internal val split (if no validation set)
+            # - Tunes probability threshold on internal val (F1)
+            # - Predicts on df_test
+            # - FIXES: "Vectors MUST NOT be Null" by filtering null feature vectors
+            #
+            # REQUIREMENTS:
+            #   df_final_train: has Final_Label + ONE vector feature column
+            #   df_test       : has Final_Label + same vector feature column
+            #
+            # It will auto-pick the first available feature col in:
+            #   ["pca_features", "features_vec_final", "features"]
+            # ============================================================
 
-            train_part, val_part = full_train.randomSplit([0.8, 0.2], seed=42)
+            from pyspark.sql import functions as F
+            from pyspark.sql.functions import col, when, lit, udf
+            from pyspark.sql.types import IntegerType
 
-            # 2) Class weights on TRAIN PART only
-            counts = train_part.groupBy("label").count().collect()
-            cnt = {int(r["label"]): int(r["count"]) for r in counts}
+            from pyspark.ml.classification import RandomForestClassifier
+            from sklearn.metrics import classification_report, f1_score
+
+            # -----------------------------
+            # 0) Auto-detect feature column
+            # -----------------------------
+            CANDIDATE_FEATURE_COLS = ["pca_features", "features_vec_final", "features"]
+            feature_col = next(
+                (c for c in CANDIDATE_FEATURE_COLS if (c in df_final_train.columns and c in df_test.columns)), None)
+
+            if feature_col is None:
+                raise ValueError(f"No common feature vector column found. Need one of {CANDIDATE_FEATURE_COLS} "
+                                 f"in BOTH df_final_train and df_test.\n"
+                                 f"df_final_train cols={df_final_train.columns}\n"
+                                 f"df_test cols={df_test.columns}")
+
+            print(f"[INFO] Using feature column: {feature_col}")
+
+            # -----------------------------
+            # 1) Build clean train/test (drop NULL vectors + NULL labels)
+            # -----------------------------
+            train_full = (df_final_train.select(col(feature_col).alias("features"),
+                                                col("Final_Label").cast("int").alias("label")).filter(
+                col("features").isNotNull()).filter(col("label").isNotNull()))
+
+            test_df = (df_test.select(col(feature_col).alias("features"),
+                                      col("Final_Label").cast("int").alias("label")).filter(
+                col("features").isNotNull()).filter(col("label").isNotNull()))
+
+            print(test_df.count())
+            exit()
+
+
+            # Quick diagnostics
+            orig_train_n = df_final_train.count()
+            clean_train_n = train_full.count()
+            orig_test_n = df_test.count()
+            clean_test_n = test_df.count()
+
+            print(f"[INFO] Train rows: {orig_train_n} -> {clean_train_n} after filtering NULL features/labels")
+            print(f"[INFO] Test rows : {orig_test_n} -> {clean_test_n} after filtering NULL features/labels")
+
+            if clean_train_n == 0:
+                raise ValueError("No training rows left after filtering NULL feature vectors.")
+            if clean_test_n == 0:
+                raise ValueError("No test rows left after filtering NULL feature vectors.")
+
+            # -----------------------------
+            # 2) Internal train/val split (since you don't have validation data)
+            # -----------------------------
+            train_part, val_part = train_full.randomSplit([0.8, 0.2], seed=42)
+
+            # Ensure both classes exist in train_part
+            cnt_rows = train_part.groupBy("label").count().collect()
+            cnt = {int(r["label"]): int(r["count"]) for r in cnt_rows}
             n0, n1 = cnt.get(0, 0), cnt.get(1, 0)
+            print(f"[INFO] train_part class counts: normal(0)={n0}, anomaly(1)={n1}")
 
             if n0 == 0 or n1 == 0:
-                raise ValueError(f"Need both classes in train_part. Got normal={n0}, anomaly={n1}")
+                # If this happens, use a different split seed or ratio
+                raise ValueError("Internal split produced only one class. Try seed=1..100 or split=[0.9,0.1].")
 
+            # -----------------------------
+            # 3) Handle imbalance via weightCol (recommended)
+            # -----------------------------
             w0 = (n0 + n1) / (2.0 * n0)
             w1 = (n0 + n1) / (2.0 * n1)
 
+            print(f"[INFO] Weights -> w0={w0:.4f}, w1={w1:.4f}")
+
             train_part = train_part.withColumn("weight", when(col("label") == 1, lit(w1)).otherwise(lit(w0)))
 
-            # 3) Train classifier
-            rf = RandomForestClassifier(featuresCol="pca_features", labelCol="label", weightCol="weight",
+            # -----------------------------
+            # 4) Train classifier (RandomForest is robust to noisy pseudo-labels)
+            # -----------------------------
+            rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="weight",
                 predictionCol="prediction", probabilityCol="probability", numTrees=300, maxDepth=12, seed=42)
+
             model = rf.fit(train_part)
 
-            # 4) Tune threshold on INTERNAL val_part (from training)
+            # -----------------------------
+            # 5) Tune threshold on internal val (optimize F1)
+            # -----------------------------
             val_pred = model.transform(val_part)
 
             val_pdf = val_pred.select("label", "probability").toPandas()
@@ -279,7 +354,7 @@ class AnomalyDetector:
             val_true = val_pdf["label"].astype(int).values
 
             best_thr, best_f1 = 0.5, -1.0
-            for thr in [i / 100 for i in range(5, 96, 1)]:
+            for thr in [i / 100 for i in range(5, 96, 1)]:  # 0.05..0.95
                 val_hat = (val_probs > thr).astype(int)
                 f1 = f1_score(val_true, val_hat, zero_division=0)
                 if f1 > best_f1:
@@ -287,8 +362,9 @@ class AnomalyDetector:
 
             print(f"[INFO] Best threshold (internal val) = {best_thr:.2f} (F1={best_f1:.3f})")
 
-            # 5) Predict on TEST using tuned threshold
-            test_df = df_test.select("pca_features", col("Final_Label").cast("int").alias("label"))
+            # -----------------------------
+            # 6) Predict on test with tuned threshold
+            # -----------------------------
             test_pred = model.transform(test_df)
 
             @udf(IntegerType())
@@ -297,7 +373,10 @@ class AnomalyDetector:
 
             test_pred = test_pred.withColumn("pred_thr", prob_to_label(col("probability")))
 
-            # 6) Report on test (if test has true labels)
+            # -----------------------------
+            # 7) Report on test (if df_test Final_Label is true label)
+            # -----------------------------
             test_pdf2 = test_pred.select("label", "pred_thr").toPandas()
             print("\n==================== TEST REPORT (thresholded) ====================")
             print(classification_report(test_pdf2["label"].values, test_pdf2["pred_thr"].values, digits=3))
+
