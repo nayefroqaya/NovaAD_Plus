@@ -1216,23 +1216,37 @@ class FeaturesEngineering:
             '''
 
             # start  good ----------------idea 2--------case 4---------------------------------------------------------
+            # ============================================================
+            # FULL COPY/PASTE CODE (ONE BLOCK)
+            # - Builds PCA-only + GMM-only pseudo-labels
+            # - Builds BOTH Combined(AND) and Combined(OR)
+            # - Computes UNSUPERVISED proxies:
+            #     * FPR on holdout NORMAL  (precision proxy = 1 - FPR)
+            #     * anomaly-rate on UNLABELED (recall proxy)
+            #     * stability (Jaccard) on UNLABELED
+            # - Selects best method using an UNSUPERVISED "balanced" F-beta score
+            # - Produces final train/val/test dataframes for classifier (same schema)
+            #
+            # IMPORTANT:
+            # - Uses 4 candidates (NOT 6):
+            #     PCA, GMM, Combined(AND), Combined(OR)
+            # - Uses relative thresholding only for selection (no absolute FPR_MAX).
+            #
+            # You need these imports already:
+            #   import numpy as np, math
+            #   from pyspark.sql.functions import col, when, lit, array_max
+            #   from pyspark.ml.feature import PCA as SparkPCA
+            #   from pyspark.ml.clustering import GaussianMixture
+            #   from pyspark.sql.types import DoubleType
+            #   from pyspark.sql.functions import udf
+            #   from pyspark.ml.functions import vector_to_array
+            #   from kneed import KneeLocator
+            #   from sklearn.metrics import classification_report   # DEBUG only
+            # ============================================================
 
             # -----------------------------
             # 0) Split data
             # -----------------------------
-            # ============================================================
-            # UPDATED VERSION OF YOUR CODE
-            # ✅ Change requested: "use relative filtering only (not absolute FPR_MAX)"
-            #
-            # WHAT I CHANGED (only inside Section 7.2):
-            # 1) ❌ Removed FPR_MAX completely
-            # 2) ✅ Kept ONLY relative filter: fpr <= FPR_FACTOR * best_fpr
-            # 3) ✅ Added a fallback: if relative filter keeps only 1 method, we relax to keep top-2 by lowest FPR
-            #    (this prevents PCA being the only candidate too often)
-            #
-            # Everything else is your code unchanged.
-            # ============================================================
-
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
             df_test = sequences_df.filter(col("Temp_label") == 888)
@@ -1249,6 +1263,12 @@ class FeaturesEngineering:
             # -----------------------------
             STABILITY_SEED1 = 21
             STABILITY_SEED2 = 99
+
+            # beta controls precision/recall tradeoff in UNSUPERVISED score:
+            #   BETA = 1.0  => balanced
+            #   BETA = 2.0  => favors recall more
+            #   BETA = 0.5  => favors precision more
+            BETA = 1.0
 
             # -----------------------------
             # Helpers
@@ -1288,6 +1308,12 @@ class FeaturesEngineering:
                 inter = a1.join(a2, on=id_col, how="inner").count()
                 union = a1.union(a2).distinct().count()
                 return inter / union if union > 0 else 0.0
+
+            eps = 1e-9
+
+            def fbeta(p, r, beta=1.0):
+                b2 = beta * beta
+                return (1 + b2) * p * r / (b2 * p + r + eps)
 
             print("\n🧠 Using PCA + GMM for novelty detection ...")
 
@@ -1348,8 +1374,7 @@ class FeaturesEngineering:
             # ============================================================
             scores_pca_np = train_pca_normal.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(
                 float).values
-            thr_pca, p_knee_pca, p_use_pca = knee_threshold_from_scores(scores_pca_np, min_quantile_floor=0.95,
-                                                                        knee_margin=0.02)
+            thr_pca, p_knee_pca, p_use_pca = knee_threshold_from_scores(scores_pca_np)
             print(f"[INFO] PCA p_knee≈{p_knee_pca:.4f}, using p={p_use_pca:.4f}, threshold={thr_pca:.6f}")
 
             train_unlabeled_pca = train_unlabeled_pca.withColumn("pseudo_label_pca",
@@ -1360,7 +1385,7 @@ class FeaturesEngineering:
             # ============================================================
             gmm_k = 10
             gmm = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
-                probabilityCol="gmm_prob")
+                                  probabilityCol="gmm_prob")
 
             gmm_model = gmm.fit(train_pca_normal.select("pca_features"))
             train_gmm = gmm_model.transform(train_pca_normal)
@@ -1376,30 +1401,26 @@ class FeaturesEngineering:
             # 6) GMM threshold (knee on NORMAL)
             # ============================================================
             scores_gmm_np = train_gmm.select("anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values
-            thr_gmm, p_knee_gmm, p_use_gmm = knee_threshold_from_scores(scores_gmm_np, min_quantile_floor=0.95,
-                                                                        knee_margin=0.02)
+            thr_gmm, p_knee_gmm, p_use_gmm = knee_threshold_from_scores(scores_gmm_np)
             print(f"[INFO] GMM(k={gmm_k}) p_knee≈{p_knee_gmm:.4f}, using p={p_use_gmm:.4f}, threshold={thr_gmm:.6f}")
 
             unlab_gmm = unlab_gmm.withColumn("pseudo_label_gmm",
                 when(col("anomaly_score_gmm") > lit(thr_gmm), 1).otherwise(0))
 
             # ============================================================
-            # 7) Combine PCA + GMM pseudo-labels (AND/OR)
+            # 7) Create BOTH combined rules (AND + OR)
             # ============================================================
-            combine_rule = "AND"  # "AND" precision, "OR" recall
-
-            if combine_rule.upper() == "AND":
-                unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
-                    when((col("pseudo_label_pca") == 1) & (col("pseudo_label_gmm") == 1), 1).otherwise(0))
-            else:
-                unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
-                    when((col("pseudo_label_pca") == 1) | (col("pseudo_label_gmm") == 1), 1).otherwise(0))
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_and",
+                when((col("pseudo_label_pca") == 1) & (col("pseudo_label_gmm") == 1), 1).otherwise(0))
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_or",
+                when((col("pseudo_label_pca") == 1) | (col("pseudo_label_gmm") == 1), 1).otherwise(0))
 
             # ============================================================
-            # 7.1) Compute FPR on holdout NORMAL for each method (safety metric)
+            # 7.1) Holdout-normal FPR computation (precision proxy)
             # ============================================================
             norm_fit_df, norm_holdout_df = split_df(train_normal_df, frac=0.8, seed=13)
 
+            # Refit PCA on norm_fit_df
             pca_fit = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
             pca_fit_model = pca_fit.fit(norm_fit_df)
             pc_fit = pca_fit_model.pc.toArray()
@@ -1421,110 +1442,114 @@ class FeaturesEngineering:
 
             scores_pca_fit_np = norm_fit_pca.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(
                 float).values
-            thr_pca_fit, _, _ = knee_threshold_from_scores(scores_pca_fit_np, min_quantile_floor=0.95, knee_margin=0.02)
+            thr_pca_fit, _, _ = knee_threshold_from_scores(scores_pca_fit_np)
             fpr_pca = fpr_on_holdout(norm_hold_pca, "anomaly_score_pca", thr_pca_fit)
 
+            # Refit GMM on norm_fit_pca
             gmm_fit = GaussianMixture(k=gmm_k, featuresCol="pca_features", predictionCol="gmm_cluster",
                                       probabilityCol="gmm_prob")
             gmm_fit_model = gmm_fit.fit(norm_fit_pca.select("pca_features"))
 
             norm_fit_gmm = gmm_fit_model.transform(norm_fit_pca).withColumn("gmm_max_prob",
-                                                                            array_max(vector_to_array(col("gmm_prob"))))
-            norm_hold_gmm = gmm_fit_model.transform(norm_hold_pca).withColumn("gmm_max_prob", array_max(
-                vector_to_array(col("gmm_prob"))))
+                array_max(vector_to_array(col("gmm_prob"))))
+            norm_hold_gmm = gmm_fit_model.transform(norm_hold_pca).withColumn("gmm_max_prob",
+                array_max(vector_to_array(col("gmm_prob"))))
 
             norm_fit_gmm = norm_fit_gmm.withColumn("anomaly_score_gmm", lit(1.0) - col("gmm_max_prob"))
             norm_hold_gmm = norm_hold_gmm.withColumn("anomaly_score_gmm", lit(1.0) - col("gmm_max_prob"))
 
             scores_gmm_fit_np = norm_fit_gmm.select("anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(
                 float).values
-            thr_gmm_fit, _, _ = knee_threshold_from_scores(scores_gmm_fit_np, min_quantile_floor=0.95, knee_margin=0.02)
+            thr_gmm_fit, _, _ = knee_threshold_from_scores(scores_gmm_fit_np)
             fpr_gmm = fpr_on_holdout(norm_hold_gmm, "anomaly_score_gmm", thr_gmm_fit)
 
+            # combined FPRs on normals using flags
             norm_hold_join = (norm_hold_gmm.select(id_col, "anomaly_score_gmm").join(
                 norm_hold_pca.select(id_col, "anomaly_score_pca"), on=id_col, how="inner").withColumn("pca_flag", when(
                 col("anomaly_score_pca") > lit(thr_pca_fit), 1).otherwise(0)).withColumn("gmm_flag", when(
-                col("anomaly_score_gmm") > lit(thr_gmm_fit), 1).otherwise(0)))
+                col("anomaly_score_gmm") > lit(thr_gmm_fit), 1).otherwise(0)).withColumn("and_flag", when(
+                (col("pca_flag") == 1) & (col("gmm_flag") == 1), 1).otherwise(0)).withColumn("or_flag", when(
+                (col("pca_flag") == 1) | (col("gmm_flag") == 1), 1).otherwise(0)))
 
-            if combine_rule.upper() == "AND":
-                norm_hold_join = norm_hold_join.withColumn("comb_flag",
-                                                           when((col("pca_flag") == 1) & (col("gmm_flag") == 1),
-                                                                1).otherwise(0))
-            else:
-                norm_hold_join = norm_hold_join.withColumn("comb_flag",
-                                                           when((col("pca_flag") == 1) | (col("gmm_flag") == 1),
-                                                                1).otherwise(0))
+            fpr_and = anomaly_rate(norm_hold_join, "and_flag")
+            fpr_or = anomaly_rate(norm_hold_join, "or_flag")
 
-            fpr_comb = anomaly_rate(norm_hold_join, "comb_flag")
-
-            print("\n[UNSUPERVISED HOLDOUT NORMAL FPR] (lower is better)")
-            print(f"  PCA-only FPR     : {fpr_pca:.6f}")
-            print(f"  GMM-only FPR     : {fpr_gmm:.6f}")
-            print(f"  Combined({combine_rule.upper()}) FPR : {fpr_comb:.6f}")
+            print("\n[HOLDOUT NORMAL FPR] (lower is better)")
+            print(f"  PCA-only       : fpr={fpr_pca:.6f}")
+            print(f"  GMM-only       : fpr={fpr_gmm:.6f}")
+            print(f"  Combined(AND)  : fpr={fpr_and:.6f}")
+            print(f"  Combined(OR)   : fpr={fpr_or:.6f}")
 
             # ============================================================
-            # 7.2) UPDATED: RECALL-ORIENTED SELECTION WITH RELATIVE FILTER ONLY
+            # 7.2) Unsupervised selection using BALANCED F-beta score
+            #      score = F_beta(precision_proxy=1-fpr, recall_proxy=anomaly_rate) * stability
             # ============================================================
+
+            # Recall proxy (anomaly rate on unlabeled)
             r_pca = anomaly_rate(unlab_gmm, "pseudo_label_pca")
             r_gmm = anomaly_rate(unlab_gmm, "pseudo_label_gmm")
-            r_comb = anomaly_rate(unlab_gmm, "pseudo_label_final")
+            r_and = anomaly_rate(unlab_gmm, "pseudo_label_and")
+            r_or = anomaly_rate(unlab_gmm, "pseudo_label_or")
 
-            print("\n[UNLABELED ANOMALY RATES] (higher => recall proxy)")
-            print(f"  PCA-only     : r={r_pca:.4f}")
-            print(f"  GMM-only     : r={r_gmm:.4f}")
-            print(f"  Combined     : r={r_comb:.4f}")
+            # Stability (Jaccard) on unlabeled
+            u1 = unlab_gmm.sample(withReplacement=False, fraction=0.8, seed=STABILITY_SEED1)
+            u2 = unlab_gmm.sample(withReplacement=False, fraction=0.8, seed=STABILITY_SEED2)
 
-            FPR_FACTOR = 3.0  # ✅ relative filter only (tune: 2.0, 3.0, 5.0)
+            stab_pca = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_pca")
+            stab_gmm = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_gmm")
+            stab_and = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_and")
+            stab_or = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_or")
 
-            method_stats = [("pca", fpr_pca, r_pca), ("gmm", fpr_gmm, r_gmm), ("combined", fpr_comb, r_comb)]
+            # Precision proxy = 1 - FPR (on normal holdout)
+            p_pca = 1.0 - fpr_pca
+            p_gmm = 1.0 - fpr_gmm
+            p_and = 1.0 - fpr_and
+            p_or = 1.0 - fpr_or
 
-            best_fpr = min(m[1] for m in method_stats)
+            score_pca = fbeta(p_pca, r_pca, BETA) * stab_pca
+            score_gmm = fbeta(p_gmm, r_gmm, BETA) * stab_gmm
+            score_and = fbeta(p_and, r_and, BETA) * stab_and
+            score_or = fbeta(p_or, r_or, BETA) * stab_or
 
-            # candidates = methods within factor of the best fpr
-            candidates = [(name, fpr, rate) for (name, fpr, rate) in method_stats if
-                          fpr <= (FPR_FACTOR * best_fpr + 1e-12)]
+            print("\n[UNSUPERVISED SELECTION COMPONENTS]")
+            print(f"  PCA          : r={r_pca:.4f}, p~={p_pca:.4f}, stab={stab_pca:.4f}, score={score_pca:.6f}")
+            print(f"  GMM          : r={r_gmm:.4f}, p~={p_gmm:.4f}, stab={stab_gmm:.4f}, score={score_gmm:.6f}")
+            print(f"  Combined(AND): r={r_and:.4f}, p~={p_and:.4f}, stab={stab_and:.4f}, score={score_and:.6f}")
+            print(f"  Combined(OR) : r={r_or:.4f}, p~={p_or:.4f}, stab={stab_or:.4f}, score={score_or:.6f}")
 
-            # ✅ NEW: if only 1 candidate survives, relax to keep top-2 by lowest FPR
-            if len(candidates) < 2:
-                print("\n[WARNING] Relative filter left <2 candidates; relaxing to top-2 lowest FPR methods.")
-                method_stats_sorted = sorted(method_stats, key=lambda x: x[1])  # sort by FPR
-                candidates = method_stats_sorted[:2]
-
-            print("\n[RECALL-SELECTION CANDIDATES - RELATIVE ONLY] (method, fpr_on_normals, anomaly_rate)")
-            for name, fpr, rate in candidates:
-                print(f"  {name:9s}  fpr={fpr:.6f}  r={rate:.4f}")
-
-            # choose highest recall proxy; tie-breaker lower FPR
-            best_method = sorted(candidates, key=lambda x: (x[2], -x[1]), reverse=True)[0][0]
-            print(f"\n[SELECTED] Best method for HIGH RECALL (unsupervised): {best_method}")
+            best_method = \
+            max([("pca", score_pca), ("gmm", score_gmm), ("and", score_and), ("or", score_or)], key=lambda x: x[1])[0]
+            print(f"\n[SELECTED] Best method (unsupervised balanced F-beta, beta={BETA}): {best_method}")
 
             if best_method == "pca":
                 unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_pca"))
             elif best_method == "gmm":
                 unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_gmm"))
+            elif best_method == "and":
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_and"))
             else:
-                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_final"))
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_or"))
 
             # ============================================================
-            # 8) DEBUG ONLY: Evaluate on unlabeled if you have true labels
+            # 8) DEBUG ONLY: evaluation if you have true labels for unlabeled
             # ============================================================
             train_unlabeled_eval_df = unlab_gmm.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
                 on=id_col, how="inner")
 
             pdf_unlabeled = train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
-                "pseudo_label_final", "Final_Label").toPandas()
+                "pseudo_label_and", "pseudo_label_or", "Final_Label").toPandas()
 
             print("\n=== Classification_report on unlabeled (PCA-only) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_pca"], digits=3))
-
             print("\n=== Classification_report on unlabeled (GMM-only) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_gmm"], digits=3))
-
-            print("\n=== Classification_report on unlabeled (Combined) ===")
-            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_final"], digits=3))
-
+            print("\n=== Classification_report on unlabeled (Combined-AND) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_and"], digits=3))
+            print("\n=== Classification_report on unlabeled (Combined-OR) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_or"], digits=3))
             print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
+
             exit()
 
             # ============================================================
