@@ -83,17 +83,20 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_final_train, df_val, df_test, mode):
+    def anomaly_detector(df_final_train, df_test, mode):
+
+        '''
 
         df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
-        df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
+
+        #df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
         df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
 
         train_df = (df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
                                                                                                  "features").withColumnRenamed(
             "Final_Label", "label").cache())
 
-        val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
+        #val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
                                                                                        "features").withColumnRenamed(
             "Final_Label", "label").cache())
 
@@ -237,91 +240,64 @@ class AnomalyDetector:
             # -----------------------------
             return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
                 "predict_time": predict_time}
+        '''
+        if mode=='X':   # ------------------------------------------------------------------------------------------------------
+            # ------------------------------------------------
+            # Inputs expected:
+            #   df_final_train : has pca_features, Final_Label
+            #   df_test        : has pca_features, Final_Label  (true labels for final evaluation)
+            # ------------------------------------------------
 
-        else:   # ------------------------------------------------------------------------------------------------------
-            # -----------------------------
-            # 1) Prepare datasets
-            # -----------------------------
-            train_df = df_final_train.select("pca_features", col("Final_Label").cast("int").alias("label"))
-            val_df = df_val.select("pca_features", col("Final_Label").cast("int").alias("label"))
-            test_df = df_test.select("pca_features", col("Final_Label").cast("int").alias("label"))
+            # 1) Build train/holdout from df_final_train
+            full_train = df_final_train.select("pca_features", col("Final_Label").cast("int").alias("label"))
 
-            # -----------------------------
-            # 2) Handle imbalance via class weights (weightCol)
-            # -----------------------------
-            counts = train_df.groupBy("label").count().collect()
+            train_part, val_part = full_train.randomSplit([0.8, 0.2], seed=42)
+
+            # 2) Class weights on TRAIN PART only
+            counts = train_part.groupBy("label").count().collect()
             cnt = {int(r["label"]): int(r["count"]) for r in counts}
-            n0 = cnt.get(0, 0)
-            n1 = cnt.get(1, 0)
+            n0, n1 = cnt.get(0, 0), cnt.get(1, 0)
 
             if n0 == 0 or n1 == 0:
-                raise ValueError(f"Need both classes in training set. Got normal={n0}, anomaly={n1}")
+                raise ValueError(f"Need both classes in train_part. Got normal={n0}, anomaly={n1}")
 
-            # Balanced weights: total/(2*count_class)
             w0 = (n0 + n1) / (2.0 * n0)
             w1 = (n0 + n1) / (2.0 * n1)
 
-            print(f"[INFO] Train counts -> normal(0)={n0}, anomaly(1)={n1}")
-            print(f"[INFO] Weights -> w0={w0:.4f}, w1={w1:.4f}")
+            train_part = train_part.withColumn("weight", when(col("label") == 1, lit(w1)).otherwise(lit(w0)))
 
-            train_df = train_df.withColumn("weight", when(col("label") == 1, lit(w1)).otherwise(lit(w0)))
-
-            # -----------------------------
-            # 3) Train classifier (RandomForest recommended)
-            # -----------------------------
+            # 3) Train classifier
             rf = RandomForestClassifier(featuresCol="pca_features", labelCol="label", weightCol="weight",
-                predictionCol="prediction", probabilityCol="probability", numTrees=300, maxDepth=12,
-                featureSubsetStrategy="auto", seed=42)
+                predictionCol="prediction", probabilityCol="probability", numTrees=300, maxDepth=12, seed=42)
+            model = rf.fit(train_part)
 
-            model = rf.fit(train_df)
+            # 4) Tune threshold on INTERNAL val_part (from training)
+            val_pred = model.transform(val_part)
 
-            # -----------------------------
-            # 4) Predict on val/test (get probabilities)
-            # -----------------------------
-            val_pred = model.transform(val_df)
-            test_pred = model.transform(test_df)
-
-            # -----------------------------
-            # 5) Tune threshold on validation (optimize F1 by default)
-            # -----------------------------
             val_pdf = val_pred.select("label", "probability").toPandas()
             val_probs = val_pdf["probability"].apply(lambda v: float(v[1])).values
             val_true = val_pdf["label"].astype(int).values
 
             best_thr, best_f1 = 0.5, -1.0
-            for thr in [i / 100 for i in range(5, 96, 1)]:  # 0.05 .. 0.95 step 0.01
+            for thr in [i / 100 for i in range(5, 96, 1)]:
                 val_hat = (val_probs > thr).astype(int)
                 f1 = f1_score(val_true, val_hat, zero_division=0)
                 if f1 > best_f1:
                     best_f1, best_thr = f1, thr
 
-            print(f"[INFO] Best threshold on VAL = {best_thr:.2f} (F1={best_f1:.3f})")
+            print(f"[INFO] Best threshold (internal val) = {best_thr:.2f} (F1={best_f1:.3f})")
 
-            # -----------------------------
-            # 6) Apply threshold on val/test inside Spark
-            # -----------------------------
+            # 5) Predict on TEST using tuned threshold
+            test_df = df_test.select("pca_features", col("Final_Label").cast("int").alias("label"))
+            test_pred = model.transform(test_df)
+
             @udf(IntegerType())
             def prob_to_label(prob, thr=float(best_thr)):
                 return 1 if float(prob[1]) > thr else 0
 
-            val_pred = val_pred.withColumn("pred_thr", prob_to_label(col("probability")))
             test_pred = test_pred.withColumn("pred_thr", prob_to_label(col("probability")))
 
-            # -----------------------------
-            # 7) Reports (sklearn) - Validation
-            # -----------------------------
-            val_pdf2 = val_pred.select("label", "pred_thr").toPandas()
-            print("\n==================== VALIDATION REPORT (thresholded) ====================")
-            print(classification_report(val_pdf2["label"].values, val_pdf2["pred_thr"].values, digits=3))
-
-            # -----------------------------
-            # 8) Reports (sklearn) - Test
-            # -----------------------------
+            # 6) Report on test (if test has true labels)
             test_pdf2 = test_pred.select("label", "pred_thr").toPandas()
             print("\n==================== TEST REPORT (thresholded) ====================")
             print(classification_report(test_pdf2["label"].values, test_pdf2["pred_thr"].values, digits=3))
-
-            # -----------------------------  # 9) (Optional) If you want to keep Spark DF with predictions:  # -----------------------------  # test_pred.select("label", "probability", "prediction", "pred_thr").show(20, truncate=False)
-
-            # Done.
-

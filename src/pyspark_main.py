@@ -244,7 +244,7 @@ def main():
     DATASET = 'HDFS'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
-    mode = 'x'
+    mode = 'X'
     Mix_or_stable = '0'
 
     # Paths
@@ -409,7 +409,7 @@ def main():
 
 
     start_Novelty= time.time()
-    df_final_train, df_test ,df_val = \
+    df_final_train, df_test = \
         features_engineering_obj.novelty_detection_label_establishment(sequences_df, spark =spark, method ="gmm" )
 
     Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
@@ -429,7 +429,7 @@ def main():
 
     start_anomaly= time.time()
 
-    results = anomaly_detection_obj.anomaly_detector(df_final_train,df_val, df_test ,mode )
+    results = anomaly_detection_obj.anomaly_detector(df_final_train,df_test ,mode )
 
     Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during AD: {Anomaly_spill_gb:.2f} GB")

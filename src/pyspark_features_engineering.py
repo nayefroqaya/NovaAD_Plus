@@ -331,6 +331,7 @@ class FeaturesEngineering:
         train_normal_df = sequences_df.filter(col("Temp_label") == 0)
         unlabeled_train_df = sequences_df.filter(col("Temp_label") == 999)
         test_df = sequences_df.filter(col("Temp_label") == 888)
+        val_df = sequences_df.filter(col("Temp_label") == 777)
 
         #train_normal_df.select("Temp_label", "Label").show(3, truncate=False)
         #unlabeled_train_df.select("Temp_label", "Label").show(3, truncate=False)
@@ -1212,8 +1213,8 @@ class FeaturesEngineering:
 
             df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
 
-            df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
-            df_val = sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label"))
+            #df_test = sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label"))
+            #df_val = sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label"))
 
             print("\n[INFO] Full training label quality (Selected pseudo labels) [DEBUG ONLY]:")
             pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
@@ -1590,11 +1591,11 @@ class FeaturesEngineering:
 
             # Prepare test set
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
-            pdf_test = df_test.toPandas()
+            #pdf_test = df_test.toPandas()
 
             # Prepare val set
-            df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
-            pdf_val = df_val.toPandas()
+            #df_val = (sequences_df.filter(col("Temp_label") == 777).withColumn("Final_Label", col("Label")))
+            #pdf_val = df_val.toPandas()
 
             #X_train = pdf_final["features_vec_final"].tolist()
             #y_train = pdf_final["Final_Label"].values
@@ -1607,5 +1608,5 @@ class FeaturesEngineering:
             print(f"\n✅ Novelty detection (GMM) completed successfully.")
             #exit()
 
-            return df_final_train, df_test ,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final_train, df_test #,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
 
