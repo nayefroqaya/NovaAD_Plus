@@ -1386,7 +1386,7 @@ class FeaturesEngineering:
             # ============================================================
             # 7) Combine PCA + GMM pseudo-labels (AND/OR)
             # ============================================================
-            combine_rule = "AND"  # "AND" precision, "OR" recall
+            combine_rule = "OR"  # "AND" precision, "OR" recall
 
             if combine_rule.upper() == "AND":
                 unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
