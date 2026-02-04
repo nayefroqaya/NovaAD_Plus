@@ -1209,6 +1209,7 @@ class FeaturesEngineering:
 
             print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
+            exit()
 
             # ============================================================
             # 9) Build final training set using SELECTED pseudo labels
