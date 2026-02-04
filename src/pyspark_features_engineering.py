@@ -1214,9 +1214,13 @@ class FeaturesEngineering:
             df_final_train = df_normal.unionByName(df_unlabeled, allowMissingColumns=True)
             df_test = (sequences_df.filter(col("Temp_label") == 888).withColumn("Final_Label", col("Label")))
 
+            print('df_normal------')
             df_normal.printSchema()
+            print('df_unlabeled from train------')
             df_unlabeled.printSchema()
+            print('full train------')
             df_final_train.printSchema()
+            print('full test------')
             df_test.printSchema()
             exit()
 
