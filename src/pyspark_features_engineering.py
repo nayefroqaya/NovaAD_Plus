@@ -1538,13 +1538,14 @@ class FeaturesEngineering:
 
             print("\n[INFO] Final classifier schemas:")
             print("TRAIN:")
-            df_final_train_cls.printSchema()
+            #df_final_train_cls.printSchema()
             print("VAL:")
-            df_val_cls.printSchema()
+            #df_val_cls.printSchema()
             print("TEST:")
-            df_test_cls.printSchema()
+            #df_test_cls.printSchema()
 
             print("\n✅ Novelty detection + recall-oriented selection completed successfully.")
+            exit()
 
 
 
