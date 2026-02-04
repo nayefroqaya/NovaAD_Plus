@@ -910,7 +910,7 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings for unsupervised selection
             # -----------------------------
-            EXPECTED_ANOM_RATE = 0.03  # r0: expected anomaly fraction (tune: 0.02, 0.05)
+            EXPECTED_ANOM_RATE =  0.02 #0.03  # r0: expected anomaly fraction (tune: 0.02, 0.05)
             RATE_ALPHA = 2.0  # penalty strength
             STABILITY_SEED1 = 21
             STABILITY_SEED2 = 99
@@ -1056,7 +1056,7 @@ class FeaturesEngineering:
             # ============================================================
             # 7) Combine PCA + GMM pseudo-labels (AND/OR)
             # ============================================================
-            combine_rule = "OR"  # "AND" for higher precision, "OR" for higher recall
+            combine_rule = "AND"  # "AND" for higher precision, "OR" for higher recall
 
             if combine_rule.upper() == "AND":
                 unlab_gmm = unlab_gmm.withColumn("pseudo_label_final",
