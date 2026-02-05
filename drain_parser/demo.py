@@ -5,14 +5,14 @@ sys.path.append('../../')
 from Drain import LogParser
 #==========================================SP
 # This part is for SP dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
-#input_dir  = '../datasets/SP_150MB/' # The input directory of log file
-#output_dir = '../datasets/SP_150MB/'  # The output directory of parsing results
-#log_file   = 'SP_150MB.log'  # The input log file name
-#log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Host> <Component>: <Content>'  # BGL log format
+input_dir  = '../datasets/SP_300MB/' # The input directory of log file
+output_dir = '../datasets/SP_300MB/'  # The output directory of parsing results
+log_file   = 'SP_300MB.log'  # The input log file name
+log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Host> <Component>: <Content>'  # BGL log format
 # Regular expression list for optional preprocessing (default: [])#
-#regex = [r"(\d+\.){3}\d+"] #[r"\b\d+\b"]
-#st         = 0.5  # Similarity threshold
-#depth      = 4  # Depth of all leaf nodes
+regex = [r"(\d+\.){3}\d+"] #[r"\b\d+\b"]
+st         = 0.5  # Similarity threshold
+depth      = 4  # Depth of all leaf nodes
 #==========================================Hadoop
 # This part is for Hadoop dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
 #input_dir  = '../datasets/HDO/' # The input directory of log file
@@ -35,14 +35,14 @@ from Drain import LogParser
 #depth      = 5  # Depth of all leaf nodes
 #==========================================TH
 # This part is for TH  dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
-input_dir  = '../datasets/TH_5G/' # The input directory of log file
-output_dir = '../datasets/TH_5G/'  # The output directory of parsing results
-log_file   = 'TH_5G.log'  # The input log file name
-log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Location> <Component>(\[<PID>\])?: <Content>'  # TH  log format
+#input_dir  = '../datasets/TH_5G/' # The input directory of log file
+#output_dir = '../datasets/TH_5G/'  # The output directory of parsing results
+#log_file   = 'TH_5G.log'  # The input log file name
+#log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Location> <Component>(\[<PID>\])?: <Content>'  # TH  log format
 # Regular expression list for optional preprocessing (default: [])
-regex      = [r"(\d+\.){3}\d+"]
-st         = 0.5  # Similarity threshold
-depth      = 4  # Depth of all leaf nodes
+#regex      = [r"(\d+\.){3}\d+"]
+#st         = 0.5  # Similarity threshold
+#depth      = 4  # Depth of all leaf nodes
 #==========================================HDFS
 # This part is for HDFS dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
 #input_dir  = '../datasets/HDFS/' # The input directory of log file
