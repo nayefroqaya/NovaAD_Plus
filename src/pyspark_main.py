@@ -243,7 +243,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'SP_100MB'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '2'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -271,7 +271,7 @@ def main():
     #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
     #print(' Reading the file was done successfully ')
     #exit()
-
+    '''
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -341,6 +341,7 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     exit()
+    '''
 
 
     # ---------------- Load feature PKL → Spark ----------------
