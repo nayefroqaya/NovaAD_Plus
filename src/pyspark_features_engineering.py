@@ -1623,6 +1623,8 @@ class FeaturesEngineering:
 
             print("\n=== Classification_report on FINAL TRAIN SET (true_label vs Final_Label) ===")
             print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"], digits=3))
+            print(f"\n[SELECTED] Best method (fixed unsupervised): {best_method}")
+
             exit()
 
             # return for next stage
