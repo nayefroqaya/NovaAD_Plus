@@ -277,7 +277,7 @@ class FeaturesEngineering:
 
         summed_df_combine_labelled_val = (
             summed_df_combine_labelled_val.join(sequence_labels_combine_labelled_val, "Node_block_id",
-                                                   "inner").withColumn("Temp_label", F.lit(888)))
+                                                   "inner").withColumn("Temp_label", F.lit(777)))
 
         summed_df_val = summed_df_combine_labelled_val
 
