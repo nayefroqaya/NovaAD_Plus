@@ -480,14 +480,16 @@ class FeaturesExtractor:
         # -------------------------------
         # 4️⃣ Sample subset for fast PCA tuning
         # -------------------------------
-        sample_fraction = 0.8  # 10% of unique templates
-        seed = 42
-        sdf_sample = sdf_unique.sample(withReplacement=False, fraction=sample_fraction, seed=seed)
-        print("[INFO] Sample size for PCA tuning:", sdf_sample.count())
+        '''
+        #sample_fraction = 0.8  # 10% of unique templates
+        #seed = 42
+        #sdf_sample = sdf_unique.sample(withReplacement=False, fraction=sample_fraction, seed=seed)
+        #print("[INFO] Sample size for PCA tuning:", sdf_sample.count())
         # exit()
         # -------------------------------
         # 5️⃣ Fine-tune PCA: test only specific values
         # -------------------------------
+       
         candidate_ks = [10, 20, 40, 50]
         best_k = candidate_ks[-1]
 
@@ -509,6 +511,32 @@ class FeaturesExtractor:
                 break
 
         print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+        '''
+        candidate_ks = [10, 20, 40, 50]
+        target_variance = 0.999
+        feature_col="vector_emb"
+        best_k = None
+        for k in candidate_ks:
+            print(f"[INFO] Testing PCA with k={k}")
+            pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+            pca_tmp_model = pca_tmp.fit(sdf_unique)
+            explained_variance = float(sum(pca_tmp_model.explainedVariance))
+            print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+            if explained_variance >= target_variance:
+                best_k = k
+                print(f"[SELECTED] First k reaching target variance: {best_k}")
+                break
+
+        if best_k is None:
+            best_k = candidate_ks[-1]
+            print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
+        print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+        exit()
+
+
+
+
         #        exit()
         # -------------------------------
         # 6️⃣ Apply final PCA on all unique templates
