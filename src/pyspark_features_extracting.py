@@ -532,7 +532,7 @@ class FeaturesExtractor:
             print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
 
         print(f"[RESULT] Selected PCA components (best_k): {best_k}")
-        exit()
+        #exit()
 
 
 
