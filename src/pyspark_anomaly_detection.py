@@ -1,4 +1,3 @@
-import time
 import warnings
 
 import colorama
@@ -12,8 +11,15 @@ from pyspark.ml.classification import LogisticRegression, GBTClassifier
 from pyspark.ml.classification import LogisticRegression, GBTClassifier
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier
 from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, DecisionTreeClassifier
+from pyspark.ml.classification import (LogisticRegression, RandomForestClassifier, GBTClassifier)
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, LinearSVC
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
+from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.classification import (RandomForestClassifier, DecisionTreeClassifier, LogisticRegression)
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
@@ -28,62 +34,55 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
+from pyspark.ml.functions import vector_to_array
+from pyspark.ml.functions import vector_to_array
+from pyspark.ml.functions import vector_to_array
+from pyspark.ml.linalg import Vectors, VectorUDT
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
 from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.sql import DataFrame
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql import functions as F
+from pyspark.sql.functions import col
 from pyspark.sql.functions import col, expr
+from pyspark.sql.functions import col, log, when, abs as _abs
 from pyspark.sql.functions import col, monotonically_increasing_id
 from pyspark.sql.functions import col, when
 from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when, abs, log
+from pyspark.sql.functions import col, when, lit
+# If you want GBT instead, swap classifier block below.
+# from pyspark.ml.classification import GBTClassifier
+from pyspark.sql.functions import col, when, lit
+from pyspark.sql.functions import col, when, lit
 from pyspark.sql.functions import col, when, lit, sum as spark_sum, udf
+from pyspark.sql.functions import col, when, lit, udf
 from pyspark.sql.functions import col, when, lit, udf, sum as spark_sum
 from pyspark.sql.functions import lit
+from pyspark.sql.functions import udf
 from pyspark.sql.functions import udf, col
 # from pyspark.sql.functions import col, when, lit, vector_to_array, sum as spark_sum
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.types import ArrayType, DoubleType
+from pyspark.sql.types import IntegerType
 from scipy.stats import randint, uniform
+from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_recall_curve
 from sparkxgb import XGBoostClassifier
-from pyspark.sql.functions import col, when, abs, log
-from pyspark.sql.functions import col, log, when, abs as _abs
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, NaiveBayes
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, LinearSVC
-from pyspark.sql.functions import col, when
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.sql.functions import col
-
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, when, lit, udf
-from pyspark.sql.types import IntegerType
-from pyspark.sql.functions import col, when, lit
-from pyspark.ml.classification import RandomForestClassifier, LogisticRegression
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.functions import vector_to_array
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.ml.classification import RandomForestClassifier
-# If you want GBT instead, swap classifier block below.
-# from pyspark.ml.classification import GBTClassifier
-import pyspark.sql.functions as psf
-from pyspark.sql.functions import col, when, lit
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, GBTClassifier
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.functions import vector_to_array
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.ml.linalg import Vectors, VectorUDT
-from pyspark.sql.functions import udf
-from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
-
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -96,10 +95,9 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_train_quality,df_test_cls, df_val_cls, mode):
+    def anomaly_detector(df_train_quality, df_test_cls, df_val_cls, mode):
 
-
-        if mode=='M':
+        if mode == 'M':
             # ----------------------------
             # Columns
             # ----------------------------
@@ -128,14 +126,14 @@ class AnomalyDetector:
             # Evaluator (good for anomalies)
             # ----------------------------
             evaluator_pr = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
-                metricName="areaUnderPR")
+                                                         metricName="areaUnderPR")
 
             # ----------------------------
             # Fast tuner helper
             # ----------------------------
             def tune_model(estimator, param_grid, train_df, evaluator, parallelism=4, train_ratio=0.8):
                 tvs = TrainValidationSplit(estimator=estimator, estimatorParamMaps=param_grid, evaluator=evaluator,
-                    trainRatio=train_ratio, parallelism=parallelism)
+                                           trainRatio=train_ratio, parallelism=parallelism)
                 tvs_model = tvs.fit(train_df)
                 return tvs_model.bestModel
 
@@ -182,7 +180,7 @@ class AnomalyDetector:
                 return Vectors.dense([1.0 - p, p])
 
             weight_sets = [(0.34, 0.33, 0.33),  # (LR, RF, GBT)
-                (0.20, 0.20, 0.60), (0.20, 0.60, 0.20), (0.60, 0.20, 0.20), (1 / 3, 1 / 3, 1 / 3), ]
+                           (0.20, 0.20, 0.60), (0.20, 0.60, 0.20), (0.60, 0.20, 0.20), (1 / 3, 1 / 3, 1 / 3), ]
 
             best_w = None
             best_aucpr = -1.0
@@ -208,7 +206,7 @@ class AnomalyDetector:
 
             def f1_at_threshold(df_with_p, thr):
                 pred = df_with_p.select(col(LABEL_COL).cast("double").alias("label"),
-                    when(col("p_ens") >= lit(thr), 1.0).otherwise(0.0).alias("prediction"))
+                                        when(col("p_ens") >= lit(thr), 1.0).otherwise(0.0).alias("prediction"))
                 rdd = pred.rdd.map(lambda r: (r["prediction"], r["label"]))
                 return MulticlassMetrics(rdd).fMeasure(1.0)
 
@@ -252,7 +250,7 @@ class AnomalyDetector:
 
 
 
-        else:   # ------------------------------------------------------------------------------------------------------
+        else:  # ------------------------------------------------------------------------------------------------------
 
             # ============================================================
             # FULL COPY/PASTE BLOCK (NO pca_model REQUIRED)
@@ -283,7 +281,8 @@ class AnomalyDetector:
             # -----------------------------
             CANDIDATE_FEATURE_COLS = ["pca_features", "features_vec_final", "features"]
             feature_col = next(
-                (c for c in CANDIDATE_FEATURE_COLS if (c in df_train_quality.columns and c in df_test_cls.columns)), None)
+                (c for c in CANDIDATE_FEATURE_COLS if (c in df_train_quality.columns and c in df_test_cls.columns)),
+                None)
 
             if feature_col is None:
                 raise ValueError(f"No common feature vector column found. Need one of {CANDIDATE_FEATURE_COLS} "
@@ -297,16 +296,15 @@ class AnomalyDetector:
             # 1) Build clean train/test (drop NULL vectors + NULL labels)
             # -----------------------------
             train_full = (df_train_quality.select(col(feature_col).alias("features"),
-                                                col("Final_Label").cast("int").alias("label")).filter(
+                                                  col("Final_Label").cast("int").alias("label")).filter(
                 col("features").isNotNull()).filter(col("label").isNotNull()))
 
             test_df = (df_test_cls.select(col(feature_col).alias("features"),
-                                      col("Final_Label").cast("int").alias("label")).filter(
+                                          col("Final_Label").cast("int").alias("label")).filter(
                 col("features").isNotNull()).filter(col("label").isNotNull()))
 
             print(test_df.count())
-            #exit()
-
+            # exit()
 
             # Quick diagnostics
             orig_train_n = df_train_quality.count()
@@ -351,7 +349,8 @@ class AnomalyDetector:
             # 4) Train classifier (RandomForest is robust to noisy pseudo-labels)
             # -----------------------------
             rf = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="weight",
-                predictionCol="prediction", probabilityCol="probability", numTrees=300, maxDepth=12, seed=42)
+                                        predictionCol="prediction", probabilityCol="probability", numTrees=300,
+                                        maxDepth=12, seed=42)
 
             model = rf.fit(train_part)
 
@@ -390,4 +389,3 @@ class AnomalyDetector:
             test_pdf2 = test_pred.select("label", "pred_thr").toPandas()
             print("\n==================== TEST REPORT (thresholded) ====================")
             print(classification_report(test_pdf2["label"].values, test_pdf2["pred_thr"].values, digits=3))
-
