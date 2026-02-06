@@ -1621,9 +1621,6 @@ class FeaturesEngineering:
             pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
             pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
 
-            print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
-            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
-
             print("\n=== Classification_report on FINAL TRAIN SET (true_label vs Final_Label) ===")
             print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"], digits=3))
             exit()
