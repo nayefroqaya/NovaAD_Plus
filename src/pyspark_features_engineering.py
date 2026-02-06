@@ -1586,11 +1586,56 @@ class FeaturesEngineering:
             print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
 
-            exit()
+            #exit()
 
             # ============================================================
             # 9) Build final training set using SELECTED pseudo labels
             # ============================================================
+            # Columns you want for classifier
+            keep_cols = [id_col, "pca_features", "Final_Label"]
+
+            # ---- Normal training part (true normal = 0) ----
+            train_df_normal = (train_pca_normal.withColumn("Final_Label", lit(0).cast("int")).select(*keep_cols))
+
+            # ---- Unlabeled training part (pseudo labels from SELECTED method) ----
+            train_df_unlabeled = (
+                unlab_gmm.withColumn("Final_Label", col("Final_Label").cast("int")).select(*keep_cols))
+
+            # ---- UNION (this is correct) ----
+            df_final_train_cls = train_df_normal.unionByName(train_df_unlabeled, allowMissingColumns=False)
+
+            # ---- Prepare test/val (use true Label if exists; else just keep pca_features + id) ----
+            df_test_cls = (test_pca.withColumn("Final_Label", col("Label").cast("int"))  # if test has Label
+                                   .select(id_col, "pca_features", "Final_Label"))
+
+            df_val_cls = (val_pca.withColumn("Final_Label", col("Label").cast("int"))  # if val has Label
+                                 .select(id_col, "pca_features", "Final_Label"))
+
+            # Join back the true label from sequences_df (or from the original train source)
+            df_train_quality = (
+                df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")), on=id_col,
+                                        how="inner").select("true_label", "Final_Label").dropna())
+
+            # Convert to pandas for sklearn report
+            pdf_train_quality = df_train_quality.toPandas()
+            pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
+            pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
+
+            print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
+            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
+
+            print("\n=== Classification_report on FINAL TRAIN SET (true_label vs Final_Label) ===")
+            print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"], digits=3))
+            exit()
+
+            # return for next stage
+            return df_final_train_cls, df_test_cls, df_val_cls
+
+
+
+
+
+            '''
             # Normal part MUST come from train_pca_normal (has pca_features)
             train_df_normal = train_pca_normal.withColumn("Final_Label", lit(0))
             # Unlabeled already has pca_features and Final_Label
@@ -1614,17 +1659,8 @@ class FeaturesEngineering:
             df_test_cls.printSchema()
             print('full val------')
             df_val_cls.printSchema()
-            exit()
 
 
-
-            print("\n[INFO] Full training label quality (Selected pseudo labels) [DEBUG ONLY]:")
-            pdf_final = df_final_train.select("Final_Label", "Label").toPandas()
-            print(classification_report(pdf_final["Label"].values, pdf_final["Final_Label"].values, digits=3))
-
-
-            print(f"\n✅ Novelty detection (GMM) completed successfully.")
-            #exit()
-
-            return df_final_train, df_test ,df_val  #, X_train, y_train, X_test, y_test_truth, X_val, y_val_truth
+            return df_final_train_cls, df_test_cls ,df_val_cls
+            '''
 
