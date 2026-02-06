@@ -64,7 +64,12 @@ from pyspark.sql.functions import col
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col, when, lit, udf
 from pyspark.sql.types import IntegerType
-
+from pyspark.sql.functions import col, when, lit
+from pyspark.ml.classification import RandomForestClassifier, LogisticRegression
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.functions import vector_to_array
+from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.ml.classification import RandomForestClassifier
 # If you want GBT instead, swap classifier block below.
 # from pyspark.ml.classification import GBTClassifier
@@ -83,165 +88,121 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_final_train, df_test, mode):
+    def anomaly_detector(df_train_quality, df_val_cls,df_test_cls , mode):
 
-        '''
 
-        df_final_train = df_final_train.select("Node_block_id", "features_vec_final", "Final_Label")
 
-        #df_val = df_val.select("Node_block_id", "features_vec_final", "Final_Label")
-        df_test = df_test.select("Node_block_id", "features_vec_final", "Final_Label")
+        if mode=='M':
 
-        train_df = (df_final_train.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                                 "features").withColumnRenamed(
-            "Final_Label", "label").cache())
-
-        #val_df = (df_val.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                       "features").withColumnRenamed(
-            "Final_Label", "label").cache())
-
-        test_df = (df_test.select("features_vec_final", "Final_Label").withColumnRenamed("features_vec_final",
-                                                                                         "features").withColumnRenamed(
-            "Final_Label", "label").cache())
-
-        train_df.count()
-        val_df.count()
-        test_df.count()
-        #exit()
-
-        if mode == 'M':
-            # =====================================================
-            # 1. AUTOMATIC CLASS WEIGHTS (SAFE)
-            # =====================================================
-            label_counts = train_df.groupBy("label").count().collect()
-            total_count = sum(r["count"] for r in label_counts)
-
-            class_weights = {r["label"]: total_count / (2.0 * r["count"]) for r in label_counts}
-
-            print("Class weights:", class_weights)
-
-            train_df = train_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            val_df = val_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            test_df = test_df.withColumn("class_weight",
-                when(col("label") == 0, class_weights.get(0, 1.0)).otherwise(class_weights.get(1, 1.0)))
-
-            print("TRAIN COLS:", train_df.columns)
-            # -------------------------------
-            # 3. Base models
-            # -------------------------------
-            # -----------------------------
-            # 2. Define base models
-            # -----------------------------
-            lr_model = LogisticRegression(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="lr_prob", predictionCol="lr_pred", maxIter=150, regParam=0.01, elasticNetParam=0.0)
-
-            rf_model = RandomForestClassifier(featuresCol="features", labelCol="label", weightCol="class_weight",
-                probabilityCol="rf_prob", rawPredictionCol="rf_raw", predictionCol="rf_pred", numTrees=200, maxDepth=20,
-                minInstancesPerNode=10, subsamplingRate=0.8, featureSubsetStrategy="sqrt")
-
-            svc_model = LinearSVC(featuresCol="features", labelCol="label", weightCol="class_weight",
-                predictionCol="svc_pred", rawPredictionCol="svc_raw", maxIter=100, regParam=0.01)
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
 
             # -----------------------------
-            # 3. Train base models
+            # 0) Safety: filter null vectors and keep minimal columns
             # -----------------------------
-            start_fit = time.time()
-            lr_model = lr_model.fit(train_df)
-            rf_model = rf_model.fit(train_df)
-            svc_model = svc_model.fit(train_df)
-            end_fit = time.time()
-            fit_time = (end_fit - start_fit) / 60
+            train_df = df_train_quality.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            val_df = df_val_cls.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            test_df = df_test_cls.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
 
             # -----------------------------
-            # 4. Prepare meta features
+            # 1) Imbalance weights (fast + very useful)
             # -----------------------------
-            def add_probs(df, model, prob_col, prefix):
-                return (
-                    model.transform(df).withColumn(f"{prefix}_arr", vector_to_array(prob_col)).withColumn(f"{prefix}_0",
-                                                                                                          col(f"{prefix}_arr")[
-                                                                                                              0]).withColumn(
-                        f"{prefix}_1", col(f"{prefix}_arr")[1]).withColumn(f"{prefix}_margin",
-                                                                           abs(col(f"{prefix}_1") - col(
-                                                                               f"{prefix}_0"))).withColumn(
-                        f"{prefix}_entropy", -(
-                                    col(f"{prefix}_1") * log(col(f"{prefix}_1") + 1e-9) + col(f"{prefix}_0") * log(
-                                col(f"{prefix}_0") + 1e-9))))
-
-            def prepare_meta(df):
-                df = add_probs(df, lr_model, "lr_prob", "lr")
-                df = add_probs(df, rf_model, "rf_prob", "rf")
-                # LinearSVC output
-                df = df.drop("rawPrediction") if "rawPrediction" in df.columns else df
-                df = svc_model.transform(df).withColumn("svc_pred_val", col("svc_pred").cast("double"))
-                return df
-
-            train_meta = prepare_meta(train_df)
-            val_meta = prepare_meta(val_df)
-            test_meta = prepare_meta(test_df)
+            n_pos = train_df.filter(col(LABEL_COL) == 1).count()
+            n_neg = train_df.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                print("[WARNING] Only one class in training data. No weighting.")
+                train_df_w = train_df.withColumn("classWeight", lit(1.0))
+            else:
+                w_pos = float(n_neg) / float(n_pos)
+                train_df_w = train_df.withColumn("classWeight",when(col(LABEL_COL) == 1, lit(w_pos)).otherwise(lit(1.0)))
 
             # -----------------------------
-            # 5. Assemble meta features
+            # 2) Evaluator (AUC for tuning; stable)
             # -----------------------------
-            meta_features = ["lr_0", "lr_1", "lr_margin", "lr_entropy", "rf_0", "rf_1", "rf_margin", "rf_entropy",
-                             "svc_pred_val"]
-
-            assembler = VectorAssembler(inputCols=meta_features, outputCol="meta_features")
-            train_meta = assembler.transform(train_meta)
-            val_meta = assembler.transform(val_meta)
-            test_meta = assembler.transform(test_meta)
+            auc_eval = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
 
             # -----------------------------
-            # 6. Train meta LogisticRegression
+            # 3) FAST tuning: RandomForest (small grid)
             # -----------------------------
-            meta_lr = LogisticRegression(featuresCol="meta_features", labelCol="label", weightCol="class_weight",
-                predictionCol="last_pred_label", probabilityCol="final_prob", rawPredictionCol="meta_raw", maxIter=100,
-                regParam=0.01, elasticNetParam=0.0)
+            rf = RandomForestClassifier(labelCol=LABEL_COL, featuresCol=FEAT_COL, weightCol="classWeight",
+                probabilityCol="rf_prob", predictionCol="rf_pred", rawPredictionCol="rawPrediction")
 
-            stack_model = meta_lr.fit(train_meta)
+            rf_grid = (ParamGridBuilder().addGrid(rf.numTrees, [50, 100]).addGrid(rf.maxDepth, [5, 10]).build())
 
-            # -----------------------------
-            # 7. Threshold tuning on validation
-            # -----------------------------
-            val_preds = stack_model.transform(val_meta).withColumn("prob_1", vector_to_array("final_prob")[1])
-            thresholds = [i / 100 for i in range(10, 90)]
-            best_f1 = -1
-            best_threshold = 0.5
+            rf_tvs = TrainValidationSplit(estimator=rf, estimatorParamMaps=rf_grid, evaluator=auc_eval, trainRatio=0.8,
+                parallelism=4)
 
-            for t in thresholds:
-                preds = val_preds.withColumn("pred_adj", when(col("prob_1") >= t, 1).otherwise(0))
-                tp = preds.filter("label=1 AND pred_adj=1").count()
-                fp = preds.filter("label=0 AND pred_adj=1").count()
-                fn = preds.filter("label=1 AND pred_adj=0").count()
-                precision = tp / (tp + fp + 1e-6)
-                recall = tp / (tp + fn + 1e-6)
-                f1 = 2 * precision * recall / (precision + recall + 1e-6)
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_threshold = t
-
-            print(f"🔥 Optimal threshold (validation F1): {best_threshold:.2f} | F1: {best_f1:.4f}")
+            print("\n[TRAIN] Fitting RF (TrainValidationSplit)...")
+            rf_model = rf_tvs.fit(train_df_w)
 
             # -----------------------------
-            # 8. Test predictions
+            # 4) FAST tuning: LogisticRegression (tiny grid)
             # -----------------------------
-            start_predict = time.time()
-            test_preds = stack_model.transform(test_meta).withColumn("prob_1", vector_to_array("final_prob")[1])
-            final_test_predictions = test_preds.withColumn("last_pred_label",
-                when(col("prob_1") >= best_threshold, 1).otherwise(0))
-            end_predict = time.time()
-            predict_time = (end_predict - start_predict) / 60
+            # Note: LR uses its own rawPredictionCol; set explicitly
+            lr = LogisticRegression(labelCol=LABEL_COL, featuresCol=FEAT_COL, weightCol="classWeight", maxIter=50,
+                regParam=0.01, elasticNetParam=0.0, probabilityCol="lr_prob", predictionCol="lr_pred",
+                rawPredictionCol="lr_raw")
+
+            lr_grid = (ParamGridBuilder().addGrid(lr.regParam, [0.0, 0.01, 0.1]).addGrid(lr.elasticNetParam,
+                                                                                         [0.0, 0.5]).build())
+
+            lr_auc_eval = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="lr_raw",
+                metricName="areaUnderROC")
+
+            lr_tvs = TrainValidationSplit(estimator=lr, estimatorParamMaps=lr_grid, evaluator=lr_auc_eval,
+                trainRatio=0.8, parallelism=4)
+
+            print("\n[TRAIN] Fitting LR (TrainValidationSplit)...")
+            lr_model = lr_tvs.fit(train_df_w)
 
             # -----------------------------
-            # 9. Return results
+            # 5) Pick best model on validation AUC
             # -----------------------------
-            return {"predictions_df": final_test_predictions, "best_threshold": best_threshold, "fit_time": fit_time,
-                "predict_time": predict_time}
-        '''
-        if mode=='X':   # ------------------------------------------------------------------------------------------------------
+            rf_val = rf_model.bestModel.transform(val_df)
+            lr_val = lr_model.bestModel.transform(val_df)
+
+            rf_val_auc = auc_eval.evaluate(rf_val.select("rawPrediction", LABEL_COL))
+            lr_val_auc = lr_auc_eval.evaluate(lr_val.select("lr_raw", LABEL_COL))
+
+            print(f"\n[VAL] RF AUC = {rf_val_auc:.4f}")
+            print(f"[VAL] LR AUC = {lr_val_auc:.4f}")
+
+            best_single = "rf" if rf_val_auc >= lr_val_auc else "lr"
+            print(f"[SELECTED SINGLE MODEL] {best_single.upper()}")
+
+            # -----------------------------
+            # 6) Helper: per-class precision/recall/F1 in Spark
+            # -----------------------------
+            def print_per_class_metrics(pred_df, label_col, pred_col, title):
+                # MulticlassMetrics expects RDD[(prediction, label)]
+                rdd = pred_df.select(col(pred_col).cast("double"), col(label_col).cast("double")).rdd.map(lambda r: (r[0], r[1]))
+                m = MulticlassMetrics(rdd)
+
+                print(f"\n=== {title} ===")
+                for c in [0.0, 1.0]:
+                    print(f"Class {int(c)}: precision={m.precision(c):.3f}  recall={m.recall(c):.3f}  f1={m.fMeasure(c, 1.0):.3f}")
+                print(f"Overall accuracy: {m.accuracy:.3f}")
+
+            # -----------------------------
+            # 7) TEST evaluation for best single model
+            # -----------------------------
+            if best_single == "rf":
+                test_pred = rf_model.bestModel.transform(test_df)
+                test_auc = auc_eval.evaluate(test_pred.select("rawPrediction", LABEL_COL))
+                print(f"\n[TEST] Best single = RF, AUC = {test_auc:.4f}")
+                print_per_class_metrics(test_pred, LABEL_COL, "rf_pred", "TEST metrics (RF)")
+            else:
+                test_pred = lr_model.bestModel.transform(test_df)
+                test_auc = lr_auc_eval.evaluate(test_pred.select("lr_raw", LABEL_COL))
+                print(f"\n[TEST] Best single = LR, AUC = {test_auc:.4f}")
+                print_per_class_metrics(test_pred, LABEL_COL, "lr_pred", "TEST metrics (LR)")
+
+
+
+
+        else:   # ------------------------------------------------------------------------------------------------------
 
             # ============================================================
             # FULL COPY/PASTE BLOCK (NO pca_model REQUIRED)
@@ -272,24 +233,24 @@ class AnomalyDetector:
             # -----------------------------
             CANDIDATE_FEATURE_COLS = ["pca_features", "features_vec_final", "features"]
             feature_col = next(
-                (c for c in CANDIDATE_FEATURE_COLS if (c in df_final_train.columns and c in df_test.columns)), None)
+                (c for c in CANDIDATE_FEATURE_COLS if (c in df_train_quality.columns and c in df_test_cls.columns)), None)
 
             if feature_col is None:
                 raise ValueError(f"No common feature vector column found. Need one of {CANDIDATE_FEATURE_COLS} "
                                  f"in BOTH df_final_train and df_test.\n"
-                                 f"df_final_train cols={df_final_train.columns}\n"
-                                 f"df_test cols={df_test.columns}")
+                                 f"df_final_train cols={df_train_quality.columns}\n"
+                                 f"df_test cols={df_test_cls.columns}")
 
             print(f"[INFO] Using feature column: {feature_col}")
 
             # -----------------------------
             # 1) Build clean train/test (drop NULL vectors + NULL labels)
             # -----------------------------
-            train_full = (df_final_train.select(col(feature_col).alias("features"),
+            train_full = (df_train_quality.select(col(feature_col).alias("features"),
                                                 col("Final_Label").cast("int").alias("label")).filter(
                 col("features").isNotNull()).filter(col("label").isNotNull()))
 
-            test_df = (df_test.select(col(feature_col).alias("features"),
+            test_df = (df_test_cls.select(col(feature_col).alias("features"),
                                       col("Final_Label").cast("int").alias("label")).filter(
                 col("features").isNotNull()).filter(col("label").isNotNull()))
 
@@ -298,9 +259,9 @@ class AnomalyDetector:
 
 
             # Quick diagnostics
-            orig_train_n = df_final_train.count()
+            orig_train_n = df_train_quality.count()
             clean_train_n = train_full.count()
-            orig_test_n = df_test.count()
+            orig_test_n = df_test_cls.count()
             clean_test_n = test_df.count()
 
             print(f"[INFO] Train rows: {orig_train_n} -> {clean_train_n} after filtering NULL features/labels")
