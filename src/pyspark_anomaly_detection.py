@@ -74,7 +74,7 @@ class AnomalyDetector:
             if n_pos == 0 or n_neg == 0:
                 raise ValueError("Training data must contain both classes (0 and 1) for supervised training.")
 
-            pos_w = min(5.0, float(n_neg) / float(n_pos))  # cap at 10
+            pos_w = min(3.0, float(n_neg) / float(n_pos))  # cap at 10
             print(f"[INFO] Class weight for anomalies (label=1): {pos_w:.3f}")
 
             df_train_w = df_train.withColumn("class_weight",
@@ -127,7 +127,7 @@ class AnomalyDetector:
 
             # Added GBT-heavy (recall-friendly) options
             weight_sets = [(0.34, 0.33, 0.33), (0.20, 0.20, 0.60), (0.20, 0.60, 0.20), (0.60, 0.20, 0.20),
-                (1 / 3, 1 / 3, 1 / 3), (0.15, 0.15, 0.70), (0.10, 0.20, 0.70), (0.20, 0.10, 0.70), ]
+                (1 / 3, 1 / 3, 1 / 3), ]
 
             best_w, best_aucpr = None, -1.0
             for w_lr, w_rf, w_gbt in weight_sets:
@@ -160,7 +160,7 @@ class AnomalyDetector:
                 m = MulticlassMetrics(rdd)
                 return m.precision(1.0), m.recall(1.0), m.fMeasure(1.0)
 
-            P_MIN = 0.90  # keep alerts clean; reduce to 0.93 if you need more recall
+            P_MIN = 0.85  # keep alerts clean; reduce to 0.93 if you need more recall
             thresholds = [i / 100 for i in range(5, 90)]  # avoid extremes
 
             best_thr, best_recall, best_f1_at_thr, best_p_at_thr = None, -1.0, -1.0, None
