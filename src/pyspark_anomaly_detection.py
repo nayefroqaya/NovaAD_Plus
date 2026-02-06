@@ -73,7 +73,7 @@ from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.ml.classification import RandomForestClassifier
 # If you want GBT instead, swap classifier block below.
 # from pyspark.ml.classification import GBTClassifier
-import pyspark.sql.functions as F
+import pyspark.sql.functions as psf
 
 from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
 
@@ -102,21 +102,23 @@ class AnomalyDetector:
             # -----------------------------
             # 0) Safety: filter null vectors and keep minimal columns
             # -----------------------------
-            train_df = df_train_quality.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            val_df = df_val_cls.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            test_df = df_test_cls.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            train_df = df_train_quality.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            val_df = df_val_cls.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            test_df = df_test_cls.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
 
             # -----------------------------
             # 1) Imbalance weights (fast + very useful)
             # -----------------------------
-            n_pos = train_df.filter(F.col(LABEL_COL) == 1).count()
-            n_neg = train_df.filter(F.col(LABEL_COL) == 0).count()
+            n_pos = train_df.filter(psf.col(LABEL_COL) == 1).count()
+            n_neg = train_df.filter(psf.col(LABEL_COL) == 0).count()
+
             if n_pos == 0 or n_neg == 0:
                 print("[WARNING] Only one class in training data. No weighting.")
-                train_df_w = train_df.withColumn("classWeight", lit(1.0))
+                train_df_w = train_df.withColumn("classWeight", psf.lit(1.0))
             else:
                 w_pos = float(n_neg) / float(n_pos)
-                train_df_w = train_df.withColumn("classWeight",when(F.col(LABEL_COL) == 1, lit(w_pos)).otherwise(lit(1.0)))
+                train_df_w = train_df.withColumn("classWeight",
+                    psf.when(psf.col(LABEL_COL) == 1, psf.lit(w_pos)).otherwise(psf.lit(1.0)))
 
             # -----------------------------
             # 2) Evaluator (AUC for tuning; stable)
@@ -141,7 +143,6 @@ class AnomalyDetector:
             # -----------------------------
             # 4) FAST tuning: LogisticRegression (tiny grid)
             # -----------------------------
-            # Note: LR uses its own rawPredictionCol; set explicitly
             lr = LogisticRegression(labelCol=LABEL_COL, featuresCol=FEAT_COL, weightCol="classWeight", maxIter=50,
                 regParam=0.01, elasticNetParam=0.0, probabilityCol="lr_prob", predictionCol="lr_pred",
                 rawPredictionCol="lr_raw")
@@ -177,13 +178,14 @@ class AnomalyDetector:
             # 6) Helper: per-class precision/recall/F1 in Spark
             # -----------------------------
             def print_per_class_metrics(pred_df, label_col, pred_col, title):
-                # MulticlassMetrics expects RDD[(prediction, label)]
-                rdd = pred_df.select(col(pred_col).cast("double"), col(label_col).cast("double")).rdd.map(lambda r: (r[0], r[1]))
+                rdd = (pred_df.select(psf.col(pred_col).cast("double"), psf.col(label_col).cast("double")).rdd.map(
+                    lambda r: (r[0], r[1])))
                 m = MulticlassMetrics(rdd)
 
                 print(f"\n=== {title} ===")
                 for c in [0.0, 1.0]:
-                    print(f"Class {int(c)}: precision={m.precision(c):.3f}  recall={m.recall(c):.3f}  f1={m.fMeasure(c, 1.0):.3f}")
+                    print(f"Class {int(c)}: precision={m.precision(c):.3f}  "
+                          f"recall={m.recall(c):.3f}  f1={m.fMeasure(c, 1.0):.3f}")
                 print(f"Overall accuracy: {m.accuracy:.3f}")
 
             # -----------------------------
@@ -194,12 +196,13 @@ class AnomalyDetector:
                 test_auc = auc_eval.evaluate(test_pred.select("rawPrediction", LABEL_COL))
                 print(f"\n[TEST] Best single = RF, AUC = {test_auc:.4f}")
                 print_per_class_metrics(test_pred, LABEL_COL, "rf_pred", "TEST metrics (RF)")
+                return rf_model.bestModel
             else:
                 test_pred = lr_model.bestModel.transform(test_df)
                 test_auc = lr_auc_eval.evaluate(test_pred.select("lr_raw", LABEL_COL))
                 print(f"\n[TEST] Best single = LR, AUC = {test_auc:.4f}")
                 print_per_class_metrics(test_pred, LABEL_COL, "lr_pred", "TEST metrics (LR)")
-
+                return lr_model.bestModel
 
 
 
