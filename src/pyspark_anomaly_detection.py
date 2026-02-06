@@ -74,7 +74,14 @@ from pyspark.ml.classification import RandomForestClassifier
 # If you want GBT instead, swap classifier block below.
 # from pyspark.ml.classification import GBTClassifier
 import pyspark.sql.functions as psf
-
+from pyspark.sql.functions import col, when, lit
+from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, GBTClassifier
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.functions import vector_to_array
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.ml.linalg import Vectors, VectorUDT
+from pyspark.sql.functions import udf
 from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
 
 
@@ -92,117 +99,156 @@ class AnomalyDetector:
     def anomaly_detector(df_train_quality,df_test_cls, df_val_cls, mode):
 
 
-
         if mode=='M':
-
+            # ----------------------------
+            # Columns
+            # ----------------------------
             LABEL_COL = "Final_Label"
             FEAT_COL = "pca_features"
             ID_COL = "Node_block_id"
 
-            # -----------------------------
-            # 0) Safety: filter null vectors and keep minimal columns
-            # -----------------------------
-            train_df = df_train_quality.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            val_df = df_val_cls.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            test_df = df_test_cls.filter(psf.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            # ----------------------------
+            # Basic checks + caching
+            # ----------------------------
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("df_train_quality", df_train_quality), ("df_val_cls", df_val_cls),
+                             ("df_test_cls", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
 
-            # -----------------------------
-            # 1) Imbalance weights (fast + very useful)
-            # -----------------------------
-            n_pos = train_df.filter(psf.col(LABEL_COL) == 1).count()
-            n_neg = train_df.filter(psf.col(LABEL_COL) == 0).count()
+            df_train = df_train_quality.select(ID_COL, FEAT_COL, LABEL_COL).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, LABEL_COL).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, LABEL_COL).cache()
 
-            if n_pos == 0 or n_neg == 0:
-                print("[WARNING] Only one class in training data. No weighting.")
-                train_df_w = train_df.withColumn("classWeight", psf.lit(1.0))
-            else:
-                w_pos = float(n_neg) / float(n_pos)
-                train_df_w = train_df.withColumn("classWeight",
-                    psf.when(psf.col(LABEL_COL) == 1, psf.lit(w_pos)).otherwise(psf.lit(1.0)))
+            print("Train label distribution:")
+            df_train.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
 
-            # -----------------------------
-            # 2) Evaluator (AUC for tuning; stable)
-            # -----------------------------
-            auc_eval = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
-                metricName="areaUnderROC")
+            # ----------------------------
+            # Evaluator (good for anomalies)
+            # ----------------------------
+            evaluator_pr = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderPR")
 
-            # -----------------------------
-            # 3) FAST tuning: RandomForest (small grid)
-            # -----------------------------
-            rf = RandomForestClassifier(labelCol=LABEL_COL, featuresCol=FEAT_COL, weightCol="classWeight",
-                probabilityCol="rf_prob", predictionCol="rf_pred", rawPredictionCol="rawPrediction")
+            # ----------------------------
+            # Fast tuner helper
+            # ----------------------------
+            def tune_model(estimator, param_grid, train_df, evaluator, parallelism=4, train_ratio=0.8):
+                tvs = TrainValidationSplit(estimator=estimator, estimatorParamMaps=param_grid, evaluator=evaluator,
+                    trainRatio=train_ratio, parallelism=parallelism)
+                tvs_model = tvs.fit(train_df)
+                return tvs_model.bestModel
 
-            rf_grid = (ParamGridBuilder().addGrid(rf.numTrees, [50, 100]).addGrid(rf.maxDepth, [5, 10]).build())
+            # ============================================================
+            # 1) Train + Tune Base Models
+            # ============================================================
 
-            rf_tvs = TrainValidationSplit(estimator=rf, estimatorParamMaps=rf_grid, evaluator=auc_eval, trainRatio=0.8,
-                parallelism=4)
+            # ---- Logistic Regression ----
+            lr = LogisticRegression(featuresCol=FEAT_COL, labelCol=LABEL_COL, maxIter=50)
+            lr_grid = (ParamGridBuilder().addGrid(lr.regParam, [1e-4, 1e-3, 1e-2]).addGrid(lr.elasticNetParam,
+                                                                                           [0.0, 0.5, 1.0]).build())
+            lr_model = tune_model(lr, lr_grid, df_train, evaluator_pr, parallelism=4)
 
-            print("\n[TRAIN] Fitting RF (TrainValidationSplit)...")
-            rf_model = rf_tvs.fit(train_df_w)
+            # ---- Random Forest ----
+            rf = RandomForestClassifier(featuresCol=FEAT_COL, labelCol=LABEL_COL, seed=42)
+            rf_grid = (ParamGridBuilder().addGrid(rf.numTrees, [100, 200]).addGrid(rf.maxDepth, [5, 10]).build())
+            rf_model = tune_model(rf, rf_grid, df_train, evaluator_pr, parallelism=4)
 
-            # -----------------------------
-            # 4) FAST tuning: LogisticRegression (tiny grid)
-            # -----------------------------
-            lr = LogisticRegression(labelCol=LABEL_COL, featuresCol=FEAT_COL, weightCol="classWeight", maxIter=50,
-                regParam=0.01, elasticNetParam=0.0, probabilityCol="lr_prob", predictionCol="lr_pred",
-                rawPredictionCol="lr_raw")
+            # ---- Gradient Boosted Trees ----
+            gbt = GBTClassifier(featuresCol=FEAT_COL, labelCol=LABEL_COL, seed=42)
+            gbt_grid = (ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5]).addGrid(gbt.maxIter, [30, 60]).build())
+            gbt_model = tune_model(gbt, gbt_grid, df_train, evaluator_pr, parallelism=4)
 
-            lr_grid = (ParamGridBuilder().addGrid(lr.regParam, [0.0, 0.01, 0.1]).addGrid(lr.elasticNetParam,
-                                                                                         [0.0, 0.5]).build())
+            print("[OK] Base models tuned and trained.")
 
-            lr_auc_eval = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="lr_raw",
-                metricName="areaUnderROC")
+            # ============================================================
+            # 2) Validate: choose ensemble weights by AUC-PR
+            # ============================================================
 
-            lr_tvs = TrainValidationSplit(estimator=lr, estimatorParamMaps=lr_grid, evaluator=lr_auc_eval,
-                trainRatio=0.8, parallelism=4)
+            def score_with_p1(model, df, p_col_name):
+                # probability is Vector [p0, p1] => take p1
+                return model.transform(df).select(ID_COL, LABEL_COL,
+                                                  vector_to_array("probability")[1].alias(p_col_name))
 
-            print("\n[TRAIN] Fitting LR (TrainValidationSplit)...")
-            lr_model = lr_tvs.fit(train_df_w)
+            val_lr = score_with_p1(lr_model, df_val, "p_lr").select(ID_COL, LABEL_COL, "p_lr")
+            val_rf = score_with_p1(rf_model, df_val, "p_rf").select(ID_COL, LABEL_COL, "p_rf")
+            val_gbt = score_with_p1(gbt_model, df_val, "p_gbt").select(ID_COL, LABEL_COL, "p_gbt")
 
-            # -----------------------------
-            # 5) Pick best model on validation AUC
-            # -----------------------------
-            rf_val = rf_model.bestModel.transform(val_df)
-            lr_val = lr_model.bestModel.transform(val_df)
+            val_scored = val_lr.join(val_rf, [ID_COL, LABEL_COL]).join(val_gbt, [ID_COL, LABEL_COL]).cache()
 
-            rf_val_auc = auc_eval.evaluate(rf_val.select("rawPrediction", LABEL_COL))
-            lr_val_auc = lr_auc_eval.evaluate(lr_val.select("lr_raw", LABEL_COL))
+            @udf(VectorUDT())
+            def to_raw_vec(p):
+                p = float(p)
+                return Vectors.dense([1.0 - p, p])
 
-            print(f"\n[VAL] RF AUC = {rf_val_auc:.4f}")
-            print(f"[VAL] LR AUC = {lr_val_auc:.4f}")
+            weight_sets = [(0.34, 0.33, 0.33),  # (LR, RF, GBT)
+                (0.20, 0.20, 0.60), (0.20, 0.60, 0.20), (0.60, 0.20, 0.20), (1 / 3, 1 / 3, 1 / 3), ]
 
-            best_single = "rf" if rf_val_auc >= lr_val_auc else "lr"
-            print(f"[SELECTED SINGLE MODEL] {best_single.upper()}")
+            best_w = None
+            best_aucpr = -1.0
 
-            # -----------------------------
-            # 6) Helper: per-class precision/recall/F1 in Spark
-            # -----------------------------
-            def print_per_class_metrics(pred_df, label_col, pred_col, title):
-                rdd = (pred_df.select(psf.col(pred_col).cast("double"), psf.col(label_col).cast("double")).rdd.map(
-                    lambda r: (r[0], r[1])))
-                m = MulticlassMetrics(rdd)
+            for w_lr, w_rf, w_gbt in weight_sets:
+                tmp = (val_scored.withColumn("p_ens",
+                                             w_lr * col("p_lr") + w_rf * col("p_rf") + w_gbt * col("p_gbt")).withColumn(
+                    "rawPrediction", to_raw_vec(col("p_ens"))))
+                aucpr = evaluator_pr.evaluate(tmp)
+                if aucpr > best_aucpr:
+                    best_aucpr = aucpr
+                    best_w = (w_lr, w_rf, w_gbt)
 
-                print(f"\n=== {title} ===")
-                for c in [0.0, 1.0]:
-                    print(f"Class {int(c)}: precision={m.precision(c):.3f}  "
-                          f"recall={m.recall(c):.3f}  f1={m.fMeasure(c, 1.0):.3f}")
-                print(f"Overall accuracy: {m.accuracy:.3f}")
+            W_LR, W_RF, W_GBT = best_w
+            print(f"[VAL] Best weights (LR, RF, GBT) = {best_w} | AUC-PR = {best_aucpr:.6f}")
 
-            # -----------------------------
-            # 7) TEST evaluation for best single model
-            # -----------------------------
-            if best_single == "rf":
-                test_pred = rf_model.bestModel.transform(test_df)
-                test_auc = auc_eval.evaluate(test_pred.select("rawPrediction", LABEL_COL))
-                print(f"\n[TEST] Best single = RF, AUC = {test_auc:.4f}")
-                print_per_class_metrics(test_pred, LABEL_COL, "rf_pred", "TEST metrics (RF)")
-                return rf_model.bestModel
-            else:
-                test_pred = lr_model.bestModel.transform(test_df)
-                test_auc = lr_auc_eval.evaluate(test_pred.select("lr_raw", LABEL_COL))
-                print(f"\n[TEST] Best single = LR, AUC = {test_auc:.4f}")
-                print_per_class_metrics(test_pred, LABEL_COL, "lr_pred", "TEST metrics (LR)")
-                return lr_model.bestModel
+            val_ens = val_scored.withColumn("p_ens",
+                                            W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col("p_gbt")).cache()
+
+            # ============================================================
+            # 3) Validate: choose threshold by best F1 on VAL
+            # ============================================================
+
+            def f1_at_threshold(df_with_p, thr):
+                pred = df_with_p.select(col(LABEL_COL).cast("double").alias("label"),
+                    when(col("p_ens") >= lit(thr), 1.0).otherwise(0.0).alias("prediction"))
+                rdd = pred.rdd.map(lambda r: (r["prediction"], r["label"]))
+                return MulticlassMetrics(rdd).fMeasure(1.0)
+
+            thresholds = [i / 100 for i in range(1, 100)]  # 0.01..0.99
+            best_thr, best_f1 = None, -1.0
+            for t in thresholds:
+                f1 = f1_at_threshold(val_ens, t)
+                if f1 > best_f1:
+                    best_f1, best_thr = f1, t
+
+            print(f"[VAL] Best threshold = {best_thr:.2f} | F1 = {best_f1:.6f}")
+
+            # ============================================================
+            # 4) Test: compute Precision / Recall / F1 on TEST
+            # ============================================================
+
+            test_lr = score_with_p1(lr_model, df_test, "p_lr").select(ID_COL, LABEL_COL, "p_lr")
+            test_rf = score_with_p1(rf_model, df_test, "p_rf").select(ID_COL, LABEL_COL, "p_rf")
+            test_gbt = score_with_p1(gbt_model, df_test, "p_gbt").select(ID_COL, LABEL_COL, "p_gbt")
+
+            test_scored = test_lr.join(test_rf, [ID_COL, LABEL_COL]).join(test_gbt, [ID_COL, LABEL_COL])
+
+            pred_test = (test_scored.withColumn("p_ens", W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col(
+                "p_gbt")).withColumn("prediction", when(col("p_ens") >= lit(best_thr), 1).otherwise(0)).cache())
+
+            rdd_test = pred_test.select(col("prediction").cast("double"), col(LABEL_COL).cast("double")).rdd.map(tuple)
+
+            metrics = MulticlassMetrics(rdd_test)
+
+            precision = metrics.precision(1.0)
+            recall = metrics.recall(1.0)
+            f1 = metrics.fMeasure(1.0)
+
+            print("\n=== ENSEMBLE PERFORMANCE ON TEST ===")
+            print(f"Precision (anomaly=1): {precision:.4f}")
+            print(f"Recall    (anomaly=1): {recall:.4f}")
+            print(f"F1-score  (anomaly=1): {f1:.4f}")
+
+            print("\nConfusion Matrix (rows=pred, cols=true):")
+            print(metrics.confusionMatrix())
 
 
 
