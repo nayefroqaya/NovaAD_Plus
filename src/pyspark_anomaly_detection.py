@@ -88,7 +88,7 @@ YELLOW = colorama.Fore.YELLOW
 class AnomalyDetector:
 
     @staticmethod
-    def anomaly_detector(df_train_quality, df_val_cls,df_test_cls , mode):
+    def anomaly_detector(df_train_quality,df_test_cls, df_val_cls, mode):
 
 
 

@@ -410,7 +410,7 @@ def main():
 
 
     start_Novelty= time.time()
-    df_final_train, df_test = \
+    df_train_quality,df_test_cls, df_val_cls = \
         features_engineering_obj.novelty_detection_label_establishment(sequences_df, spark =spark, method ="gmm" )
 
     Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
@@ -430,7 +430,7 @@ def main():
 
     start_anomaly= time.time()
 
-    results = anomaly_detection_obj.anomaly_detector(df_final_train,df_test ,mode )
+    results = anomaly_detection_obj.anomaly_detector(df_train_quality,df_test_cls, df_val_cls ,mode )
 
     Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during AD: {Anomaly_spill_gb:.2f} GB")
