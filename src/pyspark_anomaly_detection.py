@@ -73,6 +73,7 @@ from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.ml.classification import RandomForestClassifier
 # If you want GBT instead, swap classifier block below.
 # from pyspark.ml.classification import GBTClassifier
+import pyspark.sql.functions as F
 
 from sklearn.metrics import classification_report, f1_score, precision_score, recall_score
 
@@ -101,21 +102,21 @@ class AnomalyDetector:
             # -----------------------------
             # 0) Safety: filter null vectors and keep minimal columns
             # -----------------------------
-            train_df = df_train_quality.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            val_df = df_val_cls.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
-            test_df = df_test_cls.filter(col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            train_df = df_train_quality.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            val_df = df_val_cls.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
+            test_df = df_test_cls.filter(F.col(FEAT_COL).isNotNull()).select(ID_COL, FEAT_COL, LABEL_COL)
 
             # -----------------------------
             # 1) Imbalance weights (fast + very useful)
             # -----------------------------
-            n_pos = train_df.filter(col(LABEL_COL) == 1).count()
-            n_neg = train_df.filter(col(LABEL_COL) == 0).count()
+            n_pos = train_df.filter(F.col(LABEL_COL) == 1).count()
+            n_neg = train_df.filter(F.col(LABEL_COL) == 0).count()
             if n_pos == 0 or n_neg == 0:
                 print("[WARNING] Only one class in training data. No weighting.")
                 train_df_w = train_df.withColumn("classWeight", lit(1.0))
             else:
                 w_pos = float(n_neg) / float(n_pos)
-                train_df_w = train_df.withColumn("classWeight",when(col(LABEL_COL) == 1, lit(w_pos)).otherwise(lit(1.0)))
+                train_df_w = train_df.withColumn("classWeight",when(F.col(LABEL_COL) == 1, lit(w_pos)).otherwise(lit(1.0)))
 
             # -----------------------------
             # 2) Evaluator (AUC for tuning; stable)
