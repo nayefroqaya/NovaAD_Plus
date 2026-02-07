@@ -8,6 +8,11 @@ from pyspark.ml.linalg import Vectors, VectorUDT
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.sql.functions import col, when, lit
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.mllib.evaluation import MulticlassMetrics
 
 # ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
 from pyspark.ml.classification import (
@@ -217,4 +222,89 @@ class AnomalyDetector:
             print("\nConfusion Matrix (rows=pred, cols=true):")
             print(metrics.confusionMatrix())
 
+        else:
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
 
+            # ---- Basic checks ----
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("train", df_final_train_cls), ("val", df_val_cls), ("test", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, LABEL_COL).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, LABEL_COL).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, LABEL_COL).cache()
+
+            # ---- Class weights (cheap & effective) ----
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Train must contain both classes 0 and 1.")
+
+            pos_w = min(5.0, float(n_neg) / float(n_pos))  # cap to keep precision stable
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            print(f"[INFO] pos_w={pos_w:.3f}")
+            df_train_w.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            # ---- TrainValidationSplit (fast) ----
+            # LinearSVC outputs `rawPrediction` but not probability. We'll threshold raw score.
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=50)
+
+            # small grid -> short runtime
+            grid = (ParamGridBuilder().addGrid(svm.regParam, [1e-4, 1e-3, 1e-2]).build())
+
+            # Use areaUnderROC on rawPrediction for tuning (works well for score-based models)
+            evaluator = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=grid, evaluator=evaluator, trainRatio=0.8,
+                parallelism=4)
+            svm_model = tvs.fit(df_train_w).bestModel
+            print("[OK] Trained LinearSVC.")
+
+            # ---- Score VAL ----
+            val_scored = svm_model.transform(df_val).select(col(LABEL_COL).cast("double").alias("label"),
+                col("rawPrediction"))
+
+            # rawPrediction is a vector of length 2, take score for class 1
+            from pyspark.ml.functions import vector_to_array
+            val_scored = val_scored.withColumn("s1", vector_to_array("rawPrediction")[1]).cache()
+
+            def prf_at_threshold(df, thr):
+                pred = df.select(col("label"), when(col("s1") >= lit(thr), 1.0).otherwise(0.0).alias("prediction"))
+                rdd = pred.rdd.map(lambda r: (r["prediction"], r["label"]))
+                m = MulticlassMetrics(rdd)
+                return m.precision(1.0), m.recall(1.0), m.fMeasure(1.0)
+
+            # ---- Choose threshold on VAL by best F1 ----
+            # Use score quantiles to search quickly (fast & stable)
+            qs = [i / 100 for i in range(5, 96, 5)]  # 0.05..0.95
+            cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
+
+            best_thr, best_f1, best_p, best_r = None, -1.0, None, None
+            for t in cand_thr:
+                p, r, f1v = prf_at_threshold(val_scored, t)
+                if f1v > best_f1:
+                    best_f1, best_thr, best_p, best_r = f1v, t, p, r
+
+            print(f"[VAL] Best thr={best_thr:.6f} | P={best_p:.4f} R={best_r:.4f} F1={best_f1:.4f}")
+
+            # ---- Evaluate on TEST ----
+            test_scored = svm_model.transform(df_test).select(col(LABEL_COL).cast("double").alias("label"),
+                vector_to_array("rawPrediction")[1].alias("s1"))
+
+            pred_test = test_scored.select(col("label"),
+                when(col("s1") >= lit(best_thr), 1.0).otherwise(0.0).alias("prediction"))
+
+            rdd_test = pred_test.rdd.map(lambda r: (r["prediction"], r["label"]))
+            m = MulticlassMetrics(rdd_test)
+
+            print("\n=== TEST METRICS (LinearSVC single classifier) ===")
+            print(f"Precision (anomaly=1): {m.precision(1.0):.4f}")
+            print(f"Recall    (anomaly=1): {m.recall(1.0):.4f}")
+            print(f"F1-score  (anomaly=1): {m.fMeasure(1.0):.4f}")
