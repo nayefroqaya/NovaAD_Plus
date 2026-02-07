@@ -241,10 +241,10 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'SP_150MB'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
-    mode = 'X'
+    mode = 'M'
     Mix_or_stable = '0'
 
     # Paths
@@ -386,26 +386,6 @@ def main():
 
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
-
-    #x_train_normal_labelled = x_sequences_df.filter(col("Temp_label") == 0)
-    #X_train_all_data = x_sequences_df.filter(col("Temp_label") != 888)
-    #x_unlabeled_from_train = x_sequences_df.filter(col("Temp_label") == 999)
-
-    #labelled_df_from_train = sequences_df.filter(col("Temp_label") == 0)
-    #ground_truth_labeled_data_from_train = labelled_df_from_train.select("Label")
-
-    #labelled_df_from_train_all_data = sequences_df.filter(col("Temp_label") != 888)
-    #ground_truth_train_all_data = labelled_df_from_train_all_data.select("Label")
-
-    #unlabeled_df_from_train = sequences_df.filter(col("Temp_label") == 999)
-    #ground_truth_unlabeled_data_from_train = unlabeled_df_from_train.select("Label")
-
-    #unlabeled_df_from_test = sequences_df.filter(col("Temp_label") == 888)
-    #ground_truth_unlabeled_data_from_test = unlabeled_df_from_test.select("Label")
-
-    #labeled_df_from_val = sequences_df.filter(col("Temp_label") == 777)
-    #ground_truth_labeled_data_from_val = labeled_df_from_val.select("Label")
-
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
 
@@ -423,9 +403,8 @@ def main():
     end_Novelty= time.time()
     Novelty_time = (end_Novelty - start_Novelty) / 60
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
-
     print('Novel was done .....')
-    #exit()
+    exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
@@ -442,10 +421,10 @@ def main():
     anomaly_time = (end_anomaly - start_anomaly) / 60
     print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
 
-    results["predictions_df"]  # Spark DF for evaluation
-    results["best_threshold"]  # chosen on validation
-    print(results["fit_time"])  # minutes
-    print(results["predict_time"])  # minutes
+    #results["predictions_df"]  # Spark DF for evaluation
+    #results["best_threshold"]  # chosen on validation
+    #print(results["fit_time"])  # minutes
+    #print(results["predict_time"])  # minutes
 
     # ---------------- Model Evaluation ----------------
 
