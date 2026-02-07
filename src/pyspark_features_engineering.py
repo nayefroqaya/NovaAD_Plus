@@ -1,4 +1,13 @@
 import warnings
+import numpy as np
+import pyspark.sql.functions as F
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col, when, lit, udf
+from pyspark.sql.types import DoubleType
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.functions import vector_to_array
+from kneed import KneeLocator
+from sklearn.metrics import classification_report
 
 import colorama
 import numpy as np
@@ -333,32 +342,31 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
-            print("\n🚀 Starting novelty detection using method =", method.upper())
             sequences_df.printSchema()
-            sequences_df.groupBy("Temp_label").count().show()
             sequences_df.groupBy("Label").count().show()
+            sequences_df.groupBy("Temp_label").count().show()
 
-            # --- normalize Label to int 0/1 if string ---
+            # -----------------------------
+            # normalize Label -> int
+            # -----------------------------
             sequences_df = sequences_df.withColumn("Label",
-                F.when(F.col("Label") == "normal", F.lit(0)).when(F.col("Label") == "anomaly", F.lit(1)).otherwise(
+                F.when(F.col("Label") == "normal", lit(0)).when(F.col("Label") == "anomaly", lit(1)).otherwise(
                     F.col("Label").cast("int")))
 
+            print(f"\n🚀 Starting novelty detection using method = {method.upper()} (stable MAH instead of GMM)")
+
             # ---------------------------------------------------------
-            # 1) Split data
+            # 1️⃣ Split data
             # ---------------------------------------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
             df_test = sequences_df.filter(col("Temp_label") == 888).cache()
             df_val = sequences_df.filter(col("Temp_label") == 777).cache()
 
-            print("\n[INFO] Split label counts:")
-            print("train_normal_df:")
+            print("\n[INFO] split distributions:")
             train_normal_df.groupBy("Label").count().show()
-            print("train_unlabeled_df:")
             train_unlabeled_df.groupBy("Label").count().show()
-            print("df_test:")
             df_test.groupBy("Label").count().show()
-            print("df_val:")
             df_val.groupBy("Label").count().show()
 
             if train_normal_df.count() == 0:
@@ -370,24 +378,21 @@ class FeaturesEngineering:
             id_col = "Node_block_id"
 
             # -----------------------------
-            # Settings (tune if needed)
+            # Settings
             # -----------------------------
             candidate_ks = [10, 20, 30, 50, 60, 70]
             target_variance = 0.999
 
-            # Sampling for Pandas collections (avoid huge driver memory)
-            SCORE_SAMPLE_FRAC = 0.2  # for separation metrics; set 1.0 if small
-            MAH_SAMPLE_FRAC = 0.3  # for covariance estimation; set 1.0 if small
-
-            MAH_REG = 1e-6  # covariance regularization (stability)
             STABILITY_SEED1 = 21
             STABILITY_SEED2 = 99
+
+            SCORE_SAMPLE_FRAC = 0.2  # sampling for toPandas score collection
+            MAH_SAMPLE_FRAC = 0.3  # sampling to estimate mu/var of PCA coords (normal)
+            eps = 1e-9
 
             # -----------------------------
             # Helpers
             # -----------------------------
-            eps = 1e-9
-
             def knee_threshold_from_scores(scores_np, min_quantile_floor=0.95, knee_margin=0.02,
                                            default_if_no_knee=0.99):
                 s = np.sort(scores_np.astype(float))
@@ -410,11 +415,11 @@ class FeaturesEngineering:
                 fp = norm_holdout_df.filter(col(score_col) > lit(thr)).count()
                 return fp / n
 
-            def anomaly_rate(df, flag_col):
+            def anomaly_rate(df, label_col):
                 n = df.count()
                 if n == 0:
                     return 0.0
-                a = df.filter(col(flag_col) == 1).count()
+                a = df.filter(col(label_col) == 1).count()
                 return a / n
 
             def jaccard_anomaly_sets(df1, df2, id_col, label_col):
@@ -445,15 +450,13 @@ class FeaturesEngineering:
                     best_k = k
                     print(f"[SELECTED] First k reaching target variance: {best_k}")
                     break
-
             if best_k is None:
                 best_k = candidate_ks[-1]
                 print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
-
             print(f"[RESULT] Selected PCA components (best_k): {best_k}")
 
             # ============================================================
-            # 3) Fit PCA on NORMAL + transform all splits
+            # 3) Fit PCA on NORMAL + transform NORMAL/UNLABELED/TEST/VAL
             # ============================================================
             pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(train_normal_df)
@@ -475,17 +478,21 @@ class FeaturesEngineering:
                 x_hat = np.dot(pc, z)
                 return float(np.linalg.norm(x - x_hat))
 
-            train_pca_normal = train_pca_normal.withColumn("anomaly_score_pca",
-                reconstruction_error(col(feature_col), col("pca_features"))).cache()
-
+            train_pca_normal = train_pca_normal.withColumn("anomaly_score_pca", reconstruction_error(col(feature_col),
+                                                                                                     col("pca_features"))).cache()
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
-                reconstruction_error(col(feature_col), col("pca_features"))).cache()
+                                                                 reconstruction_error(col(feature_col),
+                                                                                      col("pca_features"))).cache()
 
             # ============================================================
             # 5) PCA threshold (knee on NORMAL)
             # ============================================================
             scores_pca_np = (
-                train_pca_normal.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
+                train_pca_normal.select("anomaly_score_pca").sample(False, SCORE_SAMPLE_FRAC, 1).toPandas()[
+                    "anomaly_score_pca"].astype(float).values)
+            if len(scores_pca_np) < 10:
+                raise ValueError("Not enough PCA scores for knee. Increase SCORE_SAMPLE_FRAC or check data.")
+
             thr_pca, p_knee_pca, p_use_pca = knee_threshold_from_scores(scores_pca_np)
             print(f"[INFO] PCA p_knee≈{p_knee_pca:.4f}, using p={p_use_pca:.4f}, threshold={thr_pca:.6f}")
 
@@ -493,43 +500,44 @@ class FeaturesEngineering:
                 when(col("anomaly_score_pca") > lit(thr_pca), 1).otherwise(0)).cache()
 
             # ============================================================
-            # 6) STABLE substitute for GMM: Mahalanobis distance in PCA space
-            #    Fit mean/cov on NORMAL PCA only, then score NORMAL + UNLABELED
+            # 6) STABLE replacement for GMM: Diagonal Mahalanobis in PCA space
+            #    (pure Spark expressions => avoids Python worker EOFError)
             # ============================================================
-            print("\n🧠 Computing Mahalanobis distance model on NORMAL PCA ...")
+            print("\n🧠 Using Diagonal Mahalanobis (stable) instead of GMM ...")
 
-            norm_pca_pdf = (train_pca_normal.sample(False, MAH_SAMPLE_FRAC, 123).select(
-                vector_to_array(col("pca_features")).alias("z")).toPandas())
+            norm_arr = (train_pca_normal.sample(False, MAH_SAMPLE_FRAC, 123).select(
+                vector_to_array(col("pca_features")).alias("z")).toPandas()["z"].values)
+            if len(norm_arr) == 0:
+                raise ValueError("Normal PCA sample empty. Increase MAH_SAMPLE_FRAC.")
 
-            if len(norm_pca_pdf) == 0:
-                raise ValueError("No rows available to compute Mahalanobis stats (normal PCA sample empty).")
+            norm_np = np.vstack(norm_arr)
+            mu = norm_np.mean(axis=0)
+            var = norm_np.var(axis=0) + 1e-6  # prevent /0
 
-            norm_pca_np = np.vstack(norm_pca_pdf["z"].values)
-            mu = norm_pca_np.mean(axis=0)
-            cov = np.cov(norm_pca_np, rowvar=False)
-            cov_reg = cov + MAH_REG * np.eye(cov.shape[0])
-            inv_cov = np.linalg.inv(cov_reg)
+            bc_mu = spark.sparkContext.broadcast(mu.tolist())
+            bc_var = spark.sparkContext.broadcast(var.tolist())
 
-            bc_mu = spark.sparkContext.broadcast(mu)
-            bc_inv = spark.sparkContext.broadcast(inv_cov)
+            def diag_mahal_expr(vec_col_name: str):
+                z = vector_to_array(col(vec_col_name))
+                terms = []
+                for i in range(len(mu)):
+                    d = (z[i] - F.lit(bc_mu.value[i]))
+                    terms.append((d * d) / F.lit(bc_var.value[i]))
+                return F.sqrt(sum(terms))
 
-            @udf(DoubleType())
-            def mahalanobis_udf(pca_vec):
-                z = np.array(pca_vec.toArray(), dtype=float)
-                diff = z - bc_mu.value
-                d2 = float(diff.T @ bc_inv.value @ diff)
-                return float(np.sqrt(max(d2, 0.0)))
-
-            train_pca_normal = train_pca_normal.withColumn("anomaly_score_mah",
-                                                           mahalanobis_udf(col("pca_features"))).cache()
+            train_pca_normal = train_pca_normal.withColumn("anomaly_score_mah", diag_mahal_expr("pca_features")).cache()
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_mah",
-                                                                 mahalanobis_udf(col("pca_features"))).cache()
+                                                                 diag_mahal_expr("pca_features")).cache()
 
             # ============================================================
-            # 7) Mahalanobis threshold (knee on NORMAL)
+            # 7) MAH threshold (knee on NORMAL)
             # ============================================================
             scores_mah_np = (
-                train_pca_normal.select("anomaly_score_mah").toPandas()["anomaly_score_mah"].astype(float).values)
+                train_pca_normal.select("anomaly_score_mah").sample(False, SCORE_SAMPLE_FRAC, 2).toPandas()[
+                    "anomaly_score_mah"].astype(float).values)
+            if len(scores_mah_np) < 10:
+                raise ValueError("Not enough MAH scores for knee. Increase SCORE_SAMPLE_FRAC or check data.")
+
             thr_mah, p_knee_mah, p_use_mah = knee_threshold_from_scores(scores_mah_np)
             print(f"[INFO] MAH p_knee≈{p_knee_mah:.4f}, using p={p_use_mah:.4f}, threshold={thr_mah:.6f}")
 
@@ -537,7 +545,7 @@ class FeaturesEngineering:
                 when(col("anomaly_score_mah") > lit(thr_mah), 1).otherwise(0)).cache()
 
             # ============================================================
-            # 8) Combined rules (AND / OR) using PCA + MAH
+            # 8) Create BOTH combined rules (AND + OR)
             # ============================================================
             unlab = (train_unlabeled_pca.withColumn("pseudo_label_and", when(
                 (col("pseudo_label_pca") == 1) & (col("pseudo_label_mah") == 1), 1).otherwise(0)).withColumn(
@@ -545,10 +553,8 @@ class FeaturesEngineering:
                 when((col("pseudo_label_pca") == 1) | (col("pseudo_label_mah") == 1), 1).otherwise(0))).cache()
 
             # ============================================================
-            # 9) Holdout-normal FPR computation (precision proxy)
+            # 8.1) Holdout-normal FPR computation
             # ============================================================
-            print("\n🧪 Computing holdout-normal FPRs ...")
-
             norm_fit_df, norm_holdout_df = split_df(train_normal_df, frac=0.8, seed=13)
 
             # Refit PCA on norm_fit_df
@@ -571,40 +577,36 @@ class FeaturesEngineering:
             norm_hold_pca = norm_hold_pca.withColumn("anomaly_score_pca", reconstruction_error_fit(col(feature_col),
                                                                                                    col("pca_features"))).cache()
 
-            scores_pca_fit_np = norm_fit_pca.select("anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(
-                float).values
+            scores_pca_fit_np = (
+                norm_fit_pca.select("anomaly_score_pca").sample(False, SCORE_SAMPLE_FRAC, 3).toPandas()[
+                    "anomaly_score_pca"].astype(float).values)
             thr_pca_fit, _, _ = knee_threshold_from_scores(scores_pca_fit_np)
             fpr_pca = fpr_on_holdout(norm_hold_pca, "anomaly_score_pca", thr_pca_fit)
 
-            # Mahalanobis stats on norm_fit_pca
-            norm_fit_pdf = (norm_fit_pca.sample(False, MAH_SAMPLE_FRAC, 321).select(
-                vector_to_array(col("pca_features")).alias("z")).toPandas())
-            if len(norm_fit_pdf) == 0:
-                raise ValueError("No rows available to compute Mahalanobis stats on normal fit split.")
+            # Fit MAH stats on norm_fit_pca
+            fit_arr = (norm_fit_pca.sample(False, MAH_SAMPLE_FRAC, 321).select(
+                vector_to_array(col("pca_features")).alias("z")).toPandas()["z"].values)
+            fit_np = np.vstack(fit_arr)
+            mu_fit = fit_np.mean(axis=0)
+            var_fit = fit_np.var(axis=0) + 1e-6
 
-            norm_fit_np = np.vstack(norm_fit_pdf["z"].values)
-            mu_fit = norm_fit_np.mean(axis=0)
-            cov_fit = np.cov(norm_fit_np, rowvar=False)
-            cov_fit_reg = cov_fit + MAH_REG * np.eye(cov_fit.shape[0])
-            inv_cov_fit = np.linalg.inv(cov_fit_reg)
+            bc_mu_fit = spark.sparkContext.broadcast(mu_fit.tolist())
+            bc_var_fit = spark.sparkContext.broadcast(var_fit.tolist())
 
-            bc_mu_fit = spark.sparkContext.broadcast(mu_fit)
-            bc_inv_fit = spark.sparkContext.broadcast(inv_cov_fit)
+            def diag_mahal_expr_fit(vec_col_name: str):
+                z = vector_to_array(col(vec_col_name))
+                terms = []
+                for i in range(len(mu_fit)):
+                    d = (z[i] - F.lit(bc_mu_fit.value[i]))
+                    terms.append((d * d) / F.lit(bc_var_fit.value[i]))
+                return F.sqrt(sum(terms))
 
-            @udf(DoubleType())
-            def mahalanobis_fit_udf(pca_vec):
-                z = np.array(pca_vec.toArray(), dtype=float)
-                diff = z - bc_mu_fit.value
-                d2 = float(diff.T @ bc_inv_fit.value @ diff)
-                return float(np.sqrt(max(d2, 0.0)))
+            norm_fit_pca = norm_fit_pca.withColumn("anomaly_score_mah", diag_mahal_expr_fit("pca_features")).cache()
+            norm_hold_pca = norm_hold_pca.withColumn("anomaly_score_mah", diag_mahal_expr_fit("pca_features")).cache()
 
-            norm_fit_pca = norm_fit_pca.withColumn("anomaly_score_mah",
-                                                   mahalanobis_fit_udf(col("pca_features"))).cache()
-            norm_hold_pca = norm_hold_pca.withColumn("anomaly_score_mah",
-                                                     mahalanobis_fit_udf(col("pca_features"))).cache()
-
-            scores_mah_fit_np = norm_fit_pca.select("anomaly_score_mah").toPandas()["anomaly_score_mah"].astype(
-                float).values
+            scores_mah_fit_np = (
+                norm_fit_pca.select("anomaly_score_mah").sample(False, SCORE_SAMPLE_FRAC, 4).toPandas()[
+                    "anomaly_score_mah"].astype(float).values)
             thr_mah_fit, _, _ = knee_threshold_from_scores(scores_mah_fit_np)
             fpr_mah = fpr_on_holdout(norm_hold_pca, "anomaly_score_mah", thr_mah_fit)
 
@@ -613,7 +615,7 @@ class FeaturesEngineering:
                     col("anomaly_score_pca") > lit(thr_pca_fit), 1).otherwise(0)).withColumn("mah_flag", when(
                     col("anomaly_score_mah") > lit(thr_mah_fit), 1).otherwise(0)).withColumn("and_flag", when(
                     (col("pca_flag") == 1) & (col("mah_flag") == 1), 1).otherwise(0)).withColumn("or_flag", when(
-                    (col("pca_flag") == 1) | (col("mah_flag") == 1), 1).otherwise(0))).cache()
+                    (col("pca_flag") == 1) | (col("mah_flag") == 1), 1).otherwise(0)))
 
             fpr_and = anomaly_rate(norm_hold_join, "and_flag")
             fpr_or = anomaly_rate(norm_hold_join, "or_flag")
@@ -625,30 +627,28 @@ class FeaturesEngineering:
             print(f"  Combined(OR)   : fpr={fpr_or:.6f}")
 
             # ============================================================
-            # 10) UNSUPERVISED SELECTION (stable): sep * stability / FPR
+            # 9) FIXED UNSUPERVISED SELECTION
             # ============================================================
-            print("\n🧮 Selecting best pseudo-labeling method (stable unsupervised score) ...")
-
             norm_scores_pca = (
-                train_pca_normal.sample(False, SCORE_SAMPLE_FRAC, 1).select("anomaly_score_pca").toPandas()[
+                train_pca_normal.select("anomaly_score_pca").sample(False, SCORE_SAMPLE_FRAC, 11).toPandas()[
                     "anomaly_score_pca"].astype(float).values)
             unlab_scores_pca = (
-                train_unlabeled_pca.sample(False, SCORE_SAMPLE_FRAC, 2).select("anomaly_score_pca").toPandas()[
+                train_unlabeled_pca.select("anomaly_score_pca").sample(False, SCORE_SAMPLE_FRAC, 12).toPandas()[
                     "anomaly_score_pca"].astype(float).values)
 
             norm_scores_mah = (
-                train_pca_normal.sample(False, SCORE_SAMPLE_FRAC, 3).select("anomaly_score_mah").toPandas()[
+                train_pca_normal.select("anomaly_score_mah").sample(False, SCORE_SAMPLE_FRAC, 13).toPandas()[
                     "anomaly_score_mah"].astype(float).values)
             unlab_scores_mah = (
-                train_unlabeled_pca.sample(False, SCORE_SAMPLE_FRAC, 4).select("anomaly_score_mah").toPandas()[
+                train_unlabeled_pca.select("anomaly_score_mah").sample(False, SCORE_SAMPLE_FRAC, 14).toPandas()[
                     "anomaly_score_mah"].astype(float).values)
 
-            norm_scores_comb = (train_pca_normal.sample(False, SCORE_SAMPLE_FRAC, 5).select(
-                (col("anomaly_score_pca") + col("anomaly_score_mah")).alias("comb_score")).toPandas()[
-                "comb_score"].astype(float).values)
-            unlab_scores_comb = (train_unlabeled_pca.sample(False, SCORE_SAMPLE_FRAC, 6).select(
-                (col("anomaly_score_pca") + col("anomaly_score_mah")).alias("comb_score")).toPandas()[
-                "comb_score"].astype(float).values)
+            norm_scores_comb = (
+                train_pca_normal.select((col("anomaly_score_pca") + col("anomaly_score_mah")).alias("comb")).sample(
+                    False, SCORE_SAMPLE_FRAC, 15).toPandas()["comb"].astype(float).values)
+            unlab_scores_comb = (
+                train_unlabeled_pca.select((col("anomaly_score_pca") + col("anomaly_score_mah")).alias("comb")).sample(
+                    False, SCORE_SAMPLE_FRAC, 16).toPandas()["comb"].astype(float).values)
 
             sep_pca = separation_z(norm_scores_pca, unlab_scores_pca)
             sep_mah = separation_z(norm_scores_mah, unlab_scores_mah)
@@ -675,7 +675,6 @@ class FeaturesEngineering:
 
             best_method = \
             max([("pca", score_pca), ("mah", score_mah), ("and", score_and), ("or", score_or)], key=lambda x: x[1])[0]
-
             print(f"\n[SELECTED] Best method (stable): {best_method}")
 
             if best_method == "pca":
@@ -688,11 +687,10 @@ class FeaturesEngineering:
                 unlab = unlab.withColumn("Final_Label", col("pseudo_label_or"))
 
             # ============================================================
-            # 11) DEBUG ONLY: Evaluation if unlabeled has true labels
+            # 10) DEBUG ONLY (if unlabeled has true label)
             # ============================================================
-            # (safe to keep; remove if you want)
             train_unlabeled_eval_df = unlab.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
-                on=id_col, how="inner")
+                                                 on=id_col, how="inner")
 
             pdf_unlabeled = train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_mah",
                 "pseudo_label_and", "pseudo_label_or", "Final_Label").toPandas()
@@ -708,7 +706,6 @@ class FeaturesEngineering:
             print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
             print(f"\n[SELECTED] Best method (stable): {best_method}")
-
 
             exit()
 
