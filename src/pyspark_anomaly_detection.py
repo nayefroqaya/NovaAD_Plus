@@ -13,18 +13,7 @@ from pyspark.ml.classification import LinearSVC
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, lit, when, udf
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import TrainValidationSplit, ParamGridBuilder
-from pyspark.ml.linalg import Vectors, VectorUDT
 
-from pyspark.ml.classification import (
-    LogisticRegression as SparkLogisticRegression,
-    RandomForestClassifier as SparkRandomForestClassifier,
-    GBTClassifier as SparkGBTClassifier
-)
 # ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
 from pyspark.ml.classification import (
     LogisticRegression as SparkLogisticRegression,
@@ -48,94 +37,90 @@ class AnomalyDetector:
 
         if mode == "M":
 
-            LABEL_COL = "Final_Label"  # training label column (pseudo)
-            FEAT_COL = "pca_features"
             ID_COL = "Node_block_id"
+            FEAT_COL = "pca_features"
+            TRAIN_LABEL_COL = "Final_Label"  # pseudo labels for training
+            EVAL_LABEL_COL = "y_eval"  # numeric label used for evaluation inside this function
 
             # ============================================================
-            # 0) Required columns checks (minimal + robust)
+            # 0) Checks
             # ============================================================
-            req_train = {ID_COL, FEAT_COL, LABEL_COL}
-            if not req_train.issubset(set(df_final_train_cls.columns)):
-                raise ValueError(f"df_final_train_cls missing columns: {req_train - set(df_final_train_cls.columns)}")
-
-            req_eval = {ID_COL, FEAT_COL}
-            if not req_eval.issubset(set(df_val_cls.columns)):
-                raise ValueError(f"df_val_cls missing columns: {req_eval - set(df_val_cls.columns)}")
-            if not req_eval.issubset(set(df_test_cls.columns)):
-                raise ValueError(f"df_test_cls missing columns: {req_eval - set(df_test_cls.columns)}")
+            for name, df, req in [("df_final_train_cls", df_final_train_cls, {ID_COL, FEAT_COL, TRAIN_LABEL_COL}),
+                ("df_val_cls", df_val_cls, {ID_COL, FEAT_COL}), ("df_test_cls", df_test_cls, {ID_COL, FEAT_COL}), ]:
+                missing = req - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
 
             # ============================================================
-            # 1) Build TRAIN (always from pseudo labels)
+            # 1) TRAIN set (pseudo labels only; do not touch novelty)
             # ============================================================
-            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_train = (df_final_train_cls.select(ID_COL, FEAT_COL,
+                                                  col(TRAIN_LABEL_COL).cast("int").alias(TRAIN_LABEL_COL)).cache())
 
             if df_train.rdd.isEmpty():
                 raise ValueError("df_train is empty -> cannot train.")
 
-            print("Train label distribution (raw pseudo labels):")
-            df_train.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+            print("Train label distribution (pseudo Final_Label):")
+            df_train.groupBy(TRAIN_LABEL_COL).count().orderBy(TRAIN_LABEL_COL).show()
 
             # ============================================================
-            # 2) Build VAL/TEST labels for EVALUATION
-            #    If they contain ground-truth column 'Label' (string), map it to 0/1.
-            #    Otherwise fallback to Final_Label if present.
+            # 2) Build EVAL labels for VAL/TEST
+            #    - If column 'Label' exists (string: 'normal'/'anomaly' or 'Normal'), map to 0/1
+            #    - Else if Final_Label exists, use it
             # ============================================================
+            def map_string_label_to_int(df):
+                """
+                Map df.Label string -> 0/1:
+                  normal/Normal -> 0
+                  everything else -> 1
+                """
+                return (df.withColumn("label_str", F.lower(F.trim(col("Label")))).withColumn(EVAL_LABEL_COL, when(
+                    col("label_str").isin("normal", "0", "false"), lit(0)).otherwise(lit(1)).cast("int")))
+
             def build_eval_df(df_in, name):
                 cols = set(df_in.columns)
 
                 if "Label" in cols:
-                    # Map string labels -> numeric (0=normal, 1=anomaly)
-                    # Adjust mapping if you have other strings.
-                    df_out = (df_in.withColumn("true_label_str", F.lower(F.trim(col("Label")))).withColumn(LABEL_COL,
-                                                                                                           when(
-                                                                                                               col("true_label_str").isin(
-                                                                                                                   "normal",
-                                                                                                                   "0",
-                                                                                                                   "false"),
-                                                                                                               lit(0)).otherwise(
-                                                                                                               lit(1)).cast(
-                                                                                                               "int")).select(
-                        ID_COL, FEAT_COL, LABEL_COL).cache())
-                    print(f"[INFO] {name}: using ground-truth 'Label' (string) mapped to 0/1.")
+                    df_out = (map_string_label_to_int(df_in).select(ID_COL, FEAT_COL,
+                                                                    col(EVAL_LABEL_COL).alias(TRAIN_LABEL_COL)).cache())
+                    print(f"[INFO] {name}: using ground-truth string Label mapped to 0/1.")
                     return df_out
 
-                if LABEL_COL in cols:
-                    df_out = (df_in.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache())
-                    print(f"[INFO] {name}: 'Label' not found; using '{LABEL_COL}' for evaluation.")
+                if TRAIN_LABEL_COL in cols:
+                    df_out = (
+                        df_in.select(ID_COL, FEAT_COL, col(TRAIN_LABEL_COL).cast("int").alias(TRAIN_LABEL_COL)).cache())
+                    print(f"[INFO] {name}: no Label column; using Final_Label for evaluation.")
                     return df_out
 
-                raise ValueError(f"{name} has neither 'Label' nor '{LABEL_COL}' to evaluate.")
+                raise ValueError(f"{name} has neither 'Label' nor '{TRAIN_LABEL_COL}' to evaluate.")
 
             df_val = build_eval_df(df_val_cls, "VAL")
             df_test = build_eval_df(df_test_cls, "TEST")
 
-            # Guard: empty eval sets
             if df_val.rdd.isEmpty():
                 raise ValueError("df_val is empty -> cannot validate weights/threshold.")
             if df_test.rdd.isEmpty():
                 raise ValueError("df_test is empty -> cannot test.")
 
-            print("VAL label distribution (for evaluation):")
-            df_val.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+            print("VAL label distribution (evaluation labels):")
+            df_val.groupBy(TRAIN_LABEL_COL).count().orderBy(TRAIN_LABEL_COL).show()
 
-            print("TEST label distribution (for evaluation):")
-            df_test.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+            print("TEST label distribution (evaluation labels):")
+            df_test.groupBy(TRAIN_LABEL_COL).count().orderBy(TRAIN_LABEL_COL).show()
 
             # ============================================================
-            # 3) CLEAN TRAINING SET (classification-only improvement)
-            #    Deterministic negative downsampling to avoid dominance
+            # 3) Clean training (classification-only improvement)
+            #    deterministic negative downsample (keeps all positives)
             # ============================================================
-            df_pos = df_train.filter(col(LABEL_COL) == 1)
-            df_neg = df_train.filter(col(LABEL_COL) == 0)
+            df_pos = df_train.filter(col(TRAIN_LABEL_COL) == 1)
+            df_neg = df_train.filter(col(TRAIN_LABEL_COL) == 0)
 
             n_pos = df_pos.count()
             n_neg = df_neg.count()
-
             if n_pos == 0 or n_neg == 0:
-                raise ValueError("Training data must contain both classes (0 and 1).")
+                raise ValueError("Training must contain both classes 0 and 1.")
 
-            NEG_RATIO = 8  # keep at most 8x negatives vs positives (try 5..20)
+            NEG_RATIO = 8  # try 5..20
             max_neg = int(NEG_RATIO * n_pos)
 
             if n_neg > max_neg:
@@ -145,24 +130,24 @@ class AnomalyDetector:
             df_train_clean = df_neg.unionByName(df_pos).cache()
 
             print("Train label distribution (clean):")
-            df_train_clean.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+            df_train_clean.groupBy(TRAIN_LABEL_COL).count().orderBy(TRAIN_LABEL_COL).show()
 
             # ============================================================
-            # 4) CLASS WEIGHTS (stronger cap than your old code)
+            # 4) Class weights (cap 20)
             # ============================================================
-            n_pos_c = df_train_clean.filter(col(LABEL_COL) == 1).count()
-            n_neg_c = df_train_clean.filter(col(LABEL_COL) == 0).count()
-
+            n_pos_c = df_train_clean.filter(col(TRAIN_LABEL_COL) == 1).count()
+            n_neg_c = df_train_clean.filter(col(TRAIN_LABEL_COL) == 0).count()
             pos_w = min(20.0, float(n_neg_c) / float(n_pos_c))
             print(f"[INFO] Class weight for anomalies (label=1): {pos_w:.3f}")
 
             df_train_w = (df_train_clean.withColumn("class_weight",
-                                                    when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache())
+                                                    when(col(TRAIN_LABEL_COL) == 1, lit(pos_w)).otherwise(
+                                                        lit(1.0))).cache())
 
             # ============================================================
-            # 5) Evaluator (AUC-PR) — uses rawPrediction column
+            # 5) Evaluator and tuning helper
             # ============================================================
-            evaluator_pr = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+            evaluator_pr = BinaryClassificationEvaluator(labelCol=TRAIN_LABEL_COL, rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
 
             def tune_model(estimator, param_grid, train_df, evaluator, parallelism=4, train_ratio=0.8):
@@ -173,18 +158,18 @@ class AnomalyDetector:
             # ============================================================
             # 6) Train/tune base models
             # ============================================================
-            lr = SparkLogisticRegression(featuresCol=FEAT_COL, labelCol=LABEL_COL, maxIter=100,
+            lr = SparkLogisticRegression(featuresCol=FEAT_COL, labelCol=TRAIN_LABEL_COL, maxIter=100,
                                          weightCol="class_weight")
             lr_grid = (ParamGridBuilder().addGrid(lr.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).addGrid(lr.elasticNetParam,
                                                                                                  [0.0, 0.5,
                                                                                                   1.0]).build())
             lr_model = tune_model(lr, lr_grid, df_train_w, evaluator_pr)
 
-            rf = SparkRandomForestClassifier(featuresCol=FEAT_COL, labelCol=LABEL_COL, seed=42)
+            rf = SparkRandomForestClassifier(featuresCol=FEAT_COL, labelCol=TRAIN_LABEL_COL, seed=42)
             rf_grid = (ParamGridBuilder().addGrid(rf.numTrees, [150, 300]).addGrid(rf.maxDepth, [6, 10]).build())
             rf_model = tune_model(rf, rf_grid, df_train_clean, evaluator_pr)
 
-            gbt = SparkGBTClassifier(featuresCol=FEAT_COL, labelCol=LABEL_COL, seed=42)
+            gbt = SparkGBTClassifier(featuresCol=FEAT_COL, labelCol=TRAIN_LABEL_COL, seed=42)
             gbt_grid = (ParamGridBuilder().addGrid(gbt.maxDepth, [3, 5]).addGrid(gbt.maxIter, [40, 80]).build())
             gbt_model = tune_model(gbt, gbt_grid, df_train_clean, evaluator_pr)
 
@@ -194,8 +179,7 @@ class AnomalyDetector:
             # 7) Validation: ensemble weights by AUC-PR
             # ============================================================
             def score_with_p1(model, df, p_col_name):
-                # Spark4-safe: use Column in vector_to_array
-                return (model.transform(df).select(ID_COL, col(LABEL_COL).cast("int").alias(LABEL_COL),
+                return (model.transform(df).select(ID_COL, col(TRAIN_LABEL_COL).cast("int").alias(TRAIN_LABEL_COL),
                                                    vector_to_array(col("probability"))[1].alias(p_col_name)))
 
             val_lr = score_with_p1(lr_model, df_val, "p_lr")
@@ -211,8 +195,8 @@ class AnomalyDetector:
                 p = float(p)
                 return Vectors.dense([1.0 - p, p])
 
-            weight_sets = [(0.34, 0.33, 0.33), (0.20, 0.20, 0.60),  # gbt heavy
-                (0.20, 0.60, 0.20), (0.60, 0.20, 0.20), (1 / 3, 1 / 3, 1 / 3), ]
+            weight_sets = [(0.34, 0.33, 0.33), (0.20, 0.20, 0.60), (0.20, 0.60, 0.20), (0.60, 0.20, 0.20),
+                (1 / 3, 1 / 3, 1 / 3), ]
 
             best_w, best_aucpr = None, -1.0
             for w_lr, w_rf, w_gbt in weight_sets:
@@ -230,14 +214,14 @@ class AnomalyDetector:
             W_LR, W_RF, W_GBT = best_w
             print(f"[VAL] Best weights (LR, RF, GBT) = {best_w} | AUC-PR = {best_aucpr:.6f}")
 
-            val_ens = (
-                val_scored.withColumn("p_ens", W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col("p_gbt")).cache())
+            val_ens = val_scored.withColumn("p_ens",
+                                            W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col("p_gbt")).cache()
 
             # ============================================================
-            # 8) Choose threshold (stable aggregation)
+            # 8) Choose threshold (stable Spark aggregation)
             # ============================================================
             def prf_at_threshold(df_with_p, thr):
-                tmp = df_with_p.select(col(LABEL_COL).cast("int").alias("y"),
+                tmp = df_with_p.select(col(TRAIN_LABEL_COL).cast("int").alias("y"),
                     when(col("p_ens") >= lit(thr), 1).otherwise(0).alias("yhat"))
                 agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
                     F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
@@ -252,7 +236,7 @@ class AnomalyDetector:
                 return precision, recall, f1
 
             P_MIN = 0.85
-            thresholds = [i / 100 for i in range(5, 95)]  # 0.05..0.94
+            thresholds = [i / 100 for i in range(5, 95)]
 
             best_thr, best_recall, best_f1_at_thr, best_p_at_thr = None, -1.0, -1.0, None
             for t in thresholds:
@@ -275,79 +259,7 @@ class AnomalyDetector:
                   f"Recall={best_recall:.4f} F1={best_f1_at_thr:.4f}")
 
             # ============================================================
-            # 9) OPTIONAL: SELF-TRAINING (classification-only boost)
-            #    Uses confident ensemble predictions on TRAIN to refine LR only (fast)
-            # ============================================================
-            DO_SELF_TRAIN = True
-            if DO_SELF_TRAIN:
-                tr_lr = score_with_p1(lr_model, df_train, "p_lr")
-                tr_rf = score_with_p1(rf_model, df_train, "p_rf").select(ID_COL, "p_rf")
-                tr_gbt = score_with_p1(gbt_model, df_train, "p_gbt").select(ID_COL, "p_gbt")
-
-                tr_scored = tr_lr.join(tr_rf, ID_COL, "inner").join(tr_gbt, ID_COL, "inner")
-                tr_scored = tr_scored.withColumn("p_ens",
-                                                 W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col("p_gbt"))
-
-                P_HI = 0.98
-                P_LO = 0.02
-
-                tr_conf = (tr_scored.withColumn("y_new",
-                                                when(col("p_ens") >= lit(P_HI), lit(1)).when(col("p_ens") <= lit(P_LO),
-                                                                                             lit(0)).otherwise(
-                                                    lit(None)).cast("int")).dropna(subset=["y_new"]).select(ID_COL,
-                                                                                                            FEAT_COL,
-                                                                                                            col("y_new").alias(
-                                                                                                                LABEL_COL)))
-
-                df_train_refined = (df_train_clean.unionByName(tr_conf).dropDuplicates([ID_COL]).cache())
-
-                print("[INFO] Refined train distribution (after self-training):")
-                df_train_refined.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
-
-                n_pos2 = df_train_refined.filter(col(LABEL_COL) == 1).count()
-                n_neg2 = df_train_refined.filter(col(LABEL_COL) == 0).count()
-                pos_w2 = min(20.0, float(n_neg2) / float(n_pos2))
-
-                df_train_refined_w = (df_train_refined.withColumn("class_weight",
-                                                                  when(col(LABEL_COL) == 1, lit(pos_w2)).otherwise(
-                                                                      lit(1.0))).cache())
-
-                lr2 = SparkLogisticRegression(featuresCol=FEAT_COL, labelCol=LABEL_COL, maxIter=150,
-                                              weightCol="class_weight")
-                lr2_grid = (
-                    ParamGridBuilder().addGrid(lr2.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).addGrid(lr2.elasticNetParam,
-                                                                                               [0.0, 0.5, 1.0]).build())
-                lr_model = tune_model(lr2, lr2_grid, df_train_refined_w, evaluator_pr)
-                print("[OK] Self-training done: LR updated using confident ensemble predictions.")
-
-                # Update val ensemble with new LR and re-pick threshold
-                val_lr = score_with_p1(lr_model, df_val, "p_lr")
-                val_scored = val_lr.join(val_rf, ID_COL, "inner").join(val_gbt, ID_COL, "inner").cache()
-                val_ens = val_scored.withColumn("p_ens",
-                                                W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col("p_gbt")).cache()
-
-                best_thr, best_recall, best_f1_at_thr, best_p_at_thr = None, -1.0, -1.0, None
-                for t in thresholds:
-                    p, r, f1v = prf_at_threshold(val_ens, t)
-                    if p >= P_MIN and r > best_recall:
-                        best_recall, best_thr = r, t
-                        best_f1_at_thr, best_p_at_thr = f1v, p
-
-                if best_thr is None:
-                    best_thr, best_f1 = None, -1.0
-                    for t in thresholds:
-                        p, r, f1v = prf_at_threshold(val_ens, t)
-                        if f1v > best_f1:
-                            best_f1 = f1v
-                            best_thr = t
-                            best_p_at_thr, best_recall, best_f1_at_thr = p, r, f1v
-                    print("[VAL] Precision constraint not met after self-training; using max-F1 threshold.")
-
-                print(f"[VAL] (After self-training) threshold = {best_thr:.2f} | Precision={best_p_at_thr:.4f} "
-                      f"Recall={best_recall:.4f} F1={best_f1_at_thr:.4f}")
-
-            # ============================================================
-            # 10) Test metrics + confusion counts
+            # 9) Test metrics (counts)
             # ============================================================
             test_lr = score_with_p1(lr_model, df_test, "p_lr")
             test_rf = score_with_p1(rf_model, df_test, "p_rf").select(ID_COL, "p_rf")
@@ -358,8 +270,8 @@ class AnomalyDetector:
                 raise ValueError("test_scored is empty after joins. Check Node_block_id consistency in test.")
 
             pred_test = (test_scored.withColumn("p_ens", W_LR * col("p_lr") + W_RF * col("p_rf") + W_GBT * col(
-                "p_gbt")).withColumn("prediction", when(col("p_ens") >= lit(best_thr), 1).otherwise(0)).select(
-                col(LABEL_COL).cast("int").alias("y"), col("prediction").cast("int").alias("yhat")).cache())
+                "p_gbt")).withColumn("yhat", when(col("p_ens") >= lit(best_thr), 1).otherwise(0)).select(
+                col(TRAIN_LABEL_COL).cast("int").alias("y"), col("yhat").cast("int").alias("yhat")).cache())
 
             agg = pred_test.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
                 F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
@@ -375,7 +287,6 @@ class AnomalyDetector:
             print(f"Precision (anomaly=1): {precision:.4f}")
             print(f"Recall    (anomaly=1): {recall:.4f}")
             print(f"F1-score  (anomaly=1): {f1:.4f}")
-
             print("\nConfusion Matrix counts:")
             print(f"TP={tp}  FP={fp}")
             print(f"FN={fn}  TN={tn}")
