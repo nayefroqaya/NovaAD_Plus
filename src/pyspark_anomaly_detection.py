@@ -544,6 +544,186 @@ class AnomalyDetector:
             if n_pos == 0 or n_neg == 0:
                 raise ValueError("Train must contain both classes 0 and 1.")
 
+            pos_w = min(10.0, float(n_neg) / float(n_pos))
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            print(f"[INFO] pos_w={pos_w:.3f}")
+            df_train_w.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            # ---- TrainValidationSplit ----
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=120)
+            grid = ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).build()
+
+            evaluator = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=grid, evaluator=evaluator, trainRatio=0.8,
+                parallelism=4)
+
+            # ============================================================
+            # Helpers
+            # ============================================================
+            def prf_at_threshold_fast(df, thr):
+                tmp = df.select(col("y").alias("y"), when(col("s1") >= lit(thr), 1).otherwise(0).alias("yhat"))
+                agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 0)).cast("int")).alias("tn"), ).collect()[0]
+
+                tp = int(agg["tp"]);
+                fp = int(agg["fp"]);
+                fn = int(agg["fn"]);
+                tn = int(agg["tn"])
+                p = tp / (tp + fp + 1e-9)
+                r = tp / (tp + fn + 1e-9)
+                f1 = 2 * p * r / (p + r + 1e-9)
+                return p, r, f1, tp, fp, fn, tn
+
+            def score_df(model, df_in):
+                return (model.transform(df_in).select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias("y"),
+                    vector_to_array(col("rawPrediction"))[1].alias("s1")).cache())
+
+            def best_threshold_fbeta(val_scored, beta=0.5):
+                b2 = beta * beta
+                qs = [i / 500 for i in range(1, 500)]  # 0.002..0.998
+                cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
+
+                best_thr, best_fbeta = None, -1.0
+                best_p = best_r = best_f1 = None
+                for t in cand_thr:
+                    p, r, f1v, *_ = prf_at_threshold_fast(val_scored, float(t))
+                    fbeta = (1 + b2) * p * r / (b2 * p + r + 1e-9)
+                    if fbeta > best_fbeta:
+                        best_fbeta = fbeta
+                        best_thr = float(t)
+                        best_p, best_r, best_f1 = float(p), float(r), float(f1v)
+                return best_thr, best_p, best_r, best_f1, best_fbeta
+
+            # ============================================================
+            # 1) Train (Round 0)
+            # ============================================================
+            svm_model = tvs.fit(df_train_w).bestModel
+            print("[OK] Trained LinearSVC (Round 0).")
+
+            # ============================================================
+            # 2) SELF-TRAINING to reduce FP ceiling (classification-only)
+            # ============================================================
+            SELF_ITERS = 2
+            POS_Q = 0.995  # stricter positives => higher precision
+            NEG_Q = 0.50  # confident negatives
+
+            df_refined = df_train.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            for it in range(SELF_ITERS):
+                print(f"\n[SELF-TRAIN] Iteration {it + 1}/{SELF_ITERS} (POS_Q={POS_Q}, NEG_Q={NEG_Q})")
+
+                tr_scored = score_df(svm_model, df_refined)
+
+                thr_pos = float(tr_scored.approxQuantile("s1", [POS_Q], 0.001)[0])
+                thr_neg = float(tr_scored.approxQuantile("s1", [NEG_Q], 0.001)[0])
+
+                confident = (tr_scored.withColumn("y_new",
+                    when(col("s1") >= lit(thr_pos), lit(1)).when(col("s1") <= lit(thr_neg), lit(0)).otherwise(
+                        lit(None))).dropna(subset=["y_new"]).select(ID_COL, FEAT_COL, col("y_new").cast("int").alias(
+                    LABEL_COL)).dropDuplicates([ID_COL]).cache())
+
+                print(f"[SELF-TRAIN] thr_pos={thr_pos:.6f} thr_neg={thr_neg:.6f}")
+                confident.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+                n_pos_r = confident.filter(col(LABEL_COL) == 1).count()
+                n_neg_r = confident.filter(col(LABEL_COL) == 0).count()
+                if n_pos_r == 0 or n_neg_r == 0:
+                    print("[SELF-TRAIN] Not enough confident samples (one class missing). Stop.")
+                    break
+
+                pos_w_r = min(10.0, float(n_neg_r) / float(n_pos_r))
+                confident_w = confident.withColumn("class_weight",
+                    when(col(LABEL_COL) == 1, lit(pos_w_r)).otherwise(lit(1.0))).cache()
+
+                svm_model = tvs.fit(confident_w).bestModel
+                print(f"[OK] Retrained LinearSVC (pos_w={pos_w_r:.3f}).")
+
+            # ============================================================
+            # 3) Score VAL
+            # ============================================================
+            val_scored = score_df(svm_model, df_val).select("y", "s1").cache()
+
+            # ---- Candidate thresholds via quantiles (for constraints check) ----
+            qs = [i / 200 for i in range(1, 200)]  # 0.005..0.995
+            cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
+
+            # ============================================================
+            # 4) Threshold selection (constraints first, fallback = F0.5)
+            # ============================================================
+            P_MIN = 0.90
+            R_MIN = 0.90
+
+            best_thr = None
+            best_f1 = -1.0
+            best_p = best_r = best_f1_at = None
+
+            for t in cand_thr:
+                p, r, f1v, *_ = prf_at_threshold_fast(val_scored, float(t))
+                if p >= P_MIN and r >= R_MIN:
+                    if f1v > best_f1:
+                        best_f1 = f1v
+                        best_thr = float(t)
+                        best_p, best_r, best_f1_at = float(p), float(r), float(f1v)
+
+            # fallback: best F0.5 (precision-focused)
+            if best_thr is None:
+                FBETA = 0.5
+                best_thr, best_p, best_r, best_f1_at, best_fbeta = best_threshold_fbeta(val_scored, beta=FBETA)
+                print(f"[VAL] No threshold satisfied P_MIN={P_MIN} and R_MIN={R_MIN}. Using best F{FBETA} fallback.")
+
+            print(f"\n[VAL] Selected thr={best_thr:.6f} | P={best_p:.4f} R={best_r:.4f} F1={best_f1_at:.4f}")
+            print(f"[VAL] Constraints used: P_MIN={P_MIN}, R_MIN={R_MIN}, fallback F0.5")
+
+            # ============================================================
+            # 5) Evaluate on TEST
+            # ============================================================
+            test_scored = score_df(svm_model, df_test).select("y", "s1").cache()
+            p_test, r_test, f1_test, tp, fp, fn, tn = prf_at_threshold_fast(test_scored, best_thr)
+
+            print("\n=== TEST METRICS (LinearSVC + Self-Training) ===")
+            print(f"Precision (anomaly=1): {p_test:.4f}")
+            print(f"Recall    (anomaly=1): {r_test:.4f}")
+            print(f"F1-score  (anomaly=1): {f1_test:.4f}")
+            print(f"TP={tp} FP={fp} FN={fn} TN={tn}")
+
+            results = {"pos_w": float(pos_w), "thr": float(best_thr),
+                "val": {"P": float(best_p), "R": float(best_r), "F1": float(best_f1_at)},
+                "test": {"P": float(p_test), "R": float(r_test), "F1": float(f1_test), "TP": int(tp), "FP": int(fp),
+                         "FN": int(fn), "TN": int(tn)},
+                "self_train": {"iters": SELF_ITERS, "POS_Q": POS_Q, "NEG_Q": NEG_Q}}
+
+            # If you want to stop here
+            exit()
+
+
+
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
+
+            # ---- Basic checks ----
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("train", df_final_train_cls), ("val", df_val_cls), ("test", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            # ---- Class weights ----
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Train must contain both classes 0 and 1.")
+
             pos_w = min(10.0, float(n_neg) / float(n_pos))  # allow a bit higher; helps hard datasets
             df_train_w = df_train.withColumn("class_weight",
                 when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
