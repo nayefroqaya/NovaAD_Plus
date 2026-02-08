@@ -33,6 +33,7 @@ class AnomalyDetector:
 
     @staticmethod
     def anomaly_detector(df_final_train_cls, df_test_cls, df_val_cls, mode):
+        from pyspark.ml.functions import vector_to_array
 
         if mode == "M":
             LABEL_COL = "Final_Label"

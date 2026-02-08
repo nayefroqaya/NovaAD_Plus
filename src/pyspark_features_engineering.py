@@ -50,12 +50,7 @@ from pyspark.ml.feature import VectorAssembler, StandardScaler
 from pyspark.ml.feature import VectorSizeHint, VectorAssembler
 from pyspark.ml.functions import array_to_vector
 from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array, array_to_vector
+
 from pyspark.ml.linalg import Vectors
 from pyspark.ml.linalg import Vectors, DenseVector
 from pyspark.ml.linalg import Vectors, VectorUDT
