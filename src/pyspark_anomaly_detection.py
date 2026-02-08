@@ -1,6 +1,7 @@
 
 import warnings
 import colorama
+from pyspark.sql import functions as F
 
 from pyspark.sql.functions import col, when, lit, udf
 from pyspark.ml.functions import vector_to_array
@@ -34,6 +35,7 @@ class AnomalyDetector:
     @staticmethod
     def anomaly_detector(df_final_train_cls, df_test_cls, df_val_cls, mode):
         from pyspark.ml.functions import vector_to_array
+        from pyspark.sql import functions as F
 
         if mode == "M":
 
