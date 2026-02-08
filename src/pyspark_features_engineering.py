@@ -751,6 +751,34 @@ class FeaturesEngineering:
                                                                                                "pca_features",
                                                                                                "Final_Label"))
 
+            # ============================================================
+            # FINAL TRAINING QUALITY REPORT (true Label vs Final_Label)
+            # ============================================================
+
+            # 1) Join true labels onto the final training set (only where Label exists)
+            if "Label" not in sequences_df.columns:
+                print(
+                    "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
+            else:
+                df_train_quality = (
+                    df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
+                        on=id_col, how="inner").select("true_label", "Final_Label").dropna())
+
+                # 2) Ensure there is data to evaluate
+                n_quality = df_train_quality.count()
+                if n_quality == 0:
+                    print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
+                else:
+                    # 3) Convert to pandas for sklearn report
+                    pdf_train_quality = df_train_quality.toPandas()
+                    pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
+                    pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
+
+                    print(f"\n=== Classification_report on Full FINAL TRAIN SET (n={n_quality}) ===")
+                    print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"],
+                        digits=3))
+
+
             # return for next stage
             return df_final_train_cls, df_test_cls, df_val_cls
 
