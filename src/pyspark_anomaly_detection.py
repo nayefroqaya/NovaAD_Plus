@@ -39,6 +39,127 @@ class AnomalyDetector:
 
         if mode == "M":
 
+            # ------------------------------------------------------------
+            # Columns
+            # ------------------------------------------------------------
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
+
+            # ------------------------------------------------------------
+            # Silence Spark plans
+            # ------------------------------------------------------------
+            spark.sparkContext.setLogLevel("WARN")
+
+            # ------------------------------------------------------------
+            # Basic checks
+            # ------------------------------------------------------------
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("TRAIN", df_final_train_cls), ("VAL", df_val_cls), ("TEST", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            # ------------------------------------------------------------
+            # Class weights (important for SOMA)
+            # ------------------------------------------------------------
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Training must contain both classes")
+
+            pos_w = min(10.0, float(n_neg) / float(n_pos))
+            print(f"[INFO] pos_w = {pos_w:.3f}")
+
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            # ------------------------------------------------------------
+            # Train Linear SVM
+            # ------------------------------------------------------------
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=120)
+
+            param_grid = (ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).build())
+
+            evaluator = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=param_grid, evaluator=evaluator,
+                trainRatio=0.8, parallelism=4)
+
+            svm_model = tvs.fit(df_train_w).bestModel
+            print("[OK] LinearSVC trained.")
+
+            # ------------------------------------------------------------
+            # Score VAL / TEST
+            # ------------------------------------------------------------
+            val_scored = (svm_model.transform(df_val).select(col(LABEL_COL).alias("y"),
+                vector_to_array(col("rawPrediction"))[1].alias("score")).cache())
+
+            test_scored = (svm_model.transform(df_test).select(col(LABEL_COL).alias("y"),
+                vector_to_array(col("rawPrediction"))[1].alias("score")).cache())
+
+            # ------------------------------------------------------------
+            # Fast precision / recall / F1 at threshold
+            # ------------------------------------------------------------
+            def prf(df, thr):
+                tmp = df.select(col("y"), when(col("score") >= lit(thr), 1).otherwise(0).alias("yhat"))
+                agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn")).collect()[0]
+
+                tp, fp, fn = int(agg.tp), int(agg.fp), int(agg.fn)
+                p = tp / (tp + fp + 1e-9)
+                r = tp / (tp + fn + 1e-9)
+                f1 = 2 * p * r / (p + r + 1e-9)
+                return p, r, f1
+
+            # ------------------------------------------------------------
+            # THRESHOLD SELECTION — F-beta (beta = 0.5)
+            # ------------------------------------------------------------
+            BETA = 0.5  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<< KEY PARAMETER
+            b2 = BETA * BETA
+
+            qs = [i / 500 for i in range(1, 500)]  # 0.002 .. 0.998
+            candidates = val_scored.approxQuantile("score", qs, 0.001)
+
+            best_thr = None
+            best_fbeta = -1
+            best_p = best_r = best_f1 = None
+
+            for t in candidates:
+                p, r, f1 = prf(val_scored, float(t))
+                fbeta = (1 + b2) * p * r / (b2 * p + r + 1e-9)
+                if fbeta > best_fbeta:
+                    best_fbeta = fbeta
+                    best_thr = float(t)
+                    best_p, best_r, best_f1 = p, r, f1
+
+            print(f"[VAL] Best threshold (F{BETA}) = {best_thr:.6f} | "
+                  f"P={best_p:.4f} R={best_r:.4f} F1={best_f1:.4f}")
+
+            # ------------------------------------------------------------
+            # TEST METRICS
+            # ------------------------------------------------------------
+            p_test, r_test, f1_test = prf(test_scored, best_thr)
+
+            print("\n=== TEST METRICS (LinearSVC, F0.5 optimized) ===")
+            print(f"Precision (anomaly=1): {p_test:.4f}")
+            print(f"Recall    (anomaly=1): {r_test:.4f}")
+            print(f"F1-score  (anomaly=1): {f1_test:.4f}")
+
+            exit()
+
+
+
+
+
             # -----------------------------
             # Columns
             # -----------------------------
