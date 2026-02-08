@@ -337,8 +337,8 @@ class FeaturesEngineering:
             # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-            #df_test = sequences_df.filter(col("Temp_label") == 888)
-            #df_val = sequences_df.filter(col("Temp_label") == 777)
+            df_test = sequences_df.filter(col("Temp_label") == 888)
+            df_val = sequences_df.filter(col("Temp_label") == 777)
 
             if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
                 raise ValueError("❌ Not enough data for novelty detection.")
@@ -359,8 +359,8 @@ class FeaturesEngineering:
             # ============================================================
             train_normal_df = train_normal_df.withColumn("hid", F.xxhash64(col(id_col)))
             train_unlabeled_df = train_unlabeled_df.withColumn("hid", F.xxhash64(col(id_col)))
-            #df_test = df_test.withColumn("hid", F.xxhash64(col(id_col)))
-            #df_val = df_val.withColumn("hid", F.xxhash64(col(id_col)))
+            df_test = df_test.withColumn("hid", F.xxhash64(col(id_col)))
+            df_val = df_val.withColumn("hid", F.xxhash64(col(id_col)))
 
             norm_fit_df = train_normal_df.filter((col("hid") % lit(100)) < lit(80))
             norm_holdout_df = train_normal_df.filter((col("hid") % lit(100)) >= lit(80))
@@ -435,8 +435,8 @@ class FeaturesEngineering:
             train_pca_normal_hold = pca_model.transform(norm_holdout_df)
 
             train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
-            #test_pca = pca_model.transform(df_test)
-            #val_pca = pca_model.transform(df_val)
+            test_pca = pca_model.transform(df_test)
+            val_pca = pca_model.transform(df_val)
 
             # ============================================================
             # 3) PCA reconstruction error (handles pc orientation)
@@ -710,6 +710,54 @@ class FeaturesEngineering:
                 print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
             except Exception as e:
                 print(f"[DEBUG] Skipping debug evaluation (Label column missing or error): {e}")
+
+
+            # ============================================================
+            # 9) Build final training set using SELECTED pseudo labels
+            # ============================================================
+
+            # Columns you want for classifier
+            keep_cols = [id_col, "pca_features", "Final_Label"]
+
+            # ---- Normal training part (true normal = 0) ----
+            # IMPORTANT: use the SAME PCA transform that produced unlabeled pca_features
+            # In the updated pipeline this is train_pca_normal_fit (PCA trained on norm_fit_df)
+            train_df_normal = (
+                train_pca_normal_fit.withColumn("Final_Label", lit(0).cast("int")).select(*keep_cols))
+
+            # ---- Unlabeled training part (pseudo labels from SELECTED method) ----
+            train_df_unlabeled = (
+                unlab_gmm.withColumn("Final_Label", col("Final_Label").cast("int")).select(*keep_cols))
+
+            # ---- UNION ----
+            df_final_train_cls = train_df_normal.unionByName(train_df_unlabeled, allowMissingColumns=False)
+
+            # ============================================================
+            # Prepare test/val
+            # ============================================================
+            # Ensure test_pca / val_pca come from SAME PCA model and have pca_features
+            # If Label exists, keep it; otherwise set Final_Label to null.
+
+            test_has_label = "Label" in df_test.columns
+            val_has_label = "Label" in df_val.columns
+
+            df_test_cls = (test_pca.withColumn("Final_Label",
+                (col("Label").cast("int") if test_has_label else lit(None).cast("int"))).select(id_col,
+                                                                                                "pca_features",
+                                                                                                "Final_Label"))
+
+            df_val_cls = (val_pca.withColumn("Final_Label",
+                (col("Label").cast("int") if val_has_label else lit(None).cast("int"))).select(id_col,
+                                                                                               "pca_features",
+                                                                                               "Final_Label"))
+
+            # return for next stage
+            return df_final_train_cls, df_test_cls, df_val_cls
+
+
+
+
+
 
             exit()
 
