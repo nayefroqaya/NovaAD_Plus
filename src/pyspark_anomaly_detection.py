@@ -228,6 +228,119 @@ class AnomalyDetector:
             print(metrics.confusionMatrix())
 
         else:
+
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
+
+            # ---- Basic checks ----
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("train", df_final_train_cls), ("val", df_val_cls), ("test", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            # ---- Class weights ----
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Train must contain both classes 0 and 1.")
+
+            pos_w = min(5.0, float(n_neg) / float(n_pos))
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            print(f"[INFO] pos_w={pos_w:.3f}")
+            df_train_w.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            # ---- TrainValidationSplit ----
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=50)
+            grid = ParamGridBuilder().addGrid(svm.regParam, [1e-4, 1e-3, 1e-2]).build()
+
+            evaluator = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=grid, evaluator=evaluator, trainRatio=0.8,
+                parallelism=4)
+
+            svm_model = tvs.fit(df_train_w).bestModel
+            print("[OK] Trained LinearSVC.")
+
+            # ---- Score VAL ----
+            val_scored = (svm_model.transform(df_val).select(col(LABEL_COL).cast("int").alias("y"),
+                                                             vector_to_array(col("rawPrediction"))[1].alias(
+                                                                 "s1")).cache())
+
+            # ---- Fast PRF at threshold using aggregations (NO MulticlassMetrics loop) ----
+            def prf_at_threshold_fast(df, thr):
+                tmp = df.select(col("y").alias("y"), when(col("s1") >= lit(thr), 1).otherwise(0).alias("yhat"))
+                agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"), ).collect()[0]
+
+                tp = int(agg["tp"]);
+                fp = int(agg["fp"]);
+                fn = int(agg["fn"])
+                p = tp / (tp + fp + 1e-9)
+                r = tp / (tp + fn + 1e-9)
+                f1 = 2 * p * r / (p + r + 1e-9)
+                return p, r, f1
+
+            # ---- Candidate thresholds via quantiles ----
+            qs = [i / 100 for i in range(1, 100)]  # 0.01..0.99
+            cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
+
+            # ============================================================
+            # THRESHOLD SELECTION (IMPROVED)
+            # 1) Maximize recall subject to Precision >= P_MIN
+            # 2) fallback to F2 (recall-heavy) if constraint not met
+            # ============================================================
+            P_MIN = 0.95  # keep your improved precision target
+            BETA = 2.0  # fallback recall-heavy objective
+            b2 = BETA * BETA
+
+            best_thr = None
+            best_r = -1.0
+            best_p = None
+            best_f1 = None
+
+            # 1) constraint mode
+            for t in cand_thr:
+                p, r, f1v = prf_at_threshold_fast(val_scored, t)
+                if p >= P_MIN and r > best_r:
+                    best_thr, best_r, best_p, best_f1 = t, r, p, f1v
+
+            # 2) fallback to best F2 if no threshold satisfies precision constraint
+            if best_thr is None:
+                best_score = -1.0
+                for t in cand_thr:
+                    p, r, f1v = prf_at_threshold_fast(val_scored, t)
+                    fbeta = (1 + b2) * p * r / (b2 * p + r + 1e-9)
+                    if fbeta > best_score:
+                        best_score = fbeta
+                        best_thr, best_r, best_p, best_f1 = t, r, p, f1v
+                print("[VAL] No threshold met precision constraint; using best F2 fallback.")
+
+            print(f"[VAL] Selected thr={best_thr:.6f} | P={best_p:.4f} R={best_r:.4f} F1={best_f1:.4f}")
+
+            # ---- Evaluate on TEST ----
+            test_scored = (svm_model.transform(df_test).select(col(LABEL_COL).cast("int").alias("y"),
+                                                               vector_to_array(col("rawPrediction"))[1].alias(
+                                                                   "s1")).cache())
+
+            p_test, r_test, f1_test = prf_at_threshold_fast(test_scored, best_thr)
+
+            print("\n=== TEST METRICS (LinearSVC single classifier) ===")
+            print(f"Precision (anomaly=1): {p_test:.4f}")
+            print(f"Recall    (anomaly=1): {r_test:.4f}")
+            print(f"F1-score  (anomaly=1): {f1_test:.4f}")
+
+
+            exit()
             LABEL_COL = "Final_Label"
             FEAT_COL = "pca_features"
             ID_COL = "Node_block_id"
