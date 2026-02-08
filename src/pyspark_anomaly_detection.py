@@ -39,6 +39,179 @@ class AnomalyDetector:
 
         if mode == "M":
 
+            # -----------------------------
+            # Columns
+            # -----------------------------
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
+
+            # -----------------------------
+            # Basic checks
+            # -----------------------------
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("train", df_final_train_cls), ("val", df_val_cls), ("test", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            if df_train.rdd.isEmpty():
+                raise ValueError("df_train is empty.")
+            if df_val.rdd.isEmpty():
+                raise ValueError("df_val is empty.")
+            if df_test.rdd.isEmpty():
+                raise ValueError("df_test is empty.")
+
+            print("\n[INFO] TRAIN label distribution:")
+            df_train.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            print("[INFO] VAL label distribution:")
+            df_val.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            print("[INFO] TEST label distribution:")
+            df_test.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            # -----------------------------
+            # Class weights
+            # -----------------------------
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Train must contain both classes 0 and 1.")
+
+            pos_w = min(10.0, float(n_neg) / float(n_pos))  # allow up to 10 for hard sets
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            print(f"[INFO] pos_w = {pos_w:.3f}")
+
+            # -----------------------------
+            # TrainValidationSplit for LinearSVC
+            # -----------------------------
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=120)
+            grid = (ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).build())
+
+            # AUC-ROC is okay for tuning score model; thresholding handled separately
+            evaluator = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=grid, evaluator=evaluator, trainRatio=0.8,
+                parallelism=4)
+
+            svm_model = tvs.fit(df_train_w).bestModel
+            print("[OK] Trained LinearSVC (best regParam).")
+
+            # -----------------------------
+            # Score VAL / TEST (score for class 1)
+            # -----------------------------
+            val_scored = (svm_model.transform(df_val).select(col(LABEL_COL).cast("int").alias("y"),
+                vector_to_array(col("rawPrediction"))[1].alias("s1")).cache())
+
+            test_scored = (svm_model.transform(df_test).select(col(LABEL_COL).cast("int").alias("y"),
+                vector_to_array(col("rawPrediction"))[1].alias("s1")).cache())
+
+            # -----------------------------
+            # Fast PRF computation at threshold
+            # -----------------------------
+            def prf_at_threshold_fast(df, thr):
+                tmp = df.select(col("y").alias("y"), when(col("s1") >= lit(thr), 1).otherwise(0).alias("yhat"))
+                agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 0)).cast("int")).alias("tn"), ).collect()[0]
+
+                tp, fp, fn, tn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"]), int(agg["tn"])
+                p = tp / (tp + fp + 1e-9)
+                r = tp / (tp + fn + 1e-9)
+                f1 = 2 * p * r / (p + r + 1e-9)
+                return p, r, f1, tp, fp, fn, tn
+
+            # ============================================================
+            # THRESHOLD STRATEGY A: ALERT-BUDGET (Top-K rate)
+            # Try several budgets and pick best by VAL F1 (or F-beta)
+            # ============================================================
+            # Budgets = maximum fraction of samples you are willing to alert as anomalies
+            # Tight budget -> higher precision, lower recall
+            BUDGETS = [0.05, 0.03, 0.02, 0.01, 0.005]  # adjust if needed
+
+            def thr_from_budget(df_scored, budget):
+                # Choose thr such that predicted positive rate approx = budget
+                # => thr = quantile at (1 - budget)
+                q = max(0.0, min(1.0, 1.0 - float(budget)))
+                return float(df_scored.approxQuantile("s1", [q], 0.001)[0])
+
+            val_candidates = []
+            for b in BUDGETS:
+                thr = thr_from_budget(val_scored, b)
+                p, r, f1, *_ = prf_at_threshold_fast(val_scored, thr)
+                val_candidates.append(("budget", b, thr, p, r, f1))
+
+            # ============================================================
+            # THRESHOLD STRATEGY B: Constraint-based (precision >= P_MIN)
+            # Choose max recall subject to precision constraint
+            # ============================================================
+            P_MIN = 0.90
+            qs = [i / 200 for i in range(1, 200)]  # 0.005..0.995
+            cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
+
+            best_thr_c = None
+            best_r_c = -1.0
+            best_p_c = best_f1_c = None
+
+            for t in cand_thr:
+                p, r, f1, *_ = prf_at_threshold_fast(val_scored, float(t))
+                if p >= P_MIN and r > best_r_c:
+                    best_thr_c = float(t)
+                    best_r_c = r
+                    best_p_c = p
+                    best_f1_c = f1
+
+            if best_thr_c is not None:
+                val_candidates.append(("constraint", P_MIN, best_thr_c, best_p_c, best_r_c, best_f1_c))
+
+            # -----------------------------
+            # Pick BEST candidate by VAL F1
+            # -----------------------------
+            val_candidates_sorted = sorted(val_candidates, key=lambda x: x[5], reverse=True)
+
+            print("\n[VAL] Candidates (top 10 by F1):")
+            print("rank | type       | param   | thr       | P      | R      | F1")
+            for i, (typ, param, thr, p, r, f1) in enumerate(val_candidates_sorted[:10], 1):
+                print(f"{i:>4} | {typ:<10} | {param:<6} | {thr:>8.5f} | {p:>6.3f} | {r:>6.3f} | {f1:>6.3f}")
+
+            best_type, best_param, best_thr, p_val, r_val, f1_val = val_candidates_sorted[0]
+            print(
+                f"\n[VAL] SELECTED: {best_type}({best_param}) thr={best_thr:.6f} | P={p_val:.4f} R={r_val:.4f} F1={f1_val:.4f}")
+
+            # -----------------------------
+            # Evaluate TEST at chosen threshold
+            # -----------------------------
+            p_test, r_test, f1_test, tp, fp, fn, tn = prf_at_threshold_fast(test_scored, best_thr)
+
+            print("\n=== TEST METRICS (LinearSVC) ===")
+            print(f"Precision (anomaly=1): {p_test:.4f}")
+            print(f"Recall    (anomaly=1): {r_test:.4f}")
+            print(f"F1-score  (anomaly=1): {f1_test:.4f}")
+            print(f"TP={tp} FP={fp} FN={fn} TN={tn}")
+
+            results = {"model": svm_model, "pos_w": float(pos_w), "chosen": {"type": best_type,
+                                                                             "param": float(best_param) if isinstance(
+                                                                                 best_param,
+                                                                                 (int, float)) else best_param,
+                                                                             "thr": float(best_thr),
+                                                                             "val_P": float(p_val),
+                                                                             "val_R": float(r_val),
+                                                                             "val_F1": float(f1_val)},
+                "test": {"P": float(p_test), "R": float(r_test), "F1": float(f1_test), "TP": int(tp), "FP": int(fp),
+                         "FN": int(fn), "TN": int(tn)}}
+
+            exit()
+
+
 
             LABEL_COL = "Final_Label"
             FEAT_COL = "pca_features"
