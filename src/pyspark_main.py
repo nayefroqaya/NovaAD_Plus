@@ -244,7 +244,7 @@ def main():
     DATASET = 'SP_150MB'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
-    mode = 'M'
+    mode = 'X'
     Mix_or_stable = '0'
 
     # Paths
