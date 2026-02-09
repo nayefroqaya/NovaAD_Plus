@@ -721,6 +721,9 @@ class AnomalyDetector:
 
             print("\n[RESULTS]")
             print(results)
+            print(f"[TIME] test_runtime_sec={test_runtime_sec:.3f}")
+            print(f"[TIME] train_runtime_sec={train_runtime_sec:.3f}")
+
 
             # If you want to stop here
             exit()
