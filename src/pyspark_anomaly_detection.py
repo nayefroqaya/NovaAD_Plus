@@ -610,7 +610,7 @@ class AnomalyDetector:
             # 2) SELF-TRAINING to reduce FP ceiling (classification-only)
             # ============================================================
             SELF_ITERS = 2
-            POS_Q = 0.995  # stricter positives => higher precision
+            POS_Q = 0.997  # stricter positives => higher precision
             NEG_Q = 0.50  # confident negatives
 
             df_refined = df_train.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
