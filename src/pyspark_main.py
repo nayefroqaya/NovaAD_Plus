@@ -413,7 +413,20 @@ def main():
 
     start_anomaly= time.time()
 
-    results = anomaly_detection_obj.anomaly_detector(df_train_quality,df_test_cls, df_val_cls ,mode )
+    test_pred, LABEL_COL , best_thr ,  train_runtime_min, test_runtime_min = anomaly_detection_obj.anomaly_detector(df_train_quality,df_test_cls, df_val_cls ,mode )
+
+    test_metrics = model_evaluation_obj.evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction", thr=best_thr,
+                                      pos_index=1)
+
+
+    print("\n=== TEST METRICS (LinearSVC single classifier) ===")
+    print(f"Precision (anomaly=1): {test_metrics['P']:.4f}")
+    print(f"Recall    (anomaly=1): {test_metrics['R']:.4f}")
+    print(f"F1-score  (anomaly=1): {test_metrics['F1']:.4f}")
+    print(f"TP={test_metrics['TP']} FP={test_metrics['FP']} FN={test_metrics['FN']}")
+    print(f"[TIME] test_runtime_sec={test_runtime_min:.3f}")
+    print(f"[TIME] train_runtime_sec={train_runtime_min:.3f}")
+
     exit()
 
     Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)

@@ -6,53 +6,77 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import classification_report
 from pyspark.sql.functions import col
 
+import warnings
+import colorama
+from pyspark.sql import functions as F
+
+from pyspark.sql.functions import col, when, lit, udf
+from pyspark.ml.functions import vector_to_array
+from pyspark.ml.linalg import Vectors, VectorUDT
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.sql.functions import col, when, lit
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.mllib.evaluation import MulticlassMetrics
+import time
+from pyspark.sql import functions as F
+from pyspark.sql.functions import col, lit, when
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.functions import vector_to_array
+# ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
+from pyspark.ml.classification import (
+    LogisticRegression as SparkLogisticRegression,
+    RandomForestClassifier as SparkRandomForestClassifier,
+    GBTClassifier as SparkGBTClassifier,
+)
 
 class ModelEvaluation:
     """Class for evaluating model performance and feature importance."""
+
+    def prf_at_threshold_fast(scored_df, thr, label_col="y", score_col="s1"):
+        tmp = scored_df.select(col(label_col).alias("y"),
+                               when(col(score_col) >= lit(thr), 1).otherwise(0).alias("yhat"))
+        agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                      F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                      F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"), ).collect()[0]
+
+        tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
+        p = tp / (tp + fp + 1e-9)
+        r = tp / (tp + fn + 1e-9)
+        f1 = 2 * p * r / (p + r + 1e-9)
+        return float(p), float(r), float(f1), tp, fp, fn
+
+
     @staticmethod
-    def evaluation_pyspark(predictions_df):
+
+    def  evaluation_pyspark(predictions_df, label_col, raw_pred_col="rawPrediction", thr=0.0,
+                                   pos_index=1):
+        from pyspark.ml.functions import vector_to_array
+        from pyspark.sql import functions as F
         """
-        Evaluate anomaly detection results using Spark DataFrame
+        predictions_df: output of model.transform(df)
+        Uses rawPrediction[pos_index] as score (s1), thresholds at thr, returns metrics dict.
         """
+        scored = (predictions_df.select(col(label_col).cast("int").alias("y"),
+                                        vector_to_array(col(raw_pred_col))[pos_index].alias("s1")).cache())
 
-        # -----------------------------
-        # Confusion Matrix
-        # -----------------------------
-        tp = predictions_df.filter((col("label") == 1) & (col("last_pred_label") == 1)).count()
+        # materialize so timing/metrics reflect actual execution
+        _ = scored.count()
 
-        tn = predictions_df.filter((col("label") == 0) & (col("last_pred_label") == 0)).count()
+        p, r, f1, tp, fp, fn = ModelEvaluation.prf_at_threshold_fast(scored, thr=thr, label_col="y", score_col="s1")
+        return {"P": p, "R": r, "F1": f1, "TP": tp, "FP": fp, "FN": fn}
 
-        fp = predictions_df.filter((col("label") == 0) & (col("last_pred_label") == 1)).count()
 
-        fn = predictions_df.filter((col("label") == 1) & (col("last_pred_label") == 0)).count()
 
-        # -----------------------------
-        # Metrics
-        # -----------------------------
-        precision = tp / (tp + fp + 1e-9)
-        recall = tp / (tp + fn + 1e-9)
-        f1 = 2 * precision * recall / (precision + recall + 1e-9)
-        accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-9)
 
-        # -----------------------------
-        # Print results
-        # -----------------------------
-        print("\n📊 Evaluation Results")
-        print("--------------------")
-        print(f"TP: {tp}  FP: {fp}")
-        print(f"FN: {fn}  TN: {tn}")
-        print(f"Precision : {precision:.4f}")
-        print(f"Recall    : {recall:.4f}")
-        print(f"F1-score  : {f1:.4f}")
-        print(f"Accuracy  : {accuracy:.4f}")
 
-        # -----------------------------
-        # Return metrics (optional)
-        # -----------------------------
-        #return {"precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy}
 
-        return {"precision": precision, "recall": recall, "f1": f1, "accuracy": accuracy, "tp": tp, "fp": fp, "fn": fn,
-        "tn": tn}
+
     @staticmethod
     def evaluation(number_components, final_pred_df, df_final, dataset):
         """
