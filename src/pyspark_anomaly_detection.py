@@ -14,7 +14,13 @@ from pyspark.ml.classification import LinearSVC
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.mllib.evaluation import MulticlassMetrics
-
+import time
+from pyspark.sql import functions as F
+from pyspark.sql.functions import col, lit, when
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.functions import vector_to_array
 # ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
 from pyspark.ml.classification import (
     LogisticRegression as SparkLogisticRegression,
@@ -523,8 +529,201 @@ class AnomalyDetector:
 
         else:
 
+            # -----------------------------
+            # CONFIG: column names
+            # -----------------------------
+            LABEL_COL = "Final_Label"
+            FEAT_COL = "pca_features"
+            ID_COL = "Node_block_id"
+
+            # -----------------------------
+            # Helper: Fast PRF at threshold
+            # -----------------------------
+            def prf_at_threshold_fast(scored_df, thr, label_col="y", score_col="s1"):
+                tmp = scored_df.select(col(label_col).alias("y"),
+                    when(col(score_col) >= lit(thr), 1).otherwise(0).alias("yhat"))
+                agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
+                    F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"), ).collect()[0]
+
+                tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
+                p = tp / (tp + fp + 1e-9)
+                r = tp / (tp + fn + 1e-9)
+                f1 = 2 * p * r / (p + r + 1e-9)
+                return float(p), float(r), float(f1), tp, fp, fn
+
+            # -----------------------------------------
+            # Reusable evaluation function (requested)
+            # -----------------------------------------
+            def evaluation_pyspark(predictions_df, label_col=LABEL_COL, raw_pred_col="rawPrediction", thr=0.0,
+                                   pos_index=1):
+                """
+                predictions_df: output of model.transform(df)
+                Uses rawPrediction[pos_index] as score (s1), thresholds at thr, returns metrics dict.
+                """
+                scored = (predictions_df.select(col(label_col).cast("int").alias("y"),
+                    vector_to_array(col(raw_pred_col))[pos_index].alias("s1")).cache())
+
+                # materialize so timing/metrics reflect actual execution
+                _ = scored.count()
+
+                p, r, f1, tp, fp, fn = prf_at_threshold_fast(scored, thr=thr, label_col="y", score_col="s1")
+                return {"P": p, "R": r, "F1": f1, "TP": tp, "FP": fp, "FN": fn}
+
+            # -------------------------------------------------------
+            # Threshold selection on VAL (constraints + fallback)
+            # -------------------------------------------------------
+            def select_threshold_from_val(val_predictions_df, label_col=LABEL_COL, raw_pred_col="rawPrediction",
+                    pos_index=1, P_MIN=0.90, R_MIN=0.90, BETA=1.0, quantile_step=0.005,  # 0.005 => 199 candidates
+                    quantile_rel_err=0.001):
+                val_scored = (val_predictions_df.select(col(label_col).cast("int").alias("y"),
+                    vector_to_array(col(raw_pred_col))[pos_index].alias("s1")).cache())
+                _ = val_scored.count()
+
+                qs = [i * quantile_step for i in range(1, int(1 / quantile_step))]
+                cand_thr = val_scored.approxQuantile("s1", qs, quantile_rel_err)
+
+                b2 = BETA * BETA
+                best_thr = None
+                best_f = -1.0
+                best_p = best_r = best_f1 = None
+
+                topk = []  # (fbeta, thr, p, r, f1)
+
+                for t in cand_thr:
+                    p, r, f1v, tp, fp, fn = prf_at_threshold_fast(val_scored, thr=t, label_col="y", score_col="s1")
+                    fbeta = (1 + b2) * p * r / (b2 * p + r + 1e-9)
+
+                    topk.append((float(fbeta), float(t), float(p), float(r), float(f1v)))
+
+                    if p >= P_MIN and r >= R_MIN:
+                        # within feasible region, maximize F1
+                        if f1v > best_f:
+                            best_f = f1v
+                            best_thr, best_p, best_r, best_f1 = float(t), float(p), float(r), float(f1v)
+
+                # fallback if no feasible threshold exists
+                fallback_used = False
+                if best_thr is None:
+                    best_score, best_thr, best_p, best_r, best_f1 = max(topk, key=lambda x: x[0])
+                    fallback_used = True
+
+                # top 10 by F-beta for debugging
+                topk_sorted = sorted(topk, key=lambda x: x[0], reverse=True)[:10]
+
+                return {"thr": float(best_thr), "val": {"P": float(best_p), "R": float(best_r), "F1": float(best_f1)},
+                    "fallback_used": fallback_used, "top10": topk_sorted}
+
+            # ============================================================
+            # MAIN: assumes these DataFrames already exist:
+            #   df_final_train_cls, df_val_cls, df_test_cls
+            # ============================================================
+
+            # ---- Basic checks ----
+            required = {ID_COL, FEAT_COL, LABEL_COL}
+            for name, df in [("train", df_final_train_cls), ("val", df_val_cls), ("test", df_test_cls)]:
+                missing = required - set(df.columns)
+                if missing:
+                    raise ValueError(f"{name} missing columns: {missing}")
+
+            df_train = df_final_train_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_val = df_val_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+            df_test = df_test_cls.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
+
+            # materialize caches (optional but makes timings more stable)
+            _ = df_train.count()
+            _ = df_val.count()
+            _ = df_test.count()
+
+            # ---- Class weights ----
+            n_pos = df_train.filter(col(LABEL_COL) == 1).count()
+            n_neg = df_train.filter(col(LABEL_COL) == 0).count()
+            if n_pos == 0 or n_neg == 0:
+                raise ValueError("Train must contain both classes 0 and 1.")
+
+            pos_w = min(10.0, float(n_neg) / float(n_pos))
+            df_train_w = df_train.withColumn("class_weight",
+                when(col(LABEL_COL) == 1, lit(pos_w)).otherwise(lit(1.0))).cache()
+
+            print(f"[INFO] pos_w={pos_w:.3f}")
+            df_train_w.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
+
+            # ---- TrainValidationSplit ----
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=80)
+
+            grid = ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).build()
+
+            evaluator_auc = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            tvs = TrainValidationSplit(estimator=svm, estimatorParamMaps=grid, evaluator=evaluator_auc, trainRatio=0.8,
+                parallelism=4)
+
+            # -----------------------------
+            # TRAIN runtime (fit)
+            # -----------------------------
+            t0 = time.perf_counter()
+            tvs_model = tvs.fit(df_train_w)
+            train_runtime_sec = time.perf_counter() - t0
+
+            svm_model = tvs_model.bestModel
+            print("[OK] Trained LinearSVC.")
+            print(f"[TIME] train_runtime_sec={train_runtime_sec:.3f}")
+
+            # -----------------------------
+            # VAL threshold selection
+            # -----------------------------
+            val_pred = svm_model.transform(df_val).cache()
+            _ = val_pred.count()
+
+            thr_info = select_threshold_from_val(val_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction",
+                pos_index=1, P_MIN=0.90, R_MIN=0.90, BETA=1.0, quantile_step=0.005, quantile_rel_err=0.001)
+
+            best_thr = thr_info["thr"]
+            best_p = thr_info["val"]["P"]
+            best_r = thr_info["val"]["R"]
+            best_f1 = thr_info["val"]["F1"]
+
+            if thr_info["fallback_used"]:
+                print(f"[VAL] No threshold satisfied constraints; using max F-beta fallback.")
+            print("\n[VAL] Top thresholds by F-beta (top 10):")
+            print("rank | thr      | P      | R      | F1")
+            for i, (fbeta, thr, p, r, f1v) in enumerate(thr_info["top10"], 1):
+                print(f"{i:>4} | {thr:>7.4f} | {p:>6.3f} | {r:>6.3f} | {f1v:>6.3f}")
+
+            print(f"\n[VAL] Selected thr={best_thr:.6f} | P={best_p:.4f} R={best_r:.4f} F1={best_f1:.4f}")
+
+            # -----------------------------
+            # TEST runtime (transform + eval)
+            # -----------------------------
+            t1 = time.perf_counter()
+            test_pred = svm_model.transform(df_test).cache()
+            _ = test_pred.count()  # materialize transform
+            test_metrics = evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction",
+                                              thr=best_thr, pos_index=1)
+            test_runtime_sec = time.perf_counter() - t1
+
+            print("\n=== TEST METRICS (LinearSVC single classifier) ===")
+            print(f"Precision (anomaly=1): {test_metrics['P']:.4f}")
+            print(f"Recall    (anomaly=1): {test_metrics['R']:.4f}")
+            print(f"F1-score  (anomaly=1): {test_metrics['F1']:.4f}")
+            print(f"TP={test_metrics['TP']} FP={test_metrics['FP']} FN={test_metrics['FN']}")
+            print(f"[TIME] test_runtime_sec={test_runtime_sec:.3f}")
+
+            # -----------------------------
+            # Final results dict (includes runtimes)
+            # -----------------------------
+            results = {"pos_w": float(pos_w), "thr": float(best_thr), "train_runtime_sec": float(train_runtime_sec),
+                "test_runtime_sec": float(test_runtime_sec),
+                "val": {"P": float(best_p), "R": float(best_r), "F1": float(best_f1)},
+                "test": {"P": float(test_metrics["P"]), "R": float(test_metrics["R"]), "F1": float(test_metrics["F1"]),
+                    "TP": int(test_metrics["TP"]), "FP": int(test_metrics["FP"]), "FN": int(test_metrics["FN"]), }, }
+
+            print("\n[RESULTS]")
+            print(results)
+
             # If you want to stop here
-            #exit()
+            exit()
 
 
 
