@@ -584,22 +584,6 @@ class AnomalyDetector:
                 return (model.transform(df_in).select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias("y"),
                     vector_to_array(col("rawPrediction"))[1].alias("s1")).cache())
 
-            def best_threshold_fbeta(val_scored, beta=0.5):
-                b2 = beta * beta
-                qs = [i / 500 for i in range(1, 500)]  # 0.002..0.998
-                cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
-
-                best_thr, best_fbeta = None, -1.0
-                best_p = best_r = best_f1 = None
-                for t in cand_thr:
-                    p, r, f1v, *_ = prf_at_threshold_fast(val_scored, float(t))
-                    fbeta = (1 + b2) * p * r / (b2 * p + r + 1e-9)
-                    if fbeta > best_fbeta:
-                        best_fbeta = fbeta
-                        best_thr = float(t)
-                        best_p, best_r, best_f1 = float(p), float(r), float(f1v)
-                return best_thr, best_p, best_r, best_f1, best_fbeta
-
             # ============================================================
             # 1) Train (Round 0)
             # ============================================================
@@ -607,11 +591,24 @@ class AnomalyDetector:
             print("[OK] Trained LinearSVC (Round 0).")
 
             # ============================================================
-            # 2) SELF-TRAINING to reduce FP ceiling (classification-only)
+            # 2) Adaptive SELF-TRAINING (more stable across datasets)
+            #    - If VAL is very imbalanced (too many positives), keep POS_Q stricter.
+            #    - If VAL has low positive rate, relax POS_Q to avoid recall collapse.
             # ============================================================
-            SELF_ITERS = 2
-            POS_Q = 0.995  # stricter positives => higher precision
-            NEG_Q = 0.50  # confident negatives
+            val_pos = df_val.filter(col(LABEL_COL) == 1).count()
+            val_neg = df_val.filter(col(LABEL_COL) == 0).count()
+            val_pos_rate = val_pos / (val_pos + val_neg + 1e-9)
+
+            # Robust defaults that work across datasets:
+            # - Keep it mild: 1 iteration usually safest
+            SELF_ITERS = 1 if val_pos_rate < 0.20 else 2
+
+            # Adaptive confidence:
+            # If many positives -> stricter anomaly selection; else relax
+            POS_Q = 0.997 if val_pos_rate > 0.40 else (0.995 if val_pos_rate > 0.20 else 0.990)
+            NEG_Q = 0.60 if val_pos_rate > 0.40 else (0.50 if val_pos_rate > 0.20 else 0.30)
+
+            print(f"[INFO] VAL pos_rate={val_pos_rate:.4f} => SELF_ITERS={SELF_ITERS}, POS_Q={POS_Q}, NEG_Q={NEG_Q}")
 
             df_refined = df_train.select(ID_COL, FEAT_COL, col(LABEL_COL).cast("int").alias(LABEL_COL)).cache()
 
@@ -649,36 +646,38 @@ class AnomalyDetector:
             # ============================================================
             val_scored = score_df(svm_model, df_val).select("y", "s1").cache()
 
-            # ---- Candidate thresholds via quantiles (for constraints check) ----
             qs = [i / 200 for i in range(1, 200)]  # 0.005..0.995
             cand_thr = val_scored.approxQuantile("s1", qs, 0.001)
 
             # ============================================================
-            # 4) Threshold selection (constraints first, fallback = F0.5)
+            # 4) Robust Threshold Selection (UTILITY across datasets)
+            # Utility = F1 - penalties if Precision < P_MIN or Recall < R_MIN
+            # This prevents "great recall / terrible precision" OR "great precision / terrible recall".
             # ============================================================
-            P_MIN = 0.90
-            R_MIN = 0.90
+            P_MIN = 0.88
+            R_MIN = 0.80
+            LAMBDA = 2.0  # precision penalty
+            MU = 1.5  # recall penalty
 
             best_thr = None
-            best_f1 = -1.0
+            best_util = -1e18
             best_p = best_r = best_f1_at = None
 
             for t in cand_thr:
-                p, r, f1v, *_ = prf_at_threshold_fast(val_scored, float(t))
-                if p >= P_MIN and r >= R_MIN:
-                    if f1v > best_f1:
-                        best_f1 = f1v
-                        best_thr = float(t)
-                        best_p, best_r, best_f1_at = float(p), float(r), float(f1v)
+                p, r, f1v, tp, fp, fn, tn = prf_at_threshold_fast(val_scored, float(t))
 
-            # fallback: best F0.5 (precision-focused)
-            if best_thr is None:
-                FBETA = 0.5
-                best_thr, best_p, best_r, best_f1_at, best_fbeta = best_threshold_fbeta(val_scored, beta=FBETA)
-                print(f"[VAL] No threshold satisfied P_MIN={P_MIN} and R_MIN={R_MIN}. Using best F{FBETA} fallback.")
+                pen_p = max(0.0, P_MIN - p)
+                pen_r = max(0.0, R_MIN - r)
+
+                util = f1v - LAMBDA * pen_p - MU * pen_r
+
+                if util > best_util:
+                    best_util = util
+                    best_thr = float(t)
+                    best_p, best_r, best_f1_at = float(p), float(r), float(f1v)
 
             print(f"\n[VAL] Selected thr={best_thr:.6f} | P={best_p:.4f} R={best_r:.4f} F1={best_f1_at:.4f}")
-            print(f"[VAL] Constraints used: P_MIN={P_MIN}, R_MIN={R_MIN}, fallback F0.5")
+            print(f"[VAL] Utility params: P_MIN={P_MIN}, R_MIN={R_MIN}, LAMBDA={LAMBDA}, MU={MU}")
 
             # ============================================================
             # 5) Evaluate on TEST
@@ -686,7 +685,7 @@ class AnomalyDetector:
             test_scored = score_df(svm_model, df_test).select("y", "s1").cache()
             p_test, r_test, f1_test, tp, fp, fn, tn = prf_at_threshold_fast(test_scored, best_thr)
 
-            print("\n=== TEST METRICS (LinearSVC + Self-Training) ===")
+            print("\n=== TEST METRICS (LinearSVC + Adaptive Self-Training + Utility Threshold) ===")
             print(f"Precision (anomaly=1): {p_test:.4f}")
             print(f"Recall    (anomaly=1): {r_test:.4f}")
             print(f"F1-score  (anomaly=1): {f1_test:.4f}")
@@ -696,7 +695,12 @@ class AnomalyDetector:
                 "val": {"P": float(best_p), "R": float(best_r), "F1": float(best_f1_at)},
                 "test": {"P": float(p_test), "R": float(r_test), "F1": float(f1_test), "TP": int(tp), "FP": int(fp),
                          "FN": int(fn), "TN": int(tn)},
-                "self_train": {"iters": SELF_ITERS, "POS_Q": POS_Q, "NEG_Q": NEG_Q}}
+                "self_train": {"iters": int(SELF_ITERS), "POS_Q": float(POS_Q), "NEG_Q": float(NEG_Q),
+                               "val_pos_rate": float(val_pos_rate)},
+                "threshold_utility": {"P_MIN": float(P_MIN), "R_MIN": float(R_MIN), "LAMBDA": float(LAMBDA),
+                                      "MU": float(MU)}}
+
+
 
             # If you want to stop here
             exit()
