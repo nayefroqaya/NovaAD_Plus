@@ -649,9 +649,9 @@ class AnomalyDetector:
             df_train_w.groupBy(LABEL_COL).count().orderBy(LABEL_COL).show()
 
             # ---- TrainValidationSplit ----
-            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=80)
+            svm = LinearSVC(featuresCol=FEAT_COL, labelCol=LABEL_COL, weightCol="class_weight", maxIter=60)  # 80
 
-            grid = ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3, 1e-2]).build()
+            grid = ParamGridBuilder().addGrid(svm.regParam, [1e-5, 1e-4, 1e-3]).build()   # 1e-5, 1e-4, 1e-3, 1e-2
 
             evaluator_auc = BinaryClassificationEvaluator(labelCol=LABEL_COL, rawPredictionCol="rawPrediction",
                 metricName="areaUnderROC")
