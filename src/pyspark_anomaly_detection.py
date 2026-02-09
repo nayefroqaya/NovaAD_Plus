@@ -665,10 +665,12 @@ class AnomalyDetector:
             t0 = time.perf_counter()
             tvs_model = tvs.fit(df_train_w)
             train_runtime_sec = time.perf_counter() - t0
+            train_runtime_sec = train_runtime_sec
+            train_runtime_min = train_runtime_sec / 60.0
 
             svm_model = tvs_model.bestModel
             print("[OK] Trained LinearSVC.")
-            print(f"[TIME] train_runtime_sec={train_runtime_sec:.3f}")
+            print(f"[TIME] train_runtime_sec={train_runtime_min:.3f}")
 
             # -----------------------------
             # VAL threshold selection
@@ -702,27 +704,31 @@ class AnomalyDetector:
             test_metrics = evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction",
                                               thr=best_thr, pos_index=1)
             test_runtime_sec = time.perf_counter() - t1
+            test_runtime_sec = test_runtime_sec
+            test_runtime_min = test_runtime_sec / 60.0
 
             print("\n=== TEST METRICS (LinearSVC single classifier) ===")
             print(f"Precision (anomaly=1): {test_metrics['P']:.4f}")
             print(f"Recall    (anomaly=1): {test_metrics['R']:.4f}")
             print(f"F1-score  (anomaly=1): {test_metrics['F1']:.4f}")
             print(f"TP={test_metrics['TP']} FP={test_metrics['FP']} FN={test_metrics['FN']}")
-            print(f"[TIME] test_runtime_sec={test_runtime_sec:.3f}")
+            print(f"[TIME] test_runtime_sec={test_runtime_min:.3f}")
 
             # -----------------------------
             # Final results dict (includes runtimes)
             # -----------------------------
             results = {"pos_w": float(pos_w), "thr": float(best_thr), "train_runtime_sec": float(train_runtime_sec),
-                "test_runtime_sec": float(test_runtime_sec),
+                "train_runtime_min": float(train_runtime_min), "test_runtime_sec": float(test_runtime_sec),
+                "test_runtime_min": float(test_runtime_min),
                 "val": {"P": float(best_p), "R": float(best_r), "F1": float(best_f1)},
                 "test": {"P": float(test_metrics["P"]), "R": float(test_metrics["R"]), "F1": float(test_metrics["F1"]),
                     "TP": int(test_metrics["TP"]), "FP": int(test_metrics["FP"]), "FN": int(test_metrics["FN"]), }, }
 
+
             print("\n[RESULTS]")
             print(results)
-            print(f"[TIME] test_runtime_sec={test_runtime_sec:.3f}")
-            print(f"[TIME] train_runtime_sec={train_runtime_sec:.3f}")
+            print(f"[TIME] test_runtime_sec={test_runtime_min:.3f}")
+            print(f"[TIME] train_runtime_sec={train_runtime_min:.3f}")
 
 
             # If you want to stop here
