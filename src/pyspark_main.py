@@ -243,7 +243,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
-    round_id = '2'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
