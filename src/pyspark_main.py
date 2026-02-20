@@ -241,7 +241,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'BGL'
+    DATASET = 'SP_100MB'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -403,7 +403,7 @@ def main():
     Novelty_time = (end_Novelty - start_Novelty) / 60
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
     print('Novel was done .....')
-    #exit()
+    exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")

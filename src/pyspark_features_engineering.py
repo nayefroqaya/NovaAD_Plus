@@ -331,7 +331,6 @@ class FeaturesEngineering:
         # Ensure feature column is vector type
         if method.lower() == "gmm":
 
-            '''
             sequences_df.printSchema()
             sequences_df.groupBy("Label").count().show()
             sequences_df.groupBy("Temp_label").count().show()
@@ -815,7 +814,11 @@ class FeaturesEngineering:
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
 
             return df_final_train_cls, df_test_cls, df_val_cls
-            '''
+
+
+
+
+
 
 
             # 0) Split data---- Good but not perfect in classification
