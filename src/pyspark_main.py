@@ -272,7 +272,7 @@ def main():
     #print(' Reading the file was done successfully ')
     #exit()
 
-
+    '''
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -314,11 +314,14 @@ def main():
     assert train_df.schema == val_df.schema == test_df.schema
 
     #exit()
+    
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
     final_train_with_test_with_val.count()
     #exit()
+    
+    
 
     # ---------------- Features Extracting ----------------
     # --- Before Train ---
@@ -342,6 +345,7 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #exit()
+    '''
 
 
     # ---------------- Load feature PKL → Spark ----------------
@@ -400,7 +404,7 @@ def main():
     Novelty_time = (end_Novelty - start_Novelty) / 60
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
     print('Novel was done .....')
-    #exit()
+    exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
