@@ -399,8 +399,8 @@ class FeaturesEngineering:
             # ============================================================
             # 1) Choose PCA k on NORMAL-fit only
             # ============================================================
-           # candidate_ks = [10, 20, 40, 50, 60, 70]
-            candidate_ks = [10, 20, 40, 50]
+            candidate_ks = [10, 20, 40, 50, 60, 70]
+            #candidate_ks = [10, 20, 40, 50 ]
             #candidate_ks = [ 50, 60, 70, 80,90]
             target_variance = 0.999
 

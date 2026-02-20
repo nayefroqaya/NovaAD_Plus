@@ -42,8 +42,163 @@ class Utilities:
         print(f"[INFO] Total rows after cleanup: {df_features.count()}")
         return df_features
 
+
+
+
+
     @staticmethod
     def dataset_splitting(all_data_df, dataset, round, Mix_or_stable, spark):
+
+        # =============================
+        # Load dataset
+        # =============================
+        if Mix_or_stable == '0' and dataset == 'S_BGL':  # Stable
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = spark.read.option("header", True).csv("../datasets/S_BGL/stable_equal_subset.csv")
+
+        elif Mix_or_stable == '1' and dataset == 'S_BGL':  # Mix
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = spark.read.option("header", True).csv("../datasets/S_BGL/50_50_mixed_subset.csv")
+
+        else:
+            print(GREEN + f"[INFO] Preparing dataset '{dataset}'..." + RESET)
+            df_features = all_data_df
+
+        # =============================
+        # Clean data
+        # =============================
+        df_features = Utilities.clean_up_df(df_features)
+
+        # =============================
+        # Timestamp parsing (Spark-native, handles with/without microseconds)
+        # =============================
+        ts_micro = F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS")
+        ts_sec   = F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss")
+        df_features = df_features.withColumn("Timestamp_ts", F.coalesce(ts_micro, ts_sec))
+
+        bad_ts = df_features.filter(F.col("Timestamp_ts").isNull()).count()
+        if bad_ts > 0:
+            print(YELLOW + f"[WARN] {bad_ts} rows have unparsed Timestamp_ts (NULL)." + RESET)
+
+        # Keep only the columns you want (keep Timestamp_ts for ordering/splitting)
+        df_features = df_features.select(
+            'Timestamp', 'Timestamp_ts', 'Date', 'Time', 'Content', 'Original_Label',
+            'EventId', 'EventTemplate', 'processed_EventTemplate',
+            'Node_block_id', 'Label'
+        )
+
+        # Order logs inside each block by time (sequence correctness)
+        df_features = df_features.orderBy(F.col("Node_block_id"), F.col("Timestamp_ts"))
+
+        print(GREEN + "[INFO] Dataset timestamps parsed and sorted." + RESET)
+
+        # =============================
+        # Chronological split by Node_block_id
+        # =============================
+        supported = {'HDFS','BGL','HDO','SP_100MB','SP_150MB','TH_1G','TH_2G','TH_5G','S_BGL'}
+        if dataset not in supported:
+            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
+
+        # One row per block with its start time (sequence time)
+        block_time_df = (
+            df_features
+            .groupBy("Node_block_id")
+            .agg(F.min("Timestamp_ts").alias("block_start_ts"))
+        )
+
+        # Deterministic chronological ordering (tie-break by id)
+        w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
+        ordered_blocks = block_time_df.withColumn("rn", F.row_number().over(w)).cache()
+        total_blocks = ordered_blocks.count()  # materialize
+
+        train_size = int(0.6 * total_blocks)
+        val_size   = int(0.1 * total_blocks)
+
+        train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
+        val_ids   = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select("Node_block_id").cache()
+        test_ids  = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
+
+        _ = train_ids.count(); _ = val_ids.count(); _ = test_ids.count()
+
+        # =============================
+        # Overlap checks (no collect)
+        # =============================
+        if (train_ids.join(val_ids, "Node_block_id").limit(1).count() > 0 or
+            train_ids.join(test_ids, "Node_block_id").limit(1).count() > 0 or
+            val_ids.join(test_ids, "Node_block_id").limit(1).count() > 0):
+            raise ValueError("[ERROR] Overlaps detected between dataset splits!")
+        else:
+            print(GREEN + "[INFO] No overlaps found between train, validation, and test sets." + RESET)
+
+        # Optional: verify chronological guarantee
+        max_train_start = ordered_blocks.filter(F.col("rn") <= train_size).agg(F.max("block_start_ts")).first()[0]
+        min_test_start  = ordered_blocks.filter(F.col("rn") > train_size + val_size).agg(F.min("block_start_ts")).first()[0]
+        print(YELLOW + f"[CHECK] max(train block start)={max_train_start}, min(test block start)={min_test_start}" + RESET)
+
+        # =============================
+        # Create split DataFrames (and keep ordered)
+        # =============================
+        train_df = (
+            df_features.join(train_ids, "Node_block_id", "inner")
+            .withColumn("Type_ds", F.lit("Train"))
+            .orderBy("Node_block_id", "Timestamp_ts")
+        )
+
+        val_df = (
+            df_features.join(val_ids, "Node_block_id", "inner")
+            .withColumn("Type_ds", F.lit("Validation"))
+            .orderBy("Node_block_id", "Timestamp_ts")
+        )
+
+        test_df = (
+            df_features.join(test_ids, "Node_block_id", "inner")
+            .withColumn("Type_ds", F.lit("Test"))
+            .orderBy("Node_block_id", "Timestamp_ts")
+        )
+
+        # =============================
+        # Save datasets
+        # =============================
+        if Mix_or_stable == '0' and dataset == 'S_BGL':
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Stable_Splitted_Datasets"
+        elif Mix_or_stable == '1' and dataset == 'S_BGL':
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Mix_Splitted_Datasets"
+        else:
+            save_path = f"../datasets/{dataset}/{round}_{dataset}_Splitted_Datasets"
+
+        os.makedirs(save_path, exist_ok=True)
+
+        train_df.write.mode("overwrite").parquet(os.path.join(save_path, "train_df"))
+        val_df.write.mode("overwrite").parquet(os.path.join(save_path, "val_df"))
+        test_df.write.mode("overwrite").parquet(os.path.join(save_path, "test_df"))
+
+        # =============================
+        # Display split info
+        # =============================
+        print(
+            GREEN +
+            f"[INFO] Dataset split complete. Sizes -> "
+            f"Train: {train_df.count()}, "
+            f"Validation: {val_df.count()}, "
+            f"Test: {test_df.count()}" +
+            RESET
+        )
+
+        # =============================
+        # Block-level statistics
+        # =============================
+        df_block_train = train_df.dropDuplicates(['Node_block_id'])
+        print(' Normal seq Train : ' + str(df_block_train.filter(F.col("Label") == "Normal").count()))
+        print(' Anomaly seq Train : ' + str(df_block_train.filter(F.col("Label") == "Anomaly").count()))
+
+        df_block_test = test_df.dropDuplicates(['Node_block_id'])
+        print(' Normal seq Test : ' + str(df_block_test.filter(F.col("Label") == "Normal").count()))
+        print(' Anomaly seq Test : ' + str(df_block_test.filter(F.col("Label") == "Anomaly").count()))
+
+        return train_df, val_df, test_df, df_features
+
+    @staticmethod
+    def dataset_splitting_xxxxxxx(all_data_df, dataset, round, Mix_or_stable, spark):
 
         # =============================
         # Load dataset (already loaded)
@@ -142,26 +297,6 @@ class Utilities:
         else:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
 
-        '''
-        # old split 
-        unique_ids_df = df_features.select("Node_block_id").distinct()
-        total_ids = unique_ids_df.count()
-
-        if dataset in ['HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB',
-                       'TH_1G', 'TH_2G', 'TH_5G', 'S_BGL']:
-
-            shuffled_ids_df = unique_ids_df.orderBy(F.rand())
-
-            train_size = int(0.6 * total_ids)
-            val_size = int(0.1 * total_ids)
-
-            train_ids = shuffled_ids_df.limit(train_size)
-            val_ids = shuffled_ids_df.subtract(train_ids).limit(val_size)
-            test_ids = shuffled_ids_df.subtract(train_ids).subtract(val_ids)
-
-        else:
-            raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
-        '''
         # =============================
         # Check for overlaps
         # =============================
