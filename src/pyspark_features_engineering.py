@@ -723,26 +723,6 @@ class FeaturesEngineering:
             # ============================================================
             # 12) Build final training set with CONFIDENCE FILTERING (IMPORTANT)
             # ============================================================
-
-            keep_cols = [id_col, "pca_features", "Final_Label"]
-
-            # True normals (label=0)
-            train_df_normal_cls = (
-                train_pca_normal_fit.withColumn("Final_Label", lit(0).cast("int")).select(*keep_cols))
-
-            # All pseudo-labeled unlabeled (no filtering)
-            train_df_unlabeled_cls = (
-                unlab_gmm.withColumn("Final_Label", col("Final_Label").cast("int")).select(*keep_cols))
-
-            # Combine
-            df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
-            pdf_final_train = df_final_train_cls.select("true_label", "Final_Label").toPandas()
-
-            print("\n=== Classification_report on FINAL TRAIN (Final_Label vs true_label) ===")
-            print(classification_report(pdf_final_train["true_label"], pdf_final_train["Final_Label"], digits=3))
-            exit()
-
-            '''
             keep_cols = [id_col, "pca_features", "Final_Label"]
 
             # True normal part (label=0)
@@ -782,7 +762,6 @@ class FeaturesEngineering:
 
             print("\n[CHECK] Final train class balance (after confidence filtering):")
             df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
-            '''
 
             # ============================================================
             # 13) Prepare test/val (FIX: check Label in *test_pca/val_pca*)
