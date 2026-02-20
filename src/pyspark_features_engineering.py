@@ -738,9 +738,6 @@ class FeaturesEngineering:
             df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
             pdf_final_train = df_final_train_cls.select("true_label", "Final_Label").toPandas()
 
-
-            print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
-            print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
             print("\n=== Classification_report on FINAL TRAIN (Final_Label vs true_label) ===")
             print(classification_report(pdf_final_train["true_label"], pdf_final_train["Final_Label"], digits=3))
             exit()
