@@ -512,8 +512,8 @@ class FeaturesExtractor:
 
         print(f"[RESULT] Selected PCA components (best_k): {best_k}")
         '''
-        #candidate_ks = [10, 20, 40, 50,60,70]
-        candidate_ks = [50, 60, 70, 80,90]
+        candidate_ks = [10, 20, 40, 50,60,70]
+        #candidate_ks = [40, 50, 60, 70]
 
         target_variance = 0.999
         feature_col="vector_emb"
