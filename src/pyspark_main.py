@@ -413,7 +413,6 @@ def main():
     start_anomaly= time.time()
 
     test_pred, LABEL_COL , best_thr ,  train_runtime_min, test_runtime_min = anomaly_detection_obj.anomaly_detector(df_train_quality,df_test_cls, df_val_cls ,mode )
-
     test_metrics = model_evaluation_obj.evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction", thr=best_thr,
                                       pos_index=1)
 

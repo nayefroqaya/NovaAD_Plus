@@ -335,10 +335,20 @@ class FeaturesEngineering:
             sequences_df.groupBy("Label").count().show()
             sequences_df.groupBy("Temp_label").count().show()
 
-            # Map labels to 0/1 (if already numeric, this will keep numbers as-is)
+            # --- Robust label normalization (fix casing/whitespace) ---
+            sequences_df = sequences_df.withColumn("Label_str", F.lower(F.trim(F.col("Label").cast("string"))))
+
             sequences_df = sequences_df.withColumn("Label",
-                F.when(F.col("Label") == "normal", F.lit(0)).when(F.col("Label") == "anomaly", F.lit(1)).otherwise(
-                    F.col("Label")))
+                F.when(F.col("Label_str").isin("normal", "0"), F.lit(0)).when(F.col("Label_str").isin("anomaly", "1"),
+                                                                              F.lit(1)).otherwise(
+                    F.lit(None).cast("int"))).drop("Label_str")
+
+            # sanity check: fail fast if unknown values exist
+            bad = sequences_df.filter(F.col("Label").isNull()).select("Label").count()
+            if bad > 0:
+                sequences_df.filter(F.col("Label").isNull()).select("Label").show(50, False)
+                raise ValueError("Unknown label values after normalization.")
+
 
             print(f"\n🚀 Starting novelty detection using method = {method.upper()}")
 
