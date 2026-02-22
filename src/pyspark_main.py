@@ -393,8 +393,9 @@ def main():
 
 
     start_Novelty= time.time()
-    df_train_quality,df_test_cls, df_val_cls = \
-        features_engineering_obj.novelty_detection_label_establishment(sequences_df, spark =spark, method ="gmm" )
+    df_final_train_cls, df_test_cls, df_val_cls = (
+        features_engineering_obj.novelty_detection_label_establishment(sequences_df=sequences_df, spark=spark,
+            method="gmm"))
 
     Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
