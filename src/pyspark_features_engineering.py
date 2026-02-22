@@ -290,7 +290,7 @@ class FeaturesEngineering:
 
 
     @staticmethod
-    def novelty_detection_label_establishment(sequences_df, spark, method="auto", feature_col="features_vec_final",
+    def novelty_detection_label_establishmentyyyyy(sequences_df, spark, method="auto", feature_col="features_vec_final",
             id_col="Node_block_id", TARGET_FPR=0.01, candidate_ks=(10, 20, 40, 50, 60, 70), target_variance=0.999,
             gmm_ks=(2, 4, 6, 8, 10), SEED=123, SLICE_MOD=10, print_reports=True):
         # ============================================================
@@ -753,7 +753,7 @@ class FeaturesEngineering:
         return df_final_train_cls, df_test_cls, df_val_cls
 
     @staticmethod
-    def novelty_detection_label_establishmentxxxxx(sequences_df: DataFrame, spark: SparkSession, method: str = "gmm"
+    def novelty_detection_label_establishment(sequences_df: DataFrame, spark: SparkSession, method: str = "gmm"
                                               # options: "IsolationForest" or "rf"
                                               ):
 
