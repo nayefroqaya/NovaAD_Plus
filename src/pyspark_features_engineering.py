@@ -836,7 +836,7 @@ class FeaturesEngineering:
             if "Label" in sequences_df.columns:
                 df_train_quality = (
                     df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
-                                            on=id_col, how="inner").select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna())
+                                            on=id_col, how="inner")) # .select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna()
                 n_quality = df_train_quality.count()
                 if n_quality > 0:
                     pdf_train_quality = df_train_quality.toPandas()
