@@ -852,6 +852,21 @@ class FeaturesEngineering:
                 print(
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
 
+            print("=== SCHEMA ===")
+            df_final_train_cls.printSchema()
+            df_val_cls.printSchema()
+            df_test_cls.printSchema()
+
+            print("=== TRAIN Final_Label distribution ===")
+            df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+
+            print("=== VAL Final_Label distribution ===")
+            df_val_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+
+            print("=== TEST Final_Label distribution ===")
+            df_test_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            exit()
+
             return df_final_train_cls, df_test_cls, df_val_cls
             #return df_train_quality, df_test_cls, df_val_cls
 
