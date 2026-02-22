@@ -720,6 +720,33 @@ class FeaturesEngineering:
             except Exception as e:
                 print(f"[DEBUG] Skipping debug evaluation: {e}")
 
+
+            #------check new idea for step 12 :
+            # ============================================================
+            # 12) Build final training set WITHOUT confidence filtering (Option A)
+            # ============================================================
+            keep_cols = [id_col, "pca_features", "Final_Label"]
+
+            # True normal part (label=0)
+            train_df_normal_cls = (
+                train_pca_normal_fit.withColumn("Final_Label", lit(0).cast("int")).select(*keep_cols))
+
+            # Keep ALL pseudo-labeled unlabeled rows (no filtering)
+            train_df_unlabeled_cls = (
+                unlab_gmm.withColumn("Final_Label", col("Final_Label").cast("int")).select(*keep_cols))
+
+            df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
+
+            print("\n[CHECK] Final train class balance (NO confidence filtering):")
+            df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            print("[DEBUG] unlabeled total:", train_unlabeled_df.count())
+            print("[DEBUG] unlabeled used (no filter):", train_df_unlabeled_cls.count())
+
+
+
+
+
+            '''
             # ============================================================
             # 12) Build final training set with CONFIDENCE FILTERING (IMPORTANT)
             # ============================================================
@@ -762,6 +789,8 @@ class FeaturesEngineering:
 
             print("\n[CHECK] Final train class balance (after confidence filtering):")
             df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            
+             '''
 
             # ============================================================
             # 13) Prepare test/val (FIX: check Label in *test_pca/val_pca*)
@@ -813,8 +842,8 @@ class FeaturesEngineering:
                 print(
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
 
-            #return df_final_train_cls, df_test_cls, df_val_cls
-            return df_train_quality, df_test_cls, df_val_cls
+            return df_final_train_cls, df_test_cls, df_val_cls
+            #return df_train_quality, df_test_cls, df_val_cls
 
 
 
