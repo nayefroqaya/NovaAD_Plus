@@ -796,6 +796,7 @@ class FeaturesEngineering:
         if method.lower() == "gmm":
             from pyspark.sql.functions import col
             from pyspark.sql import functions as F
+            from pyspark.sql.functions import col, lit, when
 
             #----------------------- (2)
             sequences_df.printSchema()
