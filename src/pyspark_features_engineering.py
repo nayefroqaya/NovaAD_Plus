@@ -1377,11 +1377,18 @@ class FeaturesEngineering:
             # 1) Build TRAIN-FIT / TRAIN-VAL split from df_final_train_cls
             #    (VAL is subset from TRAIN)
             # ============================================================
-            df_train_all = df_final_train_cls.dropna(subset=[feat_col, label_col]).withColumn("hid",
-                                                                                              F.xxhash64(col(id_col)))
+            df_train_all = (df_final_train_cls.select(col(id_col), col(feat_col), col(label_col)).dropna(
+                subset=[feat_col, label_col]).withColumn(label_col, col(label_col).cast("double"))  # IMPORTANT for GBT
+                                              .withColumn("hid", F.xxhash64(col(id_col))))
 
-            train_fit = df_train_all.filter((col("hid") % lit(100)) < lit(80)).drop("hid")
-            train_val = df_train_all.filter((col("hid") % lit(100)) >= lit(80)).drop("hid")
+            # -------- OPTIONAL but strongly recommended: filter NaN/Inf in features --------
+            df_train_all = df_train_all.withColumn("_arr", vector_to_array(col(feat_col)))
+
+            df_train_all = df_train_all.filter(
+                ~F.expr("exists(_arr, x -> isNaN(x) OR x = double('inf') OR x = -double('inf'))")).drop("_arr")
+
+            train_fit = df_train_all.filter((col("hid") % lit(100)) < lit(80)).drop("hid").cache()
+            train_val = df_train_all.filter((col("hid") % lit(100)) >= lit(80)).drop("hid").cache()
 
             print("\n[TRAIN_FIT] distribution:")
             train_fit.groupBy(label_col).count().orderBy(label_col).show()
@@ -1389,15 +1396,23 @@ class FeaturesEngineering:
             print("\n[TRAIN_VAL] distribution:")
             train_val.groupBy(label_col).count().orderBy(label_col).show()
 
+            # Safety: fail fast if empty split
+            if train_fit.count() == 0:
+                raise ValueError("train_fit is empty after split/cleaning.")
+            if train_val.count() == 0:
+                raise ValueError("train_val is empty after split/cleaning.")
+
             # ============================================================
             # 2) Train model on TRAIN_FIT
             # ============================================================
             gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=400, maxDepth=5, stepSize=0.05,
-                subsamplingRate=0.8, seed=123)
+                subsamplingRate=0.8, maxBins=64,  # helps on some datasets
+                seed=123)
 
             model = Pipeline(stages=[gbt]).fit(train_fit)
 
             def add_p1(df_pred):
+                # probability is VectorUDT -> convert to array -> index 1
                 return df_pred.withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
 
             def apply_thr(scored_df, thr):
@@ -1409,12 +1424,14 @@ class FeaturesEngineering:
                 fp = pred_df.filter((col(label_col) == 0) & (col("pred_thr") == 1)).count()
                 fn = pred_df.filter((col(label_col) == 1) & (col("pred_thr") == 0)).count()
 
-                prec1 = tp / (tp + fp + EPS);
-                rec1 = tp / (tp + fn + EPS);
-                f1_1 = 2 * prec1 * rec1 / (prec1 + rec1 + EPS)
-                prec0 = tn / (tn + fn + EPS);
-                rec0 = tn / (tn + fp + EPS);
-                f1_0 = 2 * prec0 * rec0 / (prec0 + rec0 + EPS)
+                prec1 = tp / (tp + fp + EPS)
+                rec1 = tp / (tp + fn + EPS)
+                f1_1 = (2 * prec1 * rec1) / (prec1 + rec1 + EPS)
+
+                prec0 = tn / (tn + fn + EPS)
+                rec0 = tn / (tn + fp + EPS)
+                f1_0 = (2 * prec0 * rec0) / (prec0 + rec0 + EPS)
+
                 fpr = fp / (fp + tn + EPS)
 
                 print(f"\n[{name}] Confusion: TP={tp} FP={fp} FN={fn} TN={tn}  FPR={fpr:.6f}")
@@ -1425,7 +1442,9 @@ class FeaturesEngineering:
             # 3) Tune threshold on TRAIN_VAL normals (not on TEST)
             # ============================================================
             val_scored = add_p1(model.transform(train_val)).cache()
+
             thr = float(val_scored.filter(col(label_col) == 0).approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
+
             print(f"\n[THR] tuned on TRAIN_VAL normals for FPR~{TARGET_FPR}: thr={thr:.6f}")
 
             val_pred = apply_thr(val_scored, thr)
@@ -1434,7 +1453,13 @@ class FeaturesEngineering:
             # ============================================================
             # 4) Final evaluation on TEST (once)
             # ============================================================
-            test_scored = add_p1(model.transform(df_test_cls.dropna(subset=[feat_col, label_col])))
+            df_test_clean = (df_test_cls.select(col(id_col), col(feat_col), col(label_col)).dropna(
+                subset=[feat_col, label_col]).withColumn(label_col, col(label_col).cast("double")).withColumn("_arr",
+                                                                                                              vector_to_array(
+                                                                                                                  col(feat_col))).filter(
+                ~F.expr("exists(_arr, x -> isNaN(x) OR x = double('inf') OR x = -double('inf'))")).drop("_arr"))
+
+            test_scored = add_p1(model.transform(df_test_clean))
             test_pred = apply_thr(test_scored, thr)
             report(test_pred, "TEST")
 
