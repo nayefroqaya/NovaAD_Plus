@@ -1,6 +1,5 @@
 import warnings
-from pyspark.sql.functions import col
-from pyspark.sql import functions as F
+
 import colorama
 import numpy as np
 import numpy as np
@@ -795,6 +794,8 @@ class FeaturesEngineering:
         # --------------------------------------------------------------------------------
         # Ensure feature column is vector type
         if method.lower() == "gmm":
+            from pyspark.sql.functions import col
+            from pyspark.sql import functions as F
 
             #----------------------- (2)
             sequences_df.printSchema()
