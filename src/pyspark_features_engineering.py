@@ -1495,8 +1495,8 @@ class FeaturesEngineering:
             # Run all
             # ============================================================
             #lr_model, lr_thr = train_and_eval(lr, "LogisticRegression", use_weights_for_fit=True)
-            rf_model, rf_thr = train_and_eval(rf, "RandomForest", use_weights_for_fit=False)
-            #gbt_model, gbt_thr = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False)
+            #rf_model, rf_thr = train_and_eval(rf, "RandomForest", use_weights_for_fit=False)
+            gbt_model, gbt_thr = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False)
 
             print("\nDone. Choose the model with best TEST class-1 F1/precision/recall under tuned threshold.")
             exit()
