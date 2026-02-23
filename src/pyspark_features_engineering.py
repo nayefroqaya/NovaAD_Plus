@@ -1415,7 +1415,8 @@ class FeaturesEngineering:
             print(f"\n[THRESHOLD] Selected thr={thr:.6f} to target VAL normal FPR~{TARGET_FPR:.4f}")
 
             def apply_threshold(df, thr_value):
-                scored = (clf_model.transform(df).withColumn("p1", col("probability")[1].cast("double")))
+                scored = (clf_model.transform(df).withColumn("p1", vector_to_array(col("probability"))[1].cast("double")))
+
                 out = scored.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
                 return out
 
