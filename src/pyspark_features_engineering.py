@@ -1501,7 +1501,7 @@ class FeaturesEngineering:
             # 7) Optional: try stricter/looser thresholds
             # -----------------------------
             thr_more_prec = thr * 1.05  # stricter => precision↑ recall↓
-            thr_more_recall = thr * 0.95  # looser   => recall↑ precision↓
+            thr_more_recall = thr * 0.90  # looser   => recall↑ precision↓
 
             print(f"[TRY] thr={thr:.6f}, thr_more_prec={thr_more_prec:.6f}, thr_more_recall={thr_more_recall:.6f}")
 
