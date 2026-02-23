@@ -1194,7 +1194,7 @@ class FeaturesEngineering:
             except Exception as e:
                 print(f"[DEBUG] Skipping debug evaluation: {e}")
 
-            '''
+
             #------check new idea for step 12 :
             # ============================================================
             # 12) Build final training set WITHOUT confidence filtering (Option A)
@@ -1212,16 +1212,11 @@ class FeaturesEngineering:
             df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
 
             print("\n[CHECK] Final train class balance (NO confidence filtering):")
-            df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
-            print("[DEBUG] unlabeled total:", train_unlabeled_df.count())
-            print("[DEBUG] unlabeled used (no filter):", train_df_unlabeled_cls.count())
-             '''
+            #df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            #print("[DEBUG] unlabeled total:", train_unlabeled_df.count())
+            #print("[DEBUG] unlabeled used (no filter):", train_df_unlabeled_cls.count())
 
-
-
-
-
-
+            '''
             # ============================================================
             # 12) Build final training set with CONFIDENCE FILTERING (IMPORTANT)
             # ============================================================
@@ -1264,6 +1259,7 @@ class FeaturesEngineering:
 
             print("\n[CHECK] Final train class balance (after confidence filtering):")
             df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            '''
             
 
 
@@ -1318,9 +1314,9 @@ class FeaturesEngineering:
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
 
             print("=== SCHEMA ===")
-            df_final_train_cls.printSchema()
-            df_val_cls.printSchema()
-            df_test_cls.printSchema()
+            #df_final_train_cls.printSchema()
+            #df_val_cls.printSchema()
+            #df_test_cls.printSchema()
 
             print("=== TRAIN Final_Label distribution ===")
             df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
