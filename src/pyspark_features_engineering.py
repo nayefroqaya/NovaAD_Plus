@@ -1362,12 +1362,12 @@ class FeaturesEngineering:
             feat_col = "pca_features"
             label_col = "Final_Label"
 
-            TARGET_FPR = 0.01  # target FPR on VAL normals
-            REL_ERR_Q = 1e-3  # approxQuantile relative error
+            TARGET_FPR = 0.01
+            REL_ERR_Q = 1e-3
             EPS = 1e-9
 
             # -----------------------------
-            # 1) Prepare supervised datasets
+            # Prepare supervised datasets
             # -----------------------------
             def prep_sup(df, name):
                 out = (df.select(col(id_col), col(feat_col), col(label_col).cast("int").alias(label_col)).dropna(
@@ -1381,7 +1381,7 @@ class FeaturesEngineering:
             test_sup = prep_sup(df_test_cls, "TEST_SUP")
 
             # -----------------------------
-            # 2) Class weights for imbalance
+            # Class weights (used by LR; for trees we also keep it available)
             # -----------------------------
             counts = train_sup.groupBy(label_col).count().collect()
             cnt = {int(r[label_col]): int(r["count"]) for r in counts}
@@ -1389,36 +1389,22 @@ class FeaturesEngineering:
             n0 = float(cnt.get(0, 1))
             n1 = float(cnt.get(1, 1))
             total = n0 + n1
-
             w0 = total / (2.0 * n0) if n0 > 0 else 1.0
             w1 = total / (2.0 * n1) if n1 > 0 else 1.0
-
-            print(f"\n[WEIGHTS] n0={n0:.0f}, n1={n1:.0f}, w0={w0:.6f}, w1={w1:.6f}")
 
             train_sup_w = train_sup.withColumn("classWeightCol", when(col(label_col) == 1, lit(w1)).otherwise(lit(w0)))
 
             # -----------------------------
-            # 3) Train classifier
-            # -----------------------------
-            lr = LogisticRegression(featuresCol=feat_col, labelCol=label_col, weightCol="classWeightCol", maxIter=200,
-                regParam=0.01, elasticNetParam=0.0)
-
-            clf_model = Pipeline(stages=[lr]).fit(train_sup_w)
-            print("\n[MODEL] Trained LogisticRegression.")
-
-            # -----------------------------
-            # Helpers: p1 + metrics printing
+            # Helpers
             # -----------------------------
             auc_eval = BinaryClassificationEvaluator(labelCol=label_col, rawPredictionCol="rawPrediction",
                 metricName="areaUnderROC")
-            acc_eval = MulticlassClassificationEvaluator(labelCol=label_col, predictionCol="prediction",
-                metricName="accuracy")
-            f1w_eval = MulticlassClassificationEvaluator(labelCol=label_col, predictionCol="prediction",
-                metricName="f1")
 
             def add_p1(df_pred):
-                # VectorUDT -> array -> index 1
                 return df_pred.withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
+
+            def apply_threshold_pred(scored_df, thr_value):
+                return scored_df.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
 
             def print_class_metrics(pred_df, pred_col, title):
                 tp = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 1)).count()
@@ -1434,14 +1420,15 @@ class FeaturesEngineering:
                 recall_0 = tn / (tn + fp + EPS)
                 f1_0 = (2 * precision_0 * recall_0) / (precision_0 + recall_0 + EPS)
 
-                acc = (tp + tn) / (tp + tn + fp + fn + EPS)
                 fpr = fp / (fp + tn + EPS)
+                acc = (tp + tn) / (tp + tn + fp + fn + EPS)
 
                 print("\n===================================================")
                 print(title)
                 print("Confusion Matrix:")
                 print(f"TP={tp}  FP={fp}")
                 print(f"FN={fn}  TN={tn}")
+                print(f"ACC={acc:.6f}  FPR={fpr:.6f}")
 
                 print("\nClass 1 (Anomaly)")
                 print(f"Precision: {precision_1:.6f}")
@@ -1452,73 +1439,67 @@ class FeaturesEngineering:
                 print(f"Precision: {precision_0:.6f}")
                 print(f"Recall   : {recall_0:.6f}")
                 print(f"F1-score : {f1_0:.6f}")
-
-                print(f"\nOverall Accuracy: {acc:.6f}")
-                print(f"FPR (Normal->Anomaly): {fpr:.6f}")
                 print("===================================================\n")
 
-            def evaluate_default(df, name):
-                pred = clf_model.transform(df)
-                auc = auc_eval.evaluate(pred)
-                acc = acc_eval.evaluate(pred)
-                f1w = f1w_eval.evaluate(pred)
-                print(f"\n[{name}] DEFAULT threshold (Spark prediction)")
-                print(f"AUC={auc:.6f}  ACC={acc:.6f}  F1(weighted)={f1w:.6f}")
-                print_class_metrics(pred, "prediction", f"{name} - DEFAULT threshold")
-                return pred
+            def train_and_eval(model, model_name, use_weights_for_fit):
+                print(f"\n\n==================== {model_name} ====================")
 
-            def apply_threshold(df, thr_value):
-                scored = add_p1(clf_model.transform(df))
-                return scored.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
+                fit_df = train_sup_w if use_weights_for_fit else train_sup
 
-            def evaluate_custom(df, name, thr_value):
-                pred = apply_threshold(df, thr_value)
-                print_class_metrics(pred, "pred_thr", f"{name} - CUSTOM threshold @ thr={thr_value:.6f}")
-                return pred
+                pipe = Pipeline(stages=[model])
+                fitted = pipe.fit(fit_df)
 
-            # -----------------------------
-            # 4) Evaluate default threshold
-            # -----------------------------
-            val_pred_default = evaluate_default(val_sup, "VAL")
-            test_pred_default = evaluate_default(test_sup, "TEST")
+                # --- default threshold eval (AUC only) ---
+                val_pred = fitted.transform(val_sup)
+                test_pred = fitted.transform(test_sup)
 
-            # -----------------------------
-            # 5) Tune threshold on VAL normals to meet TARGET_FPR
-            # -----------------------------
-            val_scored = add_p1(clf_model.transform(val_sup)).cache()
-            val_normals = val_scored.filter(col(label_col) == 0)
+                val_auc = auc_eval.evaluate(val_pred)
+                test_auc = auc_eval.evaluate(test_pred)
+                print(f"[AUC] VAL={val_auc:.6f}  TEST={test_auc:.6f}")
 
-            thr = float(val_normals.approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
-            print(f"\n[THRESHOLD] Selected thr={thr:.6f} to target VAL normal FPR~{TARGET_FPR:.4f}")
+                # --- tune threshold on VAL normals to hit TARGET_FPR ---
+                val_scored = add_p1(val_pred).cache()
+                thr = float(
+                    val_scored.filter(col(label_col) == 0).approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
+                print(f"[THR tuned @ VAL normals FPR~{TARGET_FPR}] thr={thr:.6f}")
 
-            # -----------------------------
-            # 6) Evaluate tuned threshold
-            # -----------------------------
-            val_pred_thr = evaluate_custom(val_sup, "VAL", thr)
-            test_pred_thr = evaluate_custom(test_sup, "TEST", thr)
+                # --- apply threshold + metrics ---
+                val_thr_pred = apply_threshold_pred(val_scored, thr)
+                test_scored = add_p1(test_pred)
+                test_thr_pred = apply_threshold_pred(test_scored, thr)
 
-            # -----------------------------
-            # 7) Optional: try stricter/looser thresholds
-            # -----------------------------
-            thr_more_prec = thr * 1.05  # stricter => precision↑ recall↓
-            thr_more_recall = thr * 0.90  # looser   => recall↑ precision↓
+                print_class_metrics(val_thr_pred, "pred_thr", f"{model_name} - VAL (tuned thr={thr:.6f})")
+                print_class_metrics(test_thr_pred, "pred_thr", f"{model_name} - TEST (tuned thr={thr:.6f})")
 
-            print(f"[TRY] thr={thr:.6f}, thr_more_prec={thr_more_prec:.6f}, thr_more_recall={thr_more_recall:.6f}")
+                return fitted, thr
 
-            test_pred_prec = apply_threshold(test_sup, thr_more_prec)
-            test_pred_recall = apply_threshold(test_sup, thr_more_recall)
+            # ============================================================
+            # Models to try
+            # ============================================================
 
-            print_class_metrics(test_pred_prec, "pred_thr", f"TEST - stricter threshold @ {thr_more_prec:.6f}")
-            print_class_metrics(test_pred_recall, "pred_thr", f"TEST - looser threshold  @ {thr_more_recall:.6f}")
+            # 1) Logistic Regression (baseline)
+            lr = LogisticRegression(featuresCol=feat_col, labelCol=label_col, weightCol="classWeightCol", maxIter=200,
+                regParam=0.01, elasticNetParam=0.0)
 
-            # -----------------------------
-            # 8) Final output table on TEST
-            # -----------------------------
-            test_out = (apply_threshold(test_sup, thr).select(col(id_col), col("p1").alias("prob_anomaly"),
-                col("pred_thr").alias("pred_label"), col(label_col).alias("true_label")))
+            # 2) Random Forest (often improves precision)
+            rf = RandomForestClassifier(featuresCol=feat_col, labelCol=label_col, numTrees=300, maxDepth=10,
+                featureSubsetStrategy="sqrt", seed=123)
+            # Note: many Spark versions do NOT support weightCol for RF. If yours does, you can add weightCol="classWeightCol"
 
-            print("\n[TEST OUTPUT SAMPLE]")
-            test_out.show(20, False)
+            # 3) Gradient-Boosted Trees (often best)
+            gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=200, maxDepth=5, stepSize=0.05,
+                subsamplingRate=0.8, seed=123)
+            # Note: many Spark versions do NOT support weightCol for GBT either.
+
+            # ============================================================
+            # Run all
+            # ============================================================
+            #lr_model, lr_thr = train_and_eval(lr, "LogisticRegression", use_weights_for_fit=True)
+            rf_model, rf_thr = train_and_eval(rf, "RandomForest", use_weights_for_fit=False)
+            #gbt_model, gbt_thr = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False)
+
+            print("\nDone. Choose the model with best TEST class-1 F1/precision/recall under tuned threshold.")
+            exit()
 
             '''
             # -----------------------------
