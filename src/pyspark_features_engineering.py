@@ -1326,18 +1326,21 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings
             # -----------------------------
+            # -----------------------------
+            # Settings
+            # -----------------------------
             id_col = "Node_block_id"
             feat_col = "pca_features"
             label_col = "Final_Label"
 
-            TARGET_FPR = 0.01  # threshold tuning target on VAL normals (e.g., 1% FPR)
+            TARGET_FPR = 0.01  # target false positive rate on VAL normals
             REL_ERR_Q = 1e-3  # approxQuantile relative error
+            EPS = 1e-9
 
-            # -----------------------------
+            # ============================================================
             # 1) Prepare supervised datasets
-            # -----------------------------
+            # ============================================================
             def prep_sup(df, name):
-                # ensure correct types and no nulls
                 out = (df.select(col(id_col), col(feat_col), col(label_col).cast("int").alias(label_col)).dropna(
                     subset=[feat_col, label_col]))
                 print(f"\n[{name}] class distribution:")
@@ -1348,9 +1351,9 @@ class FeaturesEngineering:
             val_sup = prep_sup(df_val_cls, "VAL_SUP")
             test_sup = prep_sup(df_test_cls, "TEST_SUP")
 
-            # -----------------------------
+            # ============================================================
             # 2) Add class weights (handle imbalance)
-            # -----------------------------
+            # ============================================================
             counts = train_sup.groupBy(label_col).count().collect()
             cnt = {int(r[label_col]): int(r["count"]) for r in counts}
 
@@ -1358,7 +1361,6 @@ class FeaturesEngineering:
             n1 = float(cnt.get(1, 1))
             total = n0 + n1
 
-            # balanced weights: each class contributes equally
             w0 = total / (2.0 * n0) if n0 > 0 else 1.0
             w1 = total / (2.0 * n1) if n1 > 0 else 1.0
 
@@ -1366,95 +1368,113 @@ class FeaturesEngineering:
 
             train_sup_w = train_sup.withColumn("classWeightCol", when(col(label_col) == 1, lit(w1)).otherwise(lit(w0)))
 
-            # -----------------------------
-            # 3) Train classifier (Logistic Regression baseline)
-            # -----------------------------
+            # ============================================================
+            # 3) Train classifier (Logistic Regression)
+            # ============================================================
             lr = LogisticRegression(featuresCol=feat_col, labelCol=label_col, weightCol="classWeightCol", maxIter=200,
                 regParam=0.01, elasticNetParam=0.0)
 
             pipe = Pipeline(stages=[lr])
             clf_model = pipe.fit(train_sup_w)
-
             print("\n[MODEL] Trained LogisticRegression.")
 
-            # -----------------------------
-            # 4) Evaluation helper
-            # -----------------------------
+            # ============================================================
+            # 4) Helpers for probability + metrics
+            # ============================================================
             auc_eval = BinaryClassificationEvaluator(labelCol=label_col, rawPredictionCol="rawPrediction",
                 metricName="areaUnderROC")
             acc_eval = MulticlassClassificationEvaluator(labelCol=label_col, predictionCol="prediction",
                 metricName="accuracy")
             f1_eval = MulticlassClassificationEvaluator(labelCol=label_col, predictionCol="prediction", metricName="f1")
 
-            def evaluate_default_threshold(df, name):
+            def add_p1(df_pred):
+                # probability is VectorUDT -> convert to array -> take index 1
+                return df_pred.withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
+
+            def print_class_metrics(pred_df, pred_col, title):
+                tp = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 1)).count()
+                tn = pred_df.filter((col(label_col) == 0) & (col(pred_col) == 0)).count()
+                fp = pred_df.filter((col(label_col) == 0) & (col(pred_col) == 1)).count()
+                fn = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 0)).count()
+
+                precision_1 = tp / (tp + fp + EPS)
+                recall_1 = tp / (tp + fn + EPS)
+                f1_1 = (2 * precision_1 * recall_1) / (precision_1 + recall_1 + EPS)
+
+                precision_0 = tn / (tn + fn + EPS)
+                recall_0 = tn / (tn + fp + EPS)
+                f1_0 = (2 * precision_0 * recall_0) / (precision_0 + recall_0 + EPS)
+
+                acc = (tp + tn) / (tp + tn + fp + fn + EPS)
+                fpr = fp / (fp + tn + EPS)
+
+                print("\n===================================================")
+                print(title)
+                print("Confusion Matrix:")
+                print(f"TP={tp}  FP={fp}")
+                print(f"FN={fn}  TN={tn}")
+
+                print("\nClass 1 (Anomaly)")
+                print(f"Precision: {precision_1:.6f}")
+                print(f"Recall   : {recall_1:.6f}")
+                print(f"F1-score : {f1_1:.6f}")
+
+                print("\nClass 0 (Normal)")
+                print(f"Precision: {precision_0:.6f}")
+                print(f"Recall   : {recall_0:.6f}")
+                print(f"F1-score : {f1_0:.6f}")
+
+                print(f"\nOverall Accuracy: {acc:.6f}")
+                print(f"FPR (Normal->Anomaly): {fpr:.6f}")
+                print("===================================================\n")
+
+            def evaluate_default(df, name):
                 pred = clf_model.transform(df)
                 auc = auc_eval.evaluate(pred)
                 acc = acc_eval.evaluate(pred)
-                f1 = f1_eval.evaluate(pred)
+                f1w = f1_eval.evaluate(pred)
 
-                print(f"\n[{name}] Default threshold metrics:")
-                print(f"  AUC={auc:.4f}  ACC={acc:.4f}  F1={f1:.4f}")
+                print(f"\n[{name}] DEFAULT threshold (Spark prediction)")
+                print(f"AUC={auc:.6f}  ACC={acc:.6f}  F1(weighted)={f1w:.6f}")
 
-                print(f"\n[{name}] Confusion table (label vs prediction):")
-                pred.groupBy(label_col, "prediction").count().orderBy(label_col, "prediction").show()
-
+                print_class_metrics(pred, "prediction", f"{name} - DEFAULT threshold")
                 return pred
 
-            val_pred_default = evaluate_default_threshold(val_sup, "VAL")
-            test_pred_default = evaluate_default_threshold(test_sup, "TEST")
+            def apply_threshold(df, thr_value):
+                scored = add_p1(clf_model.transform(df))
+                return scored.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
 
-            # -----------------------------
-            # 5) Tune decision threshold on VAL to hit TARGET_FPR
-            #    Using probability of class=1: p1 = probability[1]
-            # -----------------------------
-            val_scored = clf_model.transform(val_sup).withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
-            # Threshold = (1 - TARGET_FPR) quantile of p1 among VAL normals (label=0)
+            def evaluate_custom(df, name, thr_value):
+                pred = apply_threshold(df, thr_value)
+                print_class_metrics(pred, "pred_thr", f"{name} - CUSTOM threshold @ thr={thr_value:.6f}")
+                return pred
+
+            # ============================================================
+            # 5) Evaluate DEFAULT threshold
+            # ============================================================
+            val_pred_default = evaluate_default(val_sup, "VAL")
+            test_pred_default = evaluate_default(test_sup, "TEST")
+
+            # ============================================================
+            # 6) Tune threshold on VAL normals for TARGET_FPR
+            # ============================================================
+            val_scored = add_p1(clf_model.transform(val_sup)).cache()
             val_normals = val_scored.filter(col(label_col) == 0)
 
             thr = float(val_normals.approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
             print(f"\n[THRESHOLD] Selected thr={thr:.6f} to target VAL normal FPR~{TARGET_FPR:.4f}")
 
-            def apply_threshold(df, thr_value):
-                scored = (clf_model.transform(df).withColumn("p1", vector_to_array(col("probability"))[1].cast("double")))
+            # ============================================================
+            # 7) Evaluate CUSTOM threshold
+            # ============================================================
+            val_pred_thr = evaluate_custom(val_sup, "VAL", thr)
+            test_pred_thr = evaluate_custom(test_sup, "TEST", thr)
 
-                out = scored.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
-                return out
-
-            def evaluate_custom_threshold(df, name, thr_value):
-                pred = apply_threshold(df, thr_value)
-
-                # confusion table with custom threshold
-                print(f"\n[{name}] Confusion table (label vs pred_thr) @ thr={thr_value:.6f}:")
-                pred.groupBy(label_col, "pred_thr").count().orderBy(label_col, "pred_thr").show()
-
-                # compute FPR, TPR/Recall, Precision, F1 manually from counts
-                tn = pred.filter((col(label_col) == 0) & (col("pred_thr") == 0)).count()
-                fp = pred.filter((col(label_col) == 0) & (col("pred_thr") == 1)).count()
-                fn = pred.filter((col(label_col) == 1) & (col("pred_thr") == 0)).count()
-                tp = pred.filter((col(label_col) == 1) & (col("pred_thr") == 1)).count()
-
-                eps = 1e-9
-                fpr = fp / (fp + tn + eps)
-                tpr = tp / (tp + fn + eps)
-                prec = tp / (tp + fp + eps)
-                f1 = (2 * prec * tpr) / (prec + tpr + eps)
-                acc = (tp + tn) / (tp + tn + fp + fn + eps)
-
-                print(f"[{name}] Custom-threshold metrics:")
-                print(f"  ACC={acc:.4f}  Precision={prec:.4f}  Recall/TPR={tpr:.4f}  F1={f1:.4f}  FPR={fpr:.6f}")
-
-                return pred
-
-            val_pred_thr = evaluate_custom_threshold(val_sup, "VAL", thr)
-            test_pred_thr = evaluate_custom_threshold(test_sup, "TEST", thr)
-
-            # -----------------------------
-            # 6) Final outputs (test predictions)
-            # -----------------------------
-            # Keep: id, probability of anomaly, thresholded pred, true label
-            test_out = (
-            test_pred_thr.select(col(id_col), col("p1").alias("prob_anomaly"), col("pred_thr").alias("pred_label"),
-                col(label_col).alias("true_label")))
+            # ============================================================
+            # 8) Output predictions on TEST (id + prob + pred + true)
+            # ============================================================
+            test_out = (apply_threshold(test_sup, thr).select(col(id_col), col("p1").alias("prob_anomaly"),
+                col("pred_thr").alias("pred_label"), col(label_col).alias("true_label")))
 
             print("\n[TEST OUTPUT SAMPLE]")
             test_out.show(20, False)
