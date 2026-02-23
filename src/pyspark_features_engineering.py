@@ -1310,16 +1310,19 @@ class FeaturesEngineering:
             if "Label" in sequences_df.columns:
                 df_train_quality = (
                     df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
-                                            on=id_col, how="inner")) # .select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna()
+                                            on=id_col, how="inner").select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna())
                 n_quality = df_train_quality.count()
                 if n_quality > 0:
                     pdf_train_quality = df_train_quality.toPandas()
                     pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
                     pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
 
+                    print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
+                    print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
                     print(f"\n=== Nayef: Classification_report on FINAL TRAIN SET (n={n_quality}) ===")
                     print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"],
                                                 digits=3))
+
                 else:
                     print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
             else:
