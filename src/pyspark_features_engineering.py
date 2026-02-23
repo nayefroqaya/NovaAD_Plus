@@ -797,6 +797,7 @@ class FeaturesEngineering:
             from pyspark.sql.functions import col
             from pyspark.sql import functions as F
             from pyspark.sql.functions import col, lit, when
+            from pyspark.ml.functions import vector_to_array
 
             #----------------------- (2)
             sequences_df.printSchema()
@@ -1406,8 +1407,7 @@ class FeaturesEngineering:
             # 5) Tune decision threshold on VAL to hit TARGET_FPR
             #    Using probability of class=1: p1 = probability[1]
             # -----------------------------
-            val_scored = (clf_model.transform(val_sup).withColumn("p1", col("probability")[1].cast("double")))
-
+            val_scored = clf_model.transform(val_sup).withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
             # Threshold = (1 - TARGET_FPR) quantile of p1 among VAL normals (label=0)
             val_normals = val_scored.filter(col(label_col) == 0)
 
