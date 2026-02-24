@@ -1307,29 +1307,33 @@ class FeaturesEngineering:
             print("\n[INFO] Supervised model trained: GBTClassifier")
 
             # ============================================================
-            # 17) Threshold (UPDATED: fixed, no VAL tuning)
+            # 17) Threshold tuning WITHOUT VAL: control FPR on NORMAL holdout
             # ============================================================
-            best_thr = float(FIXED_THR)
-            print(f"\n[THRESHOLD] Using fixed threshold (VAL canceled): {best_thr:.6f}")
+
+            # score normal holdout with supervised model
+            pred_norm_hold = gbt_model.transform(norm_holdout_df.select(id_col, feature_col)).select(
+                vector_to_array(F.col("probability")).getItem(1).alias("p1"))
+
+            # threshold so that only TARGET_FPR of normals exceed it
+            best_thr = approx_quantile(pred_norm_hold, "p1", 1.0 - TARGET_FPR, rel=1e-3)
+
+            # sanity: realized FPR on holdout
+            real_fpr = pred_norm_hold.filter(F.col("p1") >= F.lit(best_thr)).count() / max(pred_norm_hold.count(), 1)
+            print(
+                f"\n[THRESHOLD] Chosen on NORMAL holdout for FPR~{TARGET_FPR}: thr={best_thr:.6f}, realized_fpr={real_fpr:.6f}")
 
             # ============================================================
-            # 18) REPORT 3: TEST (true label vs supervised prediction @ fixed threshold)
+            # 18) REPORT 3: TEST @ FPR-calibrated threshold
             # ============================================================
-            pred_test = gbt_model.transform(df_test_cls).select(col("label").cast("int").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("p1"), col("rawPrediction"), )
+            pred_test = gbt_model.transform(df_test_cls).select(F.col("label").cast("int").alias("y"),
+                vector_to_array(F.col("probability")).getItem(1).alias("p1"), F.col("rawPrediction"))
 
             pdf_test = pred_test.toPandas()
             y_te = pdf_test["y"].astype(int).values
             p_te = pdf_test["p1"].astype(float).values
 
-            print("\n=== REPORT 3: TEST (true label vs supervised prediction @ fixed threshold) ===")
+            print("\n=== REPORT 3: TEST (true label vs supervised prediction @ FPR-calibrated threshold) ===")
             print(classification_report(y_te, (p_te >= best_thr).astype(int), digits=3))
-
-            # Optional: TEST AUC
-            evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction",
-                metricName="areaUnderROC")
-            auc_test = evaluator.evaluate(gbt_model.transform(df_test_cls))
-            print(f"[TEST] AUC = {auc_test:.4f}")
             exit()
 
 
