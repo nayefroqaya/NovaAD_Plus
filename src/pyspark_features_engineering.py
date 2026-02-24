@@ -811,7 +811,7 @@ class FeaturesEngineering:
             # -----------------------------
             METHOD = "auto"  # "auto" or force: "pca","gmm","and","or"
 
-            TARGET_FPR = 0.005  # ✅ BEST NEXT IMPROVEMENT: reduce false positives on normals (was 0.01)
+            TARGET_FPR = 0.002  # ✅ BEST NEXT IMPROVEMENT: reduce false positives on normals (was 0.01)
             SEED = 123
             eps = 1e-9
 
