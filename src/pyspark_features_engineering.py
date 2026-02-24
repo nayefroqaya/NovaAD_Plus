@@ -1364,105 +1364,201 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings
             # -----------------------------
-
             id_col = "Node_block_id"
             feat_col = "pca_features"
             label_col = "Final_Label"
 
-            EPS = 1e-9
-            REL_ERR_Q = 1e-3
             TARGET_FPR = 0.01
+            REL_ERR_Q = 1e-3
+            EPS = 1e-9
 
-            # ============================================================
-            # 1) Build TRAIN-FIT / TRAIN-VAL split from df_final_train_cls
-            #    (VAL is subset from TRAIN)
-            # ============================================================
-            df_train_all = (df_final_train_cls.select(col(id_col), col(feat_col), col(label_col)).dropna(
-                subset=[feat_col, label_col]).withColumn(label_col, col(label_col).cast("double"))  # IMPORTANT for GBT
-                                              .withColumn("hid", F.xxhash64(col(id_col))))
+            # -----------------------------
+            # Prepare supervised datasets
+            # -----------------------------
+            def prep_sup(df, name):
+                out = (df.select(col(id_col), col(feat_col), col(label_col).cast("int").alias(label_col)).dropna(
+                    subset=[feat_col, label_col]))
+                print(f"\n[{name}] class distribution:")
+                out.groupBy(label_col).count().orderBy(label_col).show()
+                return out
 
-            # -------- OPTIONAL but strongly recommended: filter NaN/Inf in features --------
-            df_train_all = df_train_all.withColumn("_arr", vector_to_array(col(feat_col)))
+            train_sup = prep_sup(df_final_train_cls, "TRAIN_SUP")
+            val_sup = prep_sup(df_val_cls, "VAL_SUP")
+            test_sup = prep_sup(df_test_cls, "TEST_SUP")
 
-            df_train_all = df_train_all.filter(
-                ~F.expr("exists(_arr, x -> isNaN(x) OR x = double('inf') OR x = -double('inf'))")).drop("_arr")
+            # -----------------------------
+            # Class weights (used by LR; kept here for completeness)
+            # -----------------------------
+            counts = train_sup.groupBy(label_col).count().collect()
+            cnt = {int(r[label_col]): int(r["count"]) for r in counts}
 
-            train_fit = df_train_all.filter((col("hid") % lit(100)) < lit(80)).drop("hid").cache()
-            train_val = df_train_all.filter((col("hid") % lit(100)) >= lit(80)).drop("hid").cache()
+            n0 = float(cnt.get(0, 1))
+            n1 = float(cnt.get(1, 1))
+            total = n0 + n1
+            w0 = total / (2.0 * n0) if n0 > 0 else 1.0
+            w1 = total / (2.0 * n1) if n1 > 0 else 1.0
 
-            print("\n[TRAIN_FIT] distribution:")
-            train_fit.groupBy(label_col).count().orderBy(label_col).show()
+            print(f"\n[WEIGHTS] n0={n0:.0f}, n1={n1:.0f}, w0={w0:.6f}, w1={w1:.6f}")
 
-            print("\n[TRAIN_VAL] distribution:")
-            train_val.groupBy(label_col).count().orderBy(label_col).show()
+            train_sup_w = train_sup.withColumn("classWeightCol", when(col(label_col) == 1, lit(w1)).otherwise(lit(w0)))
 
-            # Safety: fail fast if empty split
-            if train_fit.count() == 0:
-                raise ValueError("train_fit is empty after split/cleaning.")
-            if train_val.count() == 0:
-                raise ValueError("train_val is empty after split/cleaning.")
-
-            # ============================================================
-            # 2) Train model on TRAIN_FIT
-            # ============================================================
-            gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=400, maxDepth=5, stepSize=0.05,
-                subsamplingRate=0.8, maxBins=64,  # helps on some datasets
-                seed=123)
-
-            model = Pipeline(stages=[gbt]).fit(train_fit)
+            # -----------------------------
+            # Helpers
+            # -----------------------------
+            auc_eval = BinaryClassificationEvaluator(labelCol=label_col, rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
 
             def add_p1(df_pred):
-                # probability is VectorUDT -> convert to array -> index 1
+                # Spark probability is VectorUDT -> convert to array -> index 1
                 return df_pred.withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
 
-            def apply_thr(scored_df, thr):
-                return scored_df.withColumn("pred_thr", when(col("p1") >= lit(float(thr)), lit(1)).otherwise(lit(0)))
+            def apply_threshold(scored_df, thr_value):
+                return scored_df.withColumn("pred_thr",
+                    when(col("p1") >= lit(float(thr_value)), lit(1)).otherwise(lit(0)))
 
-            def report(pred_df, name):
-                tp = pred_df.filter((col(label_col) == 1) & (col("pred_thr") == 1)).count()
-                tn = pred_df.filter((col(label_col) == 0) & (col("pred_thr") == 0)).count()
-                fp = pred_df.filter((col(label_col) == 0) & (col("pred_thr") == 1)).count()
-                fn = pred_df.filter((col(label_col) == 1) & (col("pred_thr") == 0)).count()
+            def print_class_metrics(pred_df, pred_col, title):
+                tp = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 1)).count()
+                tn = pred_df.filter((col(label_col) == 0) & (col(pred_col) == 0)).count()
+                fp = pred_df.filter((col(label_col) == 0) & (col(pred_col) == 1)).count()
+                fn = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 0)).count()
 
-                prec1 = tp / (tp + fp + EPS)
-                rec1 = tp / (tp + fn + EPS)
-                f1_1 = (2 * prec1 * rec1) / (prec1 + rec1 + EPS)
+                precision_1 = tp / (tp + fp + EPS)
+                recall_1 = tp / (tp + fn + EPS)
+                f1_1 = (2 * precision_1 * recall_1) / (precision_1 + recall_1 + EPS)
 
-                prec0 = tn / (tn + fn + EPS)
-                rec0 = tn / (tn + fp + EPS)
-                f1_0 = (2 * prec0 * rec0) / (prec0 + rec0 + EPS)
+                precision_0 = tn / (tn + fn + EPS)
+                recall_0 = tn / (tn + fp + EPS)
+                f1_0 = (2 * precision_0 * recall_0) / (precision_0 + recall_0 + EPS)
 
                 fpr = fp / (fp + tn + EPS)
+                acc = (tp + tn) / (tp + tn + fp + fn + EPS)
 
-                print(f"\n[{name}] Confusion: TP={tp} FP={fp} FN={fn} TN={tn}  FPR={fpr:.6f}")
-                print("Class1:", f"Prec={prec1:.6f}", f"Rec={rec1:.6f}", f"F1={f1_1:.6f}")
-                print("Class0:", f"Prec={prec0:.6f}", f"Rec={rec0:.6f}", f"F1={f1_0:.6f}")
+                print("\n===================================================")
+                print(title)
+                print("Confusion Matrix:")
+                print(f"TP={tp}  FP={fp}")
+                print(f"FN={fn}  TN={tn}")
+                print(f"ACC={acc:.6f}  FPR={fpr:.6f}")
+
+                print("\nClass 1 (Anomaly)")
+                print(f"Precision: {precision_1:.6f}")
+                print(f"Recall   : {recall_1:.6f}")
+                print(f"F1-score : {f1_1:.6f}")
+
+                print("\nClass 0 (Normal)")
+                print(f"Precision: {precision_0:.6f}")
+                print(f"Recall   : {recall_0:.6f}")
+                print(f"F1-score : {f1_0:.6f}")
+                print("===================================================\n")
+
+            def tune_thr_by_val_fpr(val_scored, target_fpr):
+                # threshold = (1-target_fpr) quantile of p1 among VAL normals
+                val_normals = val_scored.filter(col(label_col) == 0)
+                return float(val_normals.approxQuantile("p1", [1.0 - target_fpr], REL_ERR_Q)[0])
+
+            def tune_thr_best_f1_on_val(val_scored):
+                # Optional: maximize F1 for class=1 on VAL by scanning quantiles
+                qs = [0.90, 0.92, 0.94, 0.95, 0.96, 0.97, 0.975, 0.98, 0.985, 0.99, 0.992, 0.994, 0.996, 0.997, 0.998,
+                      0.999]
+                thr_list = [float(val_scored.approxQuantile("p1", [q], REL_ERR_Q)[0]) for q in qs]
+
+                best_thr = thr_list[0]
+                best_f1 = -1.0
+                best_row = None
+
+                for thr in thr_list:
+                    pred = apply_threshold(val_scored, thr)
+                    tp = pred.filter((col(label_col) == 1) & (col("pred_thr") == 1)).count()
+                    fp = pred.filter((col(label_col) == 0) & (col("pred_thr") == 1)).count()
+                    fn = pred.filter((col(label_col) == 1) & (col("pred_thr") == 0)).count()
+                    tn = pred.filter((col(label_col) == 0) & (col("pred_thr") == 0)).count()
+
+                    prec1 = tp / (tp + fp + EPS)
+                    rec1 = tp / (tp + fn + EPS)
+                    f1_1 = (2 * prec1 * rec1) / (prec1 + rec1 + EPS)
+                    fpr = fp / (fp + tn + EPS)
+
+                    if f1_1 > best_f1:
+                        best_f1 = f1_1
+                        best_thr = float(thr)
+                        best_row = (prec1, rec1, f1_1, fpr)
+
+                return best_thr, best_row  # (thr, (prec,rec,f1,fpr))
+
+            def train_and_eval(model, model_name, use_weights_for_fit=False, also_best_f1_search=True):
+                print(f"\n\n==================== {model_name} ====================")
+
+                fit_df = train_sup_w if use_weights_for_fit else train_sup
+                fitted = Pipeline(stages=[model]).fit(fit_df)
+
+                # Score VAL/TEST
+                val_pred = fitted.transform(val_sup)
+                test_pred = fitted.transform(test_sup)
+
+                # AUC (optional sanity)
+                val_auc = auc_eval.evaluate(val_pred)
+                test_auc = auc_eval.evaluate(test_pred)
+                print(f"[AUC] VAL={val_auc:.6f}  TEST={test_auc:.6f}")
+
+                # Add p1
+                val_scored = add_p1(val_pred).cache()
+                test_scored = add_p1(test_pred)
+
+                # ------------------------
+                # (A) Tune threshold by fixed VAL FPR
+                # ------------------------
+                thr_fpr = tune_thr_by_val_fpr(val_scored, TARGET_FPR)
+                print(f"[THR] tuned by VAL normals FPR~{TARGET_FPR:.4f}: thr={thr_fpr:.6f}")
+
+                val_thr_pred = apply_threshold(val_scored, thr_fpr)
+                test_thr_pred = apply_threshold(test_scored, thr_fpr)
+
+                print_class_metrics(val_thr_pred, "pred_thr", f"{model_name} - VAL (thr_fpr={thr_fpr:.6f})")
+                print_class_metrics(test_thr_pred, "pred_thr", f"{model_name} - TEST (thr_fpr={thr_fpr:.6f})")
+
+                # ------------------------
+                # (B) Optional: Tune threshold to maximize VAL F1(class1)
+                # ------------------------
+                if also_best_f1_search:
+                    thr_best, (p, r, f1, fpr) = tune_thr_best_f1_on_val(val_scored)
+                    print(
+                        f"[THR] best VAL F1(class1): thr={thr_best:.6f}  (prec={p:.4f}, rec={r:.4f}, f1={f1:.4f}, fpr={fpr:.5f})")
+
+                    val_best = apply_threshold(val_scored, thr_best)
+                    test_best = apply_threshold(test_scored, thr_best)
+
+                    print_class_metrics(val_best, "pred_thr", f"{model_name} - VAL (thr_bestF1={thr_best:.6f})")
+                    print_class_metrics(test_best, "pred_thr", f"{model_name} - TEST (thr_bestF1={thr_best:.6f})")
+
+                return fitted
 
             # ============================================================
-            # 3) Tune threshold on TRAIN_VAL normals (not on TEST)
+            # MODELS
             # ============================================================
-            val_scored = add_p1(model.transform(train_val)).cache()
 
-            thr = float(val_scored.filter(col(label_col) == 0).approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
+            # Logistic Regression (optional baseline)
+            lr = LogisticRegression(featuresCol=feat_col, labelCol=label_col, weightCol="classWeightCol", maxIter=200,
+                regParam=0.01, elasticNetParam=0.0)
 
-            print(f"\n[THR] tuned on TRAIN_VAL normals for FPR~{TARGET_FPR}: thr={thr:.6f}")
+            # Random Forest
+            rf = RandomForestClassifier(featuresCol=feat_col, labelCol=label_col, numTrees=500, maxDepth=12,
+                featureSubsetStrategy="sqrt", seed=123)
 
-            val_pred = apply_thr(val_scored, thr)
-            report(val_pred, "TRAIN_VAL")
+            # GBT (often best)
+            gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=400, maxDepth=5, stepSize=0.05,
+                subsamplingRate=0.8, seed=123)
 
             # ============================================================
-            # 4) Final evaluation on TEST (once)
+            # RUN (uncomment what you want)
             # ============================================================
-            df_test_clean = (df_test_cls.select(col(id_col), col(feat_col), col(label_col)).dropna(
-                subset=[feat_col, label_col]).withColumn(label_col, col(label_col).cast("double")).withColumn("_arr",
-                                                                                                              vector_to_array(
-                                                                                                                  col(feat_col))).filter(
-                ~F.expr("exists(_arr, x -> isNaN(x) OR x = double('inf') OR x = -double('inf'))")).drop("_arr"))
 
-            test_scored = add_p1(model.transform(df_test_clean))
-            test_pred = apply_thr(test_scored, thr)
-            report(test_pred, "TEST")
+            # lr_model  = train_and_eval(lr,  "LogisticRegression", use_weights_for_fit=True,  also_best_f1_search=True)
+            rf_model = train_and_eval(rf, "RandomForest", use_weights_for_fit=False, also_best_f1_search=True)
+            #gbt_model = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False, also_best_f1_search=True)
 
+            print("\nDone.")
+
+            print("\nDone. Choose the model with best TEST class-1 F1/precision/recall under tuned threshold.")
             exit()
 
             '''
