@@ -1256,12 +1256,12 @@ class FeaturesEngineering:
             # 13) Optional: show balances
             # ============================================================
             print("\n[COUNTS] unlabeled_train: true Label vs Pred_Label")
-            unlab_pred.groupBy("Label").count().orderBy("Label").show()
-            unlab_pred.groupBy("Pred_Label").count().orderBy("Pred_Label").show()
+            #unlab_pred.groupBy("Label").count().orderBy("Label").show()
+            #unlab_pred.groupBy("Pred_Label").count().orderBy("Pred_Label").show()
 
             print("\n[COUNTS] full_train: true Label vs Pred_Label")
-            full_train_pred.groupBy("Label").count().orderBy("Label").show()
-            full_train_pred.groupBy("Pred_Label").count().orderBy("Pred_Label").show()
+            #full_train_pred.groupBy("Label").count().orderBy("Label").show()
+            #full_train_pred.groupBy("Pred_Label").count().orderBy("Pred_Label").show()
 
             print("\n[COUNTS] test: true Label vs Pred_Label")
             test_pred.groupBy("Label").count().orderBy("Label").show()
