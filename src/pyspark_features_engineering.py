@@ -828,7 +828,7 @@ class FeaturesEngineering:
             CAP_PSEUDO_ANOM_TOP_PCT = 0.20  # keep only top 20% pseudo anomalies by comb_score; set None to disable
 
             # widen normal manifold by adding bottom X% unlabeled by comb_score
-            NEAR_NORMAL_PCT = 0.50  # keep this: it gave you the big test improvement
+            NEAR_NORMAL_PCT = 0.40  # keep this: it gave you the big test improvement
 
             # limit pandas pulls for reports (avoid OOM)
             PANDAS_CAP = 200000
