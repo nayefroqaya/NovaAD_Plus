@@ -1310,7 +1310,7 @@ class FeaturesEngineering:
             if "Label" in sequences_df.columns:
                 df_train_quality = (
                     df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
-                                            on=id_col, how="inner").select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna())
+                                            on=id_col, how="inner")) # .select("Node_block_id", "pca_features", "true_label", "Final_Label").dropna()
                 n_quality = df_train_quality.count()
                 if n_quality > 0:
                     pdf_train_quality = df_train_quality.toPandas()
@@ -1319,15 +1319,16 @@ class FeaturesEngineering:
 
                     print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
                     print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
+
                     print(f"\n=== Nayef: Classification_report on FINAL TRAIN SET (n={n_quality}) ===")
                     print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"],
                                                 digits=3))
-
                 else:
                     print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
             else:
                 print(
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
+            exit()
 
             print("=== SCHEMA ===")
             #df_final_train_cls.printSchema()
@@ -1361,9 +1362,6 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings
             # -----------------------------
-            # -----------------------------
-            # Settings
-            # -----------------------------
             id_col = "Node_block_id"
             feat_col = "pca_features"
             label_col = "Final_Label"
@@ -1387,7 +1385,7 @@ class FeaturesEngineering:
             test_sup = prep_sup(df_test_cls, "TEST_SUP")
 
             # -----------------------------
-            # Class weights (used by LR; kept here for completeness)
+            # Class weights (used by LR; for trees we also keep it available)
             # -----------------------------
             counts = train_sup.groupBy(label_col).count().collect()
             cnt = {int(r[label_col]): int(r["count"]) for r in counts}
@@ -1398,8 +1396,6 @@ class FeaturesEngineering:
             w0 = total / (2.0 * n0) if n0 > 0 else 1.0
             w1 = total / (2.0 * n1) if n1 > 0 else 1.0
 
-            print(f"\n[WEIGHTS] n0={n0:.0f}, n1={n1:.0f}, w0={w0:.6f}, w1={w1:.6f}")
-
             train_sup_w = train_sup.withColumn("classWeightCol", when(col(label_col) == 1, lit(w1)).otherwise(lit(w0)))
 
             # -----------------------------
@@ -1409,12 +1405,10 @@ class FeaturesEngineering:
                 metricName="areaUnderROC")
 
             def add_p1(df_pred):
-                # Spark probability is VectorUDT -> convert to array -> index 1
                 return df_pred.withColumn("p1", vector_to_array(col("probability"))[1].cast("double"))
 
-            def apply_threshold(scored_df, thr_value):
-                return scored_df.withColumn("pred_thr",
-                    when(col("p1") >= lit(float(thr_value)), lit(1)).otherwise(lit(0)))
+            def apply_threshold_pred(scored_df, thr_value):
+                return scored_df.withColumn("pred_thr", when(col("p1") >= lit(thr_value), lit(1)).otherwise(lit(0)))
 
             def print_class_metrics(pred_df, pred_col, title):
                 tp = pred_df.filter((col(label_col) == 1) & (col(pred_col) == 1)).count()
@@ -1451,112 +1445,62 @@ class FeaturesEngineering:
                 print(f"F1-score : {f1_0:.6f}")
                 print("===================================================\n")
 
-            def tune_thr_by_val_fpr(val_scored, target_fpr):
-                # threshold = (1-target_fpr) quantile of p1 among VAL normals
-                val_normals = val_scored.filter(col(label_col) == 0)
-                return float(val_normals.approxQuantile("p1", [1.0 - target_fpr], REL_ERR_Q)[0])
-
-            def tune_thr_best_f1_on_val(val_scored):
-                # Optional: maximize F1 for class=1 on VAL by scanning quantiles
-                qs = [0.90, 0.92, 0.94, 0.95, 0.96, 0.97, 0.975, 0.98, 0.985, 0.99, 0.992, 0.994, 0.996, 0.997, 0.998,
-                      0.999]
-                thr_list = [float(val_scored.approxQuantile("p1", [q], REL_ERR_Q)[0]) for q in qs]
-
-                best_thr = thr_list[0]
-                best_f1 = -1.0
-                best_row = None
-
-                for thr in thr_list:
-                    pred = apply_threshold(val_scored, thr)
-                    tp = pred.filter((col(label_col) == 1) & (col("pred_thr") == 1)).count()
-                    fp = pred.filter((col(label_col) == 0) & (col("pred_thr") == 1)).count()
-                    fn = pred.filter((col(label_col) == 1) & (col("pred_thr") == 0)).count()
-                    tn = pred.filter((col(label_col) == 0) & (col("pred_thr") == 0)).count()
-
-                    prec1 = tp / (tp + fp + EPS)
-                    rec1 = tp / (tp + fn + EPS)
-                    f1_1 = (2 * prec1 * rec1) / (prec1 + rec1 + EPS)
-                    fpr = fp / (fp + tn + EPS)
-
-                    if f1_1 > best_f1:
-                        best_f1 = f1_1
-                        best_thr = float(thr)
-                        best_row = (prec1, rec1, f1_1, fpr)
-
-                return best_thr, best_row  # (thr, (prec,rec,f1,fpr))
-
-            def train_and_eval(model, model_name, use_weights_for_fit=False, also_best_f1_search=True):
+            def train_and_eval(model, model_name, use_weights_for_fit):
                 print(f"\n\n==================== {model_name} ====================")
 
                 fit_df = train_sup_w if use_weights_for_fit else train_sup
-                fitted = Pipeline(stages=[model]).fit(fit_df)
 
-                # Score VAL/TEST
+                pipe = Pipeline(stages=[model])
+                fitted = pipe.fit(fit_df)
+
+                # --- default threshold eval (AUC only) ---
                 val_pred = fitted.transform(val_sup)
                 test_pred = fitted.transform(test_sup)
 
-                # AUC (optional sanity)
                 val_auc = auc_eval.evaluate(val_pred)
                 test_auc = auc_eval.evaluate(test_pred)
                 print(f"[AUC] VAL={val_auc:.6f}  TEST={test_auc:.6f}")
 
-                # Add p1
+                # --- tune threshold on VAL normals to hit TARGET_FPR ---
                 val_scored = add_p1(val_pred).cache()
+                thr = float(
+                    val_scored.filter(col(label_col) == 0).approxQuantile("p1", [1.0 - TARGET_FPR], REL_ERR_Q)[0])
+                print(f"[THR tuned @ VAL normals FPR~{TARGET_FPR}] thr={thr:.6f}")
+
+                # --- apply threshold + metrics ---
+                val_thr_pred = apply_threshold_pred(val_scored, thr)
                 test_scored = add_p1(test_pred)
+                test_thr_pred = apply_threshold_pred(test_scored, thr)
 
-                # ------------------------
-                # (A) Tune threshold by fixed VAL FPR
-                # ------------------------
-                thr_fpr = tune_thr_by_val_fpr(val_scored, TARGET_FPR)
-                print(f"[THR] tuned by VAL normals FPR~{TARGET_FPR:.4f}: thr={thr_fpr:.6f}")
+                print_class_metrics(val_thr_pred, "pred_thr", f"{model_name} - VAL (tuned thr={thr:.6f})")
+                print_class_metrics(test_thr_pred, "pred_thr", f"{model_name} - TEST (tuned thr={thr:.6f})")
 
-                val_thr_pred = apply_threshold(val_scored, thr_fpr)
-                test_thr_pred = apply_threshold(test_scored, thr_fpr)
-
-                print_class_metrics(val_thr_pred, "pred_thr", f"{model_name} - VAL (thr_fpr={thr_fpr:.6f})")
-                print_class_metrics(test_thr_pred, "pred_thr", f"{model_name} - TEST (thr_fpr={thr_fpr:.6f})")
-
-                # ------------------------
-                # (B) Optional: Tune threshold to maximize VAL F1(class1)
-                # ------------------------
-                if also_best_f1_search:
-                    thr_best, (p, r, f1, fpr) = tune_thr_best_f1_on_val(val_scored)
-                    print(
-                        f"[THR] best VAL F1(class1): thr={thr_best:.6f}  (prec={p:.4f}, rec={r:.4f}, f1={f1:.4f}, fpr={fpr:.5f})")
-
-                    val_best = apply_threshold(val_scored, thr_best)
-                    test_best = apply_threshold(test_scored, thr_best)
-
-                    print_class_metrics(val_best, "pred_thr", f"{model_name} - VAL (thr_bestF1={thr_best:.6f})")
-                    print_class_metrics(test_best, "pred_thr", f"{model_name} - TEST (thr_bestF1={thr_best:.6f})")
-
-                return fitted
+                return fitted, thr
 
             # ============================================================
-            # MODELS
+            # Models to try
             # ============================================================
 
-            # Logistic Regression (optional baseline)
+            # 1) Logistic Regression (baseline)
             lr = LogisticRegression(featuresCol=feat_col, labelCol=label_col, weightCol="classWeightCol", maxIter=200,
                 regParam=0.01, elasticNetParam=0.0)
 
-            # Random Forest
-            rf = RandomForestClassifier(featuresCol=feat_col, labelCol=label_col, numTrees=500, maxDepth=12,
+            # 2) Random Forest (often improves precision)
+            rf = RandomForestClassifier(featuresCol=feat_col, labelCol=label_col, numTrees=300, maxDepth=10,
                 featureSubsetStrategy="sqrt", seed=123)
+            # Note: many Spark versions do NOT support weightCol for RF. If yours does, you can add weightCol="classWeightCol"
 
-            # GBT (often best)
-            gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=400, maxDepth=5, stepSize=0.05,
+            # 3) Gradient-Boosted Trees (often best)
+            gbt = GBTClassifier(featuresCol=feat_col, labelCol=label_col, maxIter=200, maxDepth=5, stepSize=0.05,
                 subsamplingRate=0.8, seed=123)
+            # Note: many Spark versions do NOT support weightCol for GBT either.
 
             # ============================================================
-            # RUN (uncomment what you want)
+            # Run all
             # ============================================================
-
-            # lr_model  = train_and_eval(lr,  "LogisticRegression", use_weights_for_fit=True,  also_best_f1_search=True)
-            rf_model = train_and_eval(rf, "RandomForest", use_weights_for_fit=False, also_best_f1_search=True)
-            #gbt_model = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False, also_best_f1_search=True)
-
-            print("\nDone.")
+            #lr_model, lr_thr = train_and_eval(lr, "LogisticRegression", use_weights_for_fit=True)
+            rf_model, rf_thr = train_and_eval(rf, "RandomForest", use_weights_for_fit=False)
+            #gbt_model, gbt_thr = train_and_eval(gbt, "GBTClassifier", use_weights_for_fit=False)
 
             print("\nDone. Choose the model with best TEST class-1 F1/precision/recall under tuned threshold.")
             exit()
