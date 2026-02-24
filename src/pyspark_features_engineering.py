@@ -805,6 +805,7 @@ class FeaturesEngineering:
 
 
             #------------(4)
+
             # -----------------------------
             # SETTINGS
             # -----------------------------
@@ -813,7 +814,7 @@ class FeaturesEngineering:
             SEED = 123
             eps = 1e-9
 
-            feature_col = "features_vec_final"
+            feature_col_raw = "features_vec_final"  # original input features
             id_col = "Node_block_id"
             temp_col = "Temp_label"
 
@@ -824,6 +825,9 @@ class FeaturesEngineering:
 
             # cap pseudo anomalies to top X% most confident (reduces anomaly bias)
             CAP_PSEUDO_ANOM_TOP_PCT = 0.20  # keep only top 20% pseudo anomalies by comb_score; set None to disable
+
+            # widen normal manifold by adding bottom X% unlabeled by comb_score
+            NEAR_NORMAL_PCT = 0.50  # try 0.30..0.70 if needed
 
             # limit pandas pulls for reports (avoid OOM)
             PANDAS_CAP = 200000
@@ -888,8 +892,8 @@ class FeaturesEngineering:
                 if n == 0:
                     return None
                 if n > cap:
-                    tmp = tmp.withColumn("_h", F.xxhash64(
-                        F.concat_ws("::", col(true_col).cast("string"), col(pred_col).cast("string"))))
+                    tmp = tmp.withColumn("_h",
+                        F.xxhash64(F.concat_ws("::", col(true_col).cast("string"), col(pred_col).cast("string"))), )
                     k = int(np.ceil(n / cap))
                     tmp = tmp.filter((col("_h") % lit(k)) == lit(0)).drop("_h")
                 pdf = tmp.toPandas()
@@ -904,7 +908,7 @@ class FeaturesEngineering:
             sequences_df = sequences_df.withColumn("Label",
                 F.when(F.col("Label_str").isin("normal", "0"), F.lit(0)).when(F.col("Label_str").isin("anomaly", "1"),
                                                                               F.lit(1)).otherwise(
-                    F.lit(None).cast("int"))).drop("Label_str")
+                    F.lit(None).cast("int")), ).drop("Label_str")
 
             bad = sequences_df.filter(F.col("Label").isNull()).count()
             if bad > 0:
@@ -944,6 +948,20 @@ class FeaturesEngineering:
 
             norm_fit_df = train_normal_df.filter((col("hid") % lit(100)) < lit(80))
             norm_holdout_df = train_normal_df.filter((col("hid") % lit(100)) >= lit(80))
+
+            # ============================================================
+            # 2.5) Standardize features (fit ONLY on NORMAL-fit)
+            # ============================================================
+            scaled_col = "features_scaled"
+            scaler = StandardScaler(inputCol=feature_col_raw, outputCol=scaled_col, withStd=True, withMean=False)
+            scaler_model = scaler.fit(norm_fit_df.select(feature_col_raw))
+
+            norm_fit_df = scaler_model.transform(norm_fit_df)
+            norm_holdout_df = scaler_model.transform(norm_holdout_df)
+            train_unlabeled_df = scaler_model.transform(train_unlabeled_df)
+            df_test = scaler_model.transform(df_test)
+
+            feature_col = scaled_col  # from here onward, use scaled features
 
             # ============================================================
             # 3) Choose PCA k on NORMAL-fit only
@@ -1223,20 +1241,19 @@ class FeaturesEngineering:
                     print(
                         f"[CAP] Keeping top {CAP_PSEUDO_ANOM_TOP_PCT * 100:.1f}% pseudo anomalies by comb_score. thr_top={thr_top:.6f}")
 
-            # build final train set labels (for report only)
-            train_df_normal_cls = norm_fit_df.select(id_col, feature_col).withColumn("train_used_label",
-                                                                                     lit(0).cast("int"))
-            train_df_unlabeled_cls = conf_anom.unionByName(conf_norm).select(id_col, feature_col,
-                col("Final_Label").cast("int").alias("train_used_label"))
-            df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
+            # ============================================================
+            # 12.5) Add near-normals from unlabeled to widen normal manifold
+            # ============================================================
+            thr_near = approx_quantile(unlab_scores, "comb_score", float(NEAR_NORMAL_PCT), rel=1e-3)
+            near_norm = (
+                unlab_scores.filter(col("comb_score") <= lit(thr_near)).select(id_col, feature_col).dropDuplicates(
+                    [id_col]))
 
-            print("\n[FINAL TRAIN BALANCE] after filtering/cap:")
-            df_final_train_cls.groupBy("train_used_label").count().orderBy("train_used_label").show()
-            print("[UNLABELED] total:", train_unlabeled_df.count())
-            print("[UNLABELED] kept :", train_df_unlabeled_cls.count())
+            print(f"\n[NEAR-NORMAL] bottom {NEAR_NORMAL_PCT * 100:.1f}% by comb_score. thr_near={thr_near:.6f}")
+            print("[NEAR-NORMAL] count:", near_norm.count())
 
             # ============================================================
-            # 13) TEST set (with labels if present)
+            # 13) TEST set
             # ============================================================
             df_test_cls = df_test.select(id_col, feature_col, col("Label").cast("int").alias("label"))
 
@@ -1251,8 +1268,6 @@ class FeaturesEngineering:
                 if pdf_u is not None:
                     print("\n=== REPORT 1: UNLABELED (true_label vs pseudo_label) ===")
                     print(classification_report(pdf_u["true_label"], pdf_u["pseudo_label"], digits=3))
-                else:
-                    print("\n[WARN] REPORT 1 skipped: no rows.")
             except Exception as e:
                 print(f"\n[WARN] REPORT 1 skipped: {e}")
 
@@ -1260,6 +1275,12 @@ class FeaturesEngineering:
             # 15) REPORT 2: FINAL TRAIN SET label quality (if true labels exist)
             # ============================================================
             try:
+                train_df_normal_cls = norm_fit_df.select(id_col, feature_col).withColumn("train_used_label",
+                                                                                         lit(0).cast("int"))
+                train_df_unlabeled_cls = conf_anom.unionByName(conf_norm).select(id_col, feature_col,
+                    col("Final_Label").cast("int").alias("train_used_label"))
+                df_final_train_cls = train_df_normal_cls.unionByName(train_df_unlabeled_cls, allowMissingColumns=False)
+
                 train_quality = (
                     df_final_train_cls.join(sequences_df.select(id_col, col("Label").cast("int").alias("true_label")),
                                             on=id_col, how="inner").select("true_label", "train_used_label").dropna())
@@ -1267,93 +1288,53 @@ class FeaturesEngineering:
                 if pdf_tr is not None:
                     print("\n=== REPORT 2: FINAL TRAIN SET (true_label vs train_used_label) ===")
                     print(classification_report(pdf_tr["true_label"], pdf_tr["train_used_label"], digits=3))
-                else:
-                    print("\n[WARN] REPORT 2 skipped: no rows.")
             except Exception as e:
                 print(f"\n[WARN] REPORT 2 skipped: {e}")
 
             # ============================================================
-            # 16) FINAL ONE-CLASS ANOMALY DETECTOR (BEST PURE PYSPARK):
-            #     PCA + GMM(NLL) trained ONLY on CLEAN NORMALS: (norm_fit_df + conf_norm)
+            # 16) FINAL ONE-CLASS DETECTOR (stable): PCA recon error on widened normals
+            #     Train normals = norm_fit_df + conf_norm + near_norm
             # ============================================================
             final_normals_df = (
                 norm_fit_df.select(id_col, feature_col).unionByName(conf_norm.select(id_col, feature_col),
-                                                                    allowMissingColumns=False)).dropDuplicates([id_col])
+                                                                    allowMissingColumns=False).unionByName(
+                    near_norm.select(id_col, feature_col), allowMissingColumns=False)).dropDuplicates([id_col])
 
             print("\n[ONE-CLASS] final_normals_df count:", final_normals_df.count())
             print("[ONE-CLASS] norm_holdout_df count:", norm_holdout_df.count())
 
-            # Fit PCA on clean normals
-            pca_one = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features_one")
-            pca_one_model = pca_one.fit(final_normals_df)
+            # Fit PCA on widened normals
+            pca_final = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_final")
+            pca_final_model = pca_final.fit(final_normals_df)
 
-            norm_train_pca = pca_one_model.transform(final_normals_df).select(id_col, "pca_features_one")
-            norm_hold_pca = pca_one_model.transform(norm_holdout_df.select(id_col, feature_col)).select(id_col,
-                                                                                                        "pca_features_one")
+            norm_hold_final = pca_final_model.transform(norm_holdout_df.select(id_col, feature_col))
+            test_final = pca_final_model.transform(df_test_cls.select(id_col, feature_col, "label"))
 
-            test_pca_one = pca_one_model.transform(df_test_cls).select(id_col, "pca_features_one", "label")
-
-            # Fit GMM on clean normals in PCA space
-            GMM_K_ONE = int(best_gmm_k) if best_gmm_k is not None else 6
-            gmm_one = GaussianMixture(k=GMM_K_ONE, seed=SEED, featuresCol="pca_features_one")
-            gmm_one_model = gmm_one.fit(norm_train_pca.select("pca_features_one"))
-            print(f"[ONE-CLASS] Trained GMM on clean normals. k={GMM_K_ONE}")
-
-            # Build NLL scorer from one-class GMM params
-            weights_one = np.array(gmm_one_model.weights, dtype=float)
-            gaussians_one = gmm_one_model.gaussians
-            means_one = np.stack([vec_to_np(g.mean) for g in gaussians_one], axis=0)
-            covs_one = np.stack([cov_to_2d(g.cov, best_k) for g in gaussians_one], axis=0)
-
-            covs_one = covs_one + np.eye(best_k)[None, :, :] * 1e-6
-            inv_covs_one = np.linalg.inv(covs_one)
-            sign_one, logdets_one = np.linalg.slogdet(covs_one)
-            if np.any(sign_one <= 0):
-                covs_one = covs_one + np.eye(best_k)[None, :, :] * 1e-4
-                inv_covs_one = np.linalg.inv(covs_one)
-                sign_one, logdets_one = np.linalg.slogdet(covs_one)
-
-            const_one = best_k * np.log(2.0 * np.pi)
-
-            bc_one = spark.sparkContext.broadcast(
-                {"weights": weights_one, "means": means_one, "inv_covs": inv_covs_one, "logdets": logdets_one,
-                    "const": const_one})
+            # Compute reconstruction error with final PCA
+            pc_final = pca_final_model.pc.toArray()
+            pc_final_b = spark.sparkContext.broadcast(pc_final)
 
             @F.udf(DoubleType())
-            def oneclass_gmm_nll(pca_vec):
+            def recon_err_final(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
                 z = np.array(pca_vec.toArray(), dtype=float)
-                P = bc_one.value
-                w = P["weights"]
-                m = P["means"]
-                ic = P["inv_covs"]
-                ld = P["logdets"]
-                cst = float(P["const"])
+                pc_local = pc_final_b.value
+                # Spark PCA pc is (d x k); x_hat = pc @ z
+                x_hat = pc_local @ z if pc_local.shape[0] == x.shape[0] else z @ pc_local
+                return float(np.linalg.norm(x - x_hat))
 
-                logps = []
-                for i in range(len(w)):
-                    diff = z - m[i]
-                    quad = float(diff.T @ ic[i] @ diff)
-                    logN = -0.5 * (quad + float(ld[i]) + cst)
-                    logps.append(np.log(max(float(w[i]), 1e-300)) + logN)
+            norm_hold_scored = norm_hold_final.withColumn("score", recon_err_final(col(feature_col), col("pca_final")))
+            test_scored = test_final.withColumn("score", recon_err_final(col(feature_col), col("pca_final")))
 
-                a = float(np.max(logps))
-                logp = a + float(np.log(np.sum(np.exp(np.array(logps) - a))))
-                return float(-logp)
+            thr_final = approx_quantile(norm_hold_scored, "score", 1.0 - TARGET_FPR, rel=1e-3)
+            real_fpr_final = norm_hold_scored.filter(col("score") > lit(thr_final)).count() / max(
+                norm_hold_scored.count(), 1)
+            print(f"\n[ONE-CLASS THRESHOLD] thr={thr_final:.6f}, realized_fpr={real_fpr_final:.6f}")
 
-            # Score holdout normals and set threshold by TARGET_FPR
-            norm_hold_scored = norm_hold_pca.withColumn("score", oneclass_gmm_nll(col("pca_features_one")))
-            thr_one = approx_quantile(norm_hold_scored, "score", 1.0 - TARGET_FPR, rel=1e-3)
-
-            real_fpr_one = norm_hold_scored.filter(col("score") > lit(thr_one)).count() / max(norm_hold_scored.count(),
-                                                                                              1)
-            print(f"\n[ONE-CLASS THRESHOLD] thr={thr_one:.6f}, realized_fpr={real_fpr_one:.6f}")
-
-            # Predict test and report
-            test_scored = test_pca_one.withColumn("score", oneclass_gmm_nll(col("pca_features_one")))
-            pred_test = test_scored.withColumn("pred", when(col("score") > lit(thr_one), lit(1)).otherwise(lit(0)))
+            pred_test = test_scored.withColumn("pred", when(col("score") > lit(thr_final), lit(1)).otherwise(lit(0)))
 
             pdf_test = pred_test.select("label", "pred").toPandas()
-            print("\n=== REPORT 3: TEST (ONE-CLASS GMM on clean normals) ===")
+            print("\n=== REPORT 3: TEST (ONE-CLASS PCA recon error, widened normals) ===")
             print(classification_report(pdf_test["label"].astype(int), pdf_test["pred"].astype(int), digits=3))
 
             exit()
