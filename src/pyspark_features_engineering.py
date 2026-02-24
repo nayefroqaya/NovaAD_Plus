@@ -810,11 +810,12 @@ class FeaturesEngineering:
             # SETTINGS
             # -----------------------------
             METHOD = "auto"  # "auto" or force: "pca","gmm","and","or"
-            TARGET_FPR = 0.01
+
+            TARGET_FPR = 0.005  # ✅ BEST NEXT IMPROVEMENT: reduce false positives on normals (was 0.01)
             SEED = 123
             eps = 1e-9
 
-            feature_col_raw = "features_vec_final"  # original input features
+            feature_col_raw = "features_vec_final"
             id_col = "Node_block_id"
             temp_col = "Temp_label"
 
@@ -827,7 +828,7 @@ class FeaturesEngineering:
             CAP_PSEUDO_ANOM_TOP_PCT = 0.20  # keep only top 20% pseudo anomalies by comb_score; set None to disable
 
             # widen normal manifold by adding bottom X% unlabeled by comb_score
-            NEAR_NORMAL_PCT = 0.50  # try 0.30..0.70 if needed
+            NEAR_NORMAL_PCT = 0.50  # keep this: it gave you the big test improvement
 
             # limit pandas pulls for reports (avoid OOM)
             PANDAS_CAP = 200000
@@ -961,7 +962,7 @@ class FeaturesEngineering:
             train_unlabeled_df = scaler_model.transform(train_unlabeled_df)
             df_test = scaler_model.transform(df_test)
 
-            feature_col = scaled_col  # from here onward, use scaled features
+            feature_col = scaled_col  # use scaled features from now on
 
             # ============================================================
             # 3) Choose PCA k on NORMAL-fit only
@@ -1272,7 +1273,8 @@ class FeaturesEngineering:
                 print(f"\n[WARN] REPORT 1 skipped: {e}")
 
             # ============================================================
-            # 15) REPORT 2: FINAL TRAIN SET label quality (if true labels exist)
+            # 15) REPORT 2: FINAL TRAIN SET label quality (EXCLUDES near_norm)
+            #     (near_norm is used only to widen the manifold, not a labeled set)
             # ============================================================
             try:
                 train_df_normal_cls = norm_fit_df.select(id_col, feature_col).withColumn("train_used_label",
@@ -1310,7 +1312,7 @@ class FeaturesEngineering:
             norm_hold_final = pca_final_model.transform(norm_holdout_df.select(id_col, feature_col))
             test_final = pca_final_model.transform(df_test_cls.select(id_col, feature_col, "label"))
 
-            # Compute reconstruction error with final PCA
+            # Reconstruction error with final PCA
             pc_final = pca_final_model.pc.toArray()
             pc_final_b = spark.sparkContext.broadcast(pc_final)
 
@@ -1319,13 +1321,13 @@ class FeaturesEngineering:
                 x = np.array(orig_vec.toArray(), dtype=float)
                 z = np.array(pca_vec.toArray(), dtype=float)
                 pc_local = pc_final_b.value
-                # Spark PCA pc is (d x k); x_hat = pc @ z
                 x_hat = pc_local @ z if pc_local.shape[0] == x.shape[0] else z @ pc_local
                 return float(np.linalg.norm(x - x_hat))
 
             norm_hold_scored = norm_hold_final.withColumn("score", recon_err_final(col(feature_col), col("pca_final")))
             test_scored = test_final.withColumn("score", recon_err_final(col(feature_col), col("pca_final")))
 
+            # Threshold using NORMAL holdout (controls FP rate)
             thr_final = approx_quantile(norm_hold_scored, "score", 1.0 - TARGET_FPR, rel=1e-3)
             real_fpr_final = norm_hold_scored.filter(col("score") > lit(thr_final)).count() / max(
                 norm_hold_scored.count(), 1)
@@ -1336,6 +1338,7 @@ class FeaturesEngineering:
             pdf_test = pred_test.select("label", "pred").toPandas()
             print("\n=== REPORT 3: TEST (ONE-CLASS PCA recon error, widened normals) ===")
             print(classification_report(pdf_test["label"].astype(int), pdf_test["pred"].astype(int), digits=3))
+
 
             exit()
 
