@@ -837,9 +837,9 @@ class FeaturesEngineering:
 
             # Threshold selection for supervised model (academic-safe):
             # Choose threshold as quantile on VAL normals to achieve target FPR
-            TARGET_FPR_SUP_LIST = [0.005, 0.01, 0.02,
-                                   0.05]  # we will sweep and pick best macro-F1 on VAL (still only using VAL)
-
+           # TARGET_FPR_SUP_LIST = [0.005, 0.01, 0.02,
+           #                        0.05]  # we will sweep and pick best macro-F1 on VAL (still only using VAL)
+            TARGET_FPR_SUP_LIST = [0.001, 0.002, 0.005, 0.01]
             # -----------------------------
             # HELPERS
             # -----------------------------
