@@ -811,7 +811,7 @@ class FeaturesEngineering:
             # -----------------------------
             METHOD = "auto"  # "auto" or force: "pca","gmm","and","or"
 
-            TARGET_FPR = 0.002  # ✅ BEST NEXT IMPROVEMENT: reduce false positives on normals (was 0.01)
+            TARGET_FPR = 0.005  # ✅ BEST NEXT IMPROVEMENT: reduce false positives on normals (was 0.01)
             SEED = 123
             eps = 1e-9
 
@@ -828,7 +828,7 @@ class FeaturesEngineering:
             CAP_PSEUDO_ANOM_TOP_PCT = 0.20  # keep only top 20% pseudo anomalies by comb_score; set None to disable
 
             # widen normal manifold by adding bottom X% unlabeled by comb_score
-            NEAR_NORMAL_PCT = 0.40  # keep this: it gave you the big test improvement
+            NEAR_NORMAL_PCT = 0.50  # keep this: it gave you the big test improvement
 
             # limit pandas pulls for reports (avoid OOM)
             PANDAS_CAP = 200000
@@ -967,7 +967,8 @@ class FeaturesEngineering:
             # ============================================================
             # 3) Choose PCA k on NORMAL-fit only
             # ============================================================
-            candidate_ks = [10, 20, 40, 50, 60, 70]
+            #candidate_ks = [10, 20, 40, 50, 60, 70]
+            candidate_ks = [20, 40, 60, 80]
             target_variance = 0.999
 
             best_k = None
