@@ -801,7 +801,7 @@ class FeaturesEngineering:
             from pyspark.ml.functions import vector_to_array
             from pyspark.ml.classification import LogisticRegression
             from pyspark.ml.evaluation import BinaryClassificationEvaluator
-
+            from sklearn.metrics import precision_recall_curve
 
             #------------- (3)
 
@@ -905,7 +905,7 @@ class FeaturesEngineering:
 
             def tune_threshold_on_val(model, df_val_with_label, features_col=feature_col, label_col="label"):
                 pred_val = model.transform(df_val_with_label).select(col(label_col).cast("int").alias("y"),
-                    col("probability").getItem(1).alias("p1"))
+                    vector_to_array(col("probability")).getItem(1).alias("p1"))
                 pdf_val = pred_val.toPandas()
                 y = pdf_val["y"].astype(int).values
                 p = pdf_val["p1"].astype(float).values
@@ -1334,7 +1334,7 @@ class FeaturesEngineering:
 
             # show VAL report at tuned threshold
             pred_val = gbt_model.transform(df_val_cls).select(col("label").cast("int").alias("y"),
-                col("probability").getItem(1).alias("p1"))
+                vector_to_array(col("probability")).getItem(1).alias("p1"))
             pdf_val = pred_val.toPandas()
             y_val = pdf_val["y"].astype(int).values
             p_val = pdf_val["p1"].astype(float).values
@@ -1345,7 +1345,7 @@ class FeaturesEngineering:
             # 18) REPORT 3: TEST (true label vs supervised prediction @ tuned threshold)
             # ============================================================
             pred_test = gbt_model.transform(df_test_cls).select(col("label").cast("int").alias("y"),
-                col("probability").getItem(1).alias("p1"), col("rawPrediction"))
+                vector_to_array(col("probability")).getItem(1).alias("p1"), col("rawPrediction"))
 
             pdf_test = pred_test.toPandas()
             y_te = pdf_test["y"].astype(int).values
