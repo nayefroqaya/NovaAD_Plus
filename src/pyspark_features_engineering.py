@@ -811,7 +811,7 @@ class FeaturesEngineering:
             # SETTINGS
             # -----------------------------
             METHOD = "auto"  # "auto" or force: "pca","gmm","and","or"
-            TARGET_FPR = 0.01
+            TARGET_FPR_NOV = 0.01  # novelty thresholds on normal-fit
             SEED = 123
             eps = 1e-9
 
@@ -819,25 +819,26 @@ class FeaturesEngineering:
             id_col = "Node_block_id"
             temp_col = "Temp_label"
 
-            # NEW ACADEMIC validation split size (fraction of training pool)
-            VAL_FRAC = 0.20  # 20% of training pool becomes validation
-            # IMPORTANT: stratified by true Label, so anomalies are not tiny.
+            # Build NEW academic validation split from training pool (exclude test)
+            VAL_FRAC = 0.20  # 20% stratified by true Label
 
-            # confidence filtering margins (stricter => cleaner pseudo labels)
+            # confidence filtering margins
             MARGIN_PCA = 0.25
             MARGIN_GMM = 0.25
             MARGIN_COMB = 0.20
 
-            # optional: cap pseudo anomalies to top X% by comb_score (reduces anomaly bias)
+            # optional cap of pseudo anomalies (top X% by comb_score), to reduce anomaly bias
             CAP_PSEUDO_ANOM_TOP_PCT = 0.20  # set None to disable
 
-            # GBT params
+            # Supervised model parameters
             GBT_MAX_ITER = 150
             GBT_MAX_DEPTH = 5
             GBT_STEP_SIZE = 0.1
 
-            # Max rows to pull into pandas for reports (avoid OOM)
-            PANDAS_CAP = 200000
+            # Threshold selection for supervised model (academic-safe):
+            # Choose threshold as quantile on VAL normals to achieve target FPR
+            TARGET_FPR_SUP_LIST = [0.005, 0.01, 0.02,
+                                   0.05]  # we will sweep and pick best macro-F1 on VAL (still only using VAL)
 
             # -----------------------------
             # HELPERS
@@ -893,40 +894,45 @@ class FeaturesEngineering:
                     return A.reshape(d_dim, d_dim)
                 raise ValueError(f"Could not convert covariance to (d,d). Got shape {A.shape}")
 
-            def to_pandas_report(sdf, true_col, pred_col, cap=PANDAS_CAP):
-                tmp = sdf.select(true_col, pred_col).dropna()
-                n = tmp.count()
-                if n == 0:
-                    return None
-                if n > cap:
-                    tmp = tmp.withColumn("_h", F.xxhash64(
-                        F.concat_ws("::", col(true_col).cast("string"), col(pred_col).cast("string"))))
-                    k = int(np.ceil(n / cap))
-                    tmp = tmp.filter((col("_h") % lit(k)) == lit(0)).drop("_h")
-                pdf = tmp.toPandas()
-                pdf[true_col] = pdf[true_col].astype(int)
-                pdf[pred_col] = pdf[pred_col].astype(int)
-                return pdf
-
-            def tune_threshold_max_f1(model, df_val_labeled, label_col="label"):
-                pred = (model.transform(df_val_labeled).select(col(label_col).cast("int").alias("y"),
-                    vector_to_array(col("probability")).getItem(1).alias("p1")))
-                pdf = pred.toPandas()
+            def classification_report_from_spark(sdf, true_col, score_col, thr):
+                """
+                sdf must have true_col (0/1) and score_col (probability of class 1).
+                """
+                pdf = sdf.select(col(true_col).cast("int").alias("y"),
+                                 col(score_col).cast("double").alias("p")).toPandas()
                 y = pdf["y"].astype(int).values
-                p = pdf["p1"].astype(float).values
+                p = pdf["p"].astype(float).values
+                yhat = (p >= float(thr)).astype(int)
+                return classification_report(y, yhat, digits=3)
 
-                prec, rec, thr = precision_recall_curve(y, p)
-                f1 = (2 * prec * rec) / (prec + rec + 1e-12)
+            def macro_f1_from_spark(sdf, true_col, score_col, thr):
+                pdf = sdf.select(col(true_col).cast("int").alias("y"),
+                                 col(score_col).cast("double").alias("p")).toPandas()
+                y = pdf["y"].astype(int).values
+                p = pdf["p"].astype(float).values
+                yhat = (p >= float(thr)).astype(int)
+                # compute macro f1 manually to avoid extra sklearn imports
+                # (still ok to import sklearn.metrics.f1_score, but keeping minimal)
+                from sklearn.metrics import f1_score
+                return float(f1_score(y, yhat, average="macro"))
 
-                best_i = int(np.nanargmax(f1))
-                if len(thr) == 0:
+            def supervised_val_pred_df(model, df_labeled, label_col="label"):
+                return (model.transform(df_labeled).select(col(label_col).cast("int").alias("label"),
+                    vector_to_array(col("probability")).getItem(1).alias("p1"), col("rawPrediction")))
+
+            def threshold_by_target_fpr_on_val_normals(pred_val_df, target_fpr=0.01, rel=1e-4):
+                """
+                pred_val_df must have columns: label (0/1), p1.
+                threshold = quantile_{1-target_fpr}(p1 | label=0)
+                """
+                normals = pred_val_df.filter(col("label") == 0)
+                if normals.count() == 0:
                     return 0.5
-                if best_i <= 0:
-                    return float(thr[0])
-                return float(thr[best_i - 1])
+                thr = float(normals.approxQuantile("p1", [1.0 - float(target_fpr)], rel)[0])
+                return thr
 
             # ============================================================
-            # 0) Robust label normalization (Label must be 0/1)
+            # 0) Robust label normalization (Label must become 0/1)
             # ============================================================
             sequences_df = sequences_df.withColumn("Label_str", F.lower(F.trim(F.col("Label").cast("string"))))
             sequences_df = sequences_df.withColumn("Label",
@@ -945,46 +951,36 @@ class FeaturesEngineering:
             sequences_df.groupBy(temp_col).count().show()
 
             # ============================================================
-            # 1) Fix TEST split (never touch it for tuning)
+            # 1) TEST split (fixed holdout, never used for tuning)
             # ============================================================
             df_test = sequences_df.filter(col(temp_col) == 888)
             if df_test.count() == 0:
-                raise ValueError("❌ No test logs (Temp_label=888) found.")
+                raise ValueError("❌ No test logs (Temp_label=888).")
 
             df_test_cls = df_test.select(id_col, feature_col, col("Label").cast("int").alias("label"))
-            print("\n[INFO] TEST label distribution (fixed holdout):")
+            print("\n[INFO] TEST label distribution:")
             df_test_cls.groupBy("label").count().show()
 
             # ============================================================
-            # 2) Build TRAINING POOL = everything except TEST
-            #    Then create NEW stratified academic VAL split from this pool.
+            # 2) TRAINING POOL = all except TEST. Build NEW VAL from training pool (stratified by true Label).
             # ============================================================
             train_pool = sequences_df.filter(col(temp_col) != 888)
 
-            # stable split key
-            train_pool = train_pool.withColumn("hid", F.xxhash64(col(id_col)))
-
-            # stratified selection for VAL by true label
-            # (ensures enough anomalies, unlike your old Temp_label=777 split)
-            # We'll do deterministic-ish sampling using sampleBy with SEED.
-            labels_present = [r["Label"] for r in train_pool.select("Label").distinct().collect()]
-            fractions = {int(lbl): float(VAL_FRAC) for lbl in labels_present}
+            labels_present = [int(r["Label"]) for r in train_pool.select("Label").distinct().collect()]
+            fractions = {lbl: float(VAL_FRAC) for lbl in labels_present}
 
             df_val_new = train_pool.sampleBy("Label", fractions=fractions, seed=SEED)
             df_train_new = train_pool.join(df_val_new.select(id_col).distinct(), on=id_col, how="left_anti")
 
-            # build labeled versions (for supervised + reports)
             df_val_cls = df_val_new.select(id_col, feature_col, col("Label").cast("int").alias("label"))
-            print("\n[INFO] NEW VAL label distribution (academic, from training pool):")
+            print("\n[INFO] NEW VAL label distribution (from training pool):")
             df_val_cls.groupBy("label").count().show()
 
-            print("[INFO] NEW TRAIN pool label distribution:")
+            print("\n[INFO] NEW TRAIN pool true label distribution:")
             df_train_new.groupBy("Label").count().show()
 
             # ============================================================
-            # 3) Novelty detection inputs (from NEW TRAIN ONLY)
-            #    - normals: Temp_label==0 (your design)
-            #    - unlabeled: Temp_label==999 (your design)
+            # 3) Novelty inputs from NEW TRAIN only (Temp_label design)
             # ============================================================
             train_normal_df = df_train_new.filter(col(temp_col) == 0)
             train_unlabeled_df = df_train_new.filter(col(temp_col) == 999)
@@ -994,10 +990,12 @@ class FeaturesEngineering:
             if train_unlabeled_df.count() == 0:
                 raise ValueError("❌ No unlabeled logs (Temp_label=999) in NEW TRAIN.")
 
-            # deterministic normal fit/holdout (80/20) for FPR control
-            train_normal_df = train_normal_df.withColumn("hid2", F.xxhash64(col(id_col)))
-            norm_fit_df = train_normal_df.filter((col("hid2") % lit(100)) < lit(80))
-            norm_holdout_df = train_normal_df.filter((col("hid2") % lit(100)) >= lit(80))
+            # deterministic normal fit/holdout split
+            train_normal_df = train_normal_df.withColumn("hid", F.xxhash64(col(id_col)))
+            train_unlabeled_df = train_unlabeled_df.withColumn("hid", F.xxhash64(col(id_col)))
+
+            norm_fit_df = train_normal_df.filter((col("hid") % lit(100)) < lit(80))
+            norm_holdout_df = train_normal_df.filter((col("hid") % lit(100)) >= lit(80))
 
             # ============================================================
             # 4) Choose PCA k on normal-fit only
@@ -1019,7 +1017,6 @@ class FeaturesEngineering:
                 best_k = candidate_ks[-1]
                 print(f"[PCA] Using max k={best_k}")
 
-            # fit PCA on normal-fit
             pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
             pca_model = pca.fit(norm_fit_df)
 
@@ -1028,7 +1025,7 @@ class FeaturesEngineering:
             train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
 
             # ============================================================
-            # 5) PCA reconstruction error
+            # 5) PCA reconstruction error + threshold
             # ============================================================
             pc = pca_model.pc.toArray()
             d = len(train_pca_normal_fit.select(feature_col).head()[0])
@@ -1054,7 +1051,7 @@ class FeaturesEngineering:
                                                                  reconstruction_error(col(feature_col),
                                                                                       col("pca_features")))
 
-            thr_pca = threshold_from_norm_fit(train_pca_normal_fit, "anomaly_score_pca", target_fpr=TARGET_FPR)
+            thr_pca = threshold_from_norm_fit(train_pca_normal_fit, "anomaly_score_pca", target_fpr=TARGET_FPR_NOV)
             fpr_pca = fpr_on_holdout(train_pca_normal_hold, "anomaly_score_pca", thr_pca)
             print(f"[PCA] thr={thr_pca:.6f}, holdout_FPR={fpr_pca:.6f}")
 
@@ -1063,7 +1060,7 @@ class FeaturesEngineering:
                                                                       1).otherwise(0))
 
             # ============================================================
-            # 6) GMM on normal-fit PCA space (BIC select), score by NLL
+            # 6) GMM on normal-fit PCA, score by NLL + threshold
             # ============================================================
             gmm_ks = [2, 4, 6, 8, 10]
             d_pca = best_k
@@ -1081,7 +1078,6 @@ class FeaturesEngineering:
 
             best_gmm_model = None
             best_bic = float("inf")
-            best_gmm_k = None
 
             for k in gmm_ks:
                 gmm = GaussianMixture(k=k, seed=SEED, featuresCol="pca_features")
@@ -1112,7 +1108,6 @@ class FeaturesEngineering:
                 sign, logdets = np.linalg.slogdet(covs)
 
             const = d_pca * np.log(2.0 * np.pi)
-
             bc_params = spark.sparkContext.broadcast(
                 {"weights": weights, "means": means, "inv_covs": inv_covs, "logdets": logdets, "const": const})
 
@@ -1120,19 +1115,13 @@ class FeaturesEngineering:
             def gmm_nll(pca_vec):
                 z = np.array(pca_vec.toArray(), dtype=float)
                 P = bc_params.value
-                w = P["weights"]
-                m = P["means"]
-                ic = P["inv_covs"]
-                ld = P["logdets"]
-                cst = float(P["const"])
-
+                w, m, ic, ld, cst = P["weights"], P["means"], P["inv_covs"], P["logdets"], float(P["const"])
                 logps = []
                 for i in range(len(w)):
                     diff = z - m[i]
                     quad = float(diff.T @ ic[i] @ diff)
                     logN = -0.5 * (quad + float(ld[i]) + cst)
                     logps.append(np.log(max(float(w[i]), 1e-300)) + logN)
-
                 a = float(np.max(logps))
                 logp = a + float(np.log(np.sum(np.exp(np.array(logps) - a))))
                 return float(-logp)
@@ -1141,7 +1130,7 @@ class FeaturesEngineering:
             train_gmm_hold = train_pca_normal_hold.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
             unlab_gmm = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
 
-            thr_gmm = threshold_from_norm_fit(train_gmm_fit, "anomaly_score_gmm", target_fpr=TARGET_FPR)
+            thr_gmm = threshold_from_norm_fit(train_gmm_fit, "anomaly_score_gmm", target_fpr=TARGET_FPR_NOV)
             fpr_gmm = fpr_on_holdout(train_gmm_hold, "anomaly_score_gmm", thr_gmm)
             print(f"[GMM] thr={thr_gmm:.6f}, holdout_FPR={fpr_gmm:.6f}")
 
@@ -1149,7 +1138,7 @@ class FeaturesEngineering:
                                              when(col("anomaly_score_gmm") > lit(thr_gmm), 1).otherwise(0))
 
             # ============================================================
-            # 7) Combine + select best novelty method (unsupervised score)
+            # 7) Combine rules + pick best novelty method (unsup score)
             # ============================================================
             unlab_gmm = (unlab_gmm.withColumn("pseudo_label_and",
                                               when((col("pseudo_label_pca") == 1) & (col("pseudo_label_gmm") == 1),
@@ -1167,24 +1156,23 @@ class FeaturesEngineering:
             fpr_or = anomaly_rate(norm_hold_join, "or_flag")
 
             SLICE_MOD = 10
-            # add stable key for unlabeled
-            unlab_gmm = unlab_gmm.withColumn("hid3", F.xxhash64(col(id_col)))
+            unlab_gmm = unlab_gmm.withColumn("hid_u", F.xxhash64(col(id_col)))
 
             norm_scores_pca = (
-                train_pca_normal_fit.filter((col("hid2") % lit(SLICE_MOD)) == lit(0)).orderBy("hid2").select(
+                train_pca_normal_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
                     "anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
-            unlab_scores_pca = (unlab_gmm.filter((col("hid3") % lit(SLICE_MOD)) == lit(0)).orderBy("hid3").select(
+            unlab_scores_pca = (unlab_gmm.filter((col("hid_u") % lit(SLICE_MOD)) == lit(0)).orderBy("hid_u").select(
                 "anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
 
-            norm_scores_gmm = (train_gmm_fit.filter((col("hid2") % lit(SLICE_MOD)) == lit(0)).orderBy("hid2").select(
+            norm_scores_gmm = (train_gmm_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
                 "anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values)
-            unlab_scores_gmm = (unlab_gmm.filter((col("hid3") % lit(SLICE_MOD)) == lit(0)).orderBy("hid3").select(
+            unlab_scores_gmm = (unlab_gmm.filter((col("hid_u") % lit(SLICE_MOD)) == lit(0)).orderBy("hid_u").select(
                 "anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values)
 
-            norm_scores_comb = (train_gmm_fit.filter((col("hid2") % lit(SLICE_MOD)) == lit(0)).orderBy("hid2").select(
+            norm_scores_comb = (train_gmm_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
                 (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
                                     "comb_score"].astype(float).values)
-            unlab_scores_comb = (unlab_gmm.filter((col("hid3") % lit(SLICE_MOD)) == lit(0)).orderBy("hid3").select(
+            unlab_scores_comb = (unlab_gmm.filter((col("hid_u") % lit(SLICE_MOD)) == lit(0)).orderBy("hid_u").select(
                 (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
                                      "comb_score"].astype(float).values)
 
@@ -1192,8 +1180,8 @@ class FeaturesEngineering:
             sep_gmm = separation_z(norm_scores_gmm, unlab_scores_gmm)
             sep_comb = separation_z(norm_scores_comb, unlab_scores_comb)
 
-            u1 = unlab_gmm.filter((col("hid3") % lit(100)) < lit(80))
-            u2 = unlab_gmm.filter((col("hid3") % lit(100)) >= lit(80))
+            u1 = unlab_gmm.filter((col("hid_u") % lit(100)) < lit(80))
+            u2 = unlab_gmm.filter((col("hid_u") % lit(100)) >= lit(80))
 
             stab_pca = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_pca")
             stab_gmm = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_gmm")
@@ -1206,7 +1194,7 @@ class FeaturesEngineering:
             score_or = (sep_comb * stab_or) / (fpr_or + eps)
 
             print("\n[NOVELTY UNSUP SCORE]")
-            print(f" PCA: {score_pca:.6f} | GMM: {score_gmm:.6f} | AND: {score_and:.6f} | OR: {score_or:.6f}")
+            print(f"  PCA={score_pca:.6f}  GMM={score_gmm:.6f}  AND={score_and:.6f}  OR={score_or:.6f}")
 
             best_method = \
             max([("pca", score_pca), ("gmm", score_gmm), ("and", score_and), ("or", score_or)], key=lambda x: x[1])[0]
@@ -1224,21 +1212,21 @@ class FeaturesEngineering:
                 unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_or"))
 
             # ============================================================
-            # 8) REPORT (1): UNLABELED pseudo-label quality (diagnostic)
+            # REPORT 1: pseudo labels on UNLABELED (true vs pseudo)
             # ============================================================
             try:
                 unlabeled_eval = (unlab_gmm.select(id_col, col("Final_Label").cast("int").alias("pseudo_label")).join(
                     df_train_new.select(id_col, col("Label").cast("int").alias("true_label")), on=id_col,
                     how="inner").dropna())
-                pdf_u = to_pandas_report(unlabeled_eval, "true_label", "pseudo_label")
-                if pdf_u is not None:
-                    print("\n=== REPORT 1: UNLABELED (true_label vs pseudo_label) ===")
-                    print(classification_report(pdf_u["true_label"], pdf_u["pseudo_label"], digits=3))
+                pdf_u = unlabeled_eval.select("true_label", "pseudo_label").toPandas()
+                print("\n=== REPORT 1: UNLABELED (true_label vs pseudo_label) ===")
+                print(
+                    classification_report(pdf_u["true_label"].astype(int), pdf_u["pseudo_label"].astype(int), digits=3))
             except Exception as e:
                 print(f"[WARN] REPORT 1 skipped: {e}")
 
             # ============================================================
-            # 9) Build FINAL supervised training set (confidence filtering + optional cap)
+            # 8) Confidence filtering + optional anomaly cap to build FINAL TRAIN
             # ============================================================
             train_norm_scores = (
                 train_gmm_fit.select(id_col, feature_col, "anomaly_score_pca", "anomaly_score_gmm").withColumn(
@@ -1249,7 +1237,7 @@ class FeaturesEngineering:
                                                                              col("anomaly_score_pca") + col(
                                                                                  "anomaly_score_gmm")))
 
-            thr_comb = threshold_from_norm_fit(train_norm_scores, "comb_score", target_fpr=TARGET_FPR)
+            thr_comb = threshold_from_norm_fit(train_norm_scores, "comb_score", target_fpr=TARGET_FPR_NOV)
 
             conf_anom = unlab_scores.filter(
                 (col("Final_Label") == 1) & (col("anomaly_score_pca") > lit(thr_pca * (1.0 + MARGIN_PCA))) & (
@@ -1266,11 +1254,9 @@ class FeaturesEngineering:
                 conf_anom = conf_anom.filter(col("comb_score") >= lit(thr_top))
                 print(f"[CAP] Keep top {CAP_PSEUDO_ANOM_TOP_PCT * 100:.1f}% pseudo anomalies. thr_top={thr_top:.6f}")
 
-            # trusted normals from normal-fit (label 0)
             train_df_normal_cls = (
                 norm_fit_df.select(id_col, feature_col).withColumn("train_used_label", lit(0).cast("int")))
 
-            # pseudo-labeled unlabeled
             train_df_unlabeled_cls = (conf_anom.unionByName(conf_norm).select(id_col, feature_col,
                                                                               col("Final_Label").cast("int").alias(
                                                                                   "train_used_label")))
@@ -1281,21 +1267,21 @@ class FeaturesEngineering:
             df_final_train_cls.groupBy("train_used_label").count().orderBy("train_used_label").show()
 
             # ============================================================
-            # 10) REPORT (2): FINAL TRAIN label quality (true label vs used label)
+            # REPORT 2: FINAL TRAIN label quality (true vs used)
             # ============================================================
             try:
                 train_quality = (
                     df_final_train_cls.join(df_train_new.select(id_col, col("Label").cast("int").alias("true_label")),
                                             on=id_col, how="inner").select("true_label", "train_used_label").dropna())
-                pdf_tr = to_pandas_report(train_quality, "true_label", "train_used_label")
-                if pdf_tr is not None:
-                    print("\n=== REPORT 2: FINAL TRAIN (true_label vs train_used_label) ===")
-                    print(classification_report(pdf_tr["true_label"], pdf_tr["train_used_label"], digits=3))
+                pdf_tr = train_quality.toPandas()
+                print("\n=== REPORT 2: FINAL TRAIN (true_label vs train_used_label) ===")
+                print(classification_report(pdf_tr["true_label"].astype(int), pdf_tr["train_used_label"].astype(int),
+                                            digits=3))
             except Exception as e:
                 print(f"[WARN] REPORT 2 skipped: {e}")
 
             # ============================================================
-            # 11) Train supervised model on FINAL TRAIN
+            # 9) Train supervised model (GBT)
             # ============================================================
             train_for_ml = (
                 df_final_train_cls.withColumnRenamed("train_used_label", "label").select(feature_col, "label"))
@@ -1307,37 +1293,40 @@ class FeaturesEngineering:
             print("\n[INFO] Trained supervised model: GBTClassifier")
 
             # ============================================================
-            # 12) Tune threshold on NEW VAL (academic-safe)
+            # 10) Threshold selection on VAL: sweep target FPRs and pick best macro-F1 on VAL
+            #     (Still academic-safe: only uses VAL)
             # ============================================================
-            best_thr = tune_threshold_max_f1(gbt_model, df_val_cls, label_col="label")
-            print(f"\n[VAL] Best threshold (max F1): {best_thr:.6f}")
+            pred_val = supervised_val_pred_df(gbt_model, df_val_cls, label_col="label").cache()
 
-            pred_val = (gbt_model.transform(df_val_cls).select(col("label").cast("int").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("p1")))
-            pdf_val = pred_val.toPandas()
-            y_val = pdf_val["y"].astype(int).values
-            p_val = pdf_val["p1"].astype(float).values
+            best = None  # (macro_f1, target_fpr, thr)
 
-            print("\n=== VAL report @ tuned threshold ===")
-            print(classification_report(y_val, (p_val >= best_thr).astype(int), digits=3))
+            for tfpr in TARGET_FPR_SUP_LIST:
+                thr = threshold_by_target_fpr_on_val_normals(pred_val, target_fpr=tfpr, rel=1e-4)
+                m_f1 = macro_f1_from_spark(pred_val, "label", "p1", thr)
+                print(f"[VAL] targetFPR={tfpr:.3f} thr={thr:.6f} macroF1={m_f1:.4f}")
+                if best is None or m_f1 > best[0]:
+                    best = (m_f1, tfpr, thr)
+
+            best_macro_f1, best_tfpr, best_thr = best
+            print(f"\n[SELECTED] targetFPR={best_tfpr:.3f} thr={best_thr:.6f} (VAL macroF1={best_macro_f1:.4f})")
+
+            print("\n=== VAL report @ selected threshold ===")
+            print(classification_report_from_spark(pred_val, "label", "p1", best_thr))
 
             # ============================================================
-            # 13) REPORT (3): TEST evaluation (academic-safe)
+            # 11) TEST evaluation (threshold chosen using VAL only)
             # ============================================================
-            pred_test = (gbt_model.transform(df_test_cls).select(col("label").cast("int").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("p1"), col("rawPrediction")))
-            pdf_test = pred_test.toPandas()
-            y_te = pdf_test["y"].astype(int).values
-            p_te = pdf_test["p1"].astype(float).values
+            pred_test = supervised_val_pred_df(gbt_model, df_test_cls, label_col="label").cache()
 
-            print("\n=== REPORT 3: TEST (true vs supervised @ tuned threshold from NEW VAL) ===")
-            print(classification_report(y_te, (p_te >= best_thr).astype(int), digits=3))
+            print("\n=== REPORT 3: TEST (true vs supervised @ VAL-selected threshold) ===")
+            print(classification_report_from_spark(pred_test, "label", "p1", best_thr))
 
-            # optional: TEST AUC
+            # Optional: TEST AUC (threshold-free)
             evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction",
                                                       metricName="areaUnderROC")
             auc_test = evaluator.evaluate(gbt_model.transform(df_test_cls))
             print(f"[TEST] AUC = {auc_test:.4f}")
+
             exit()
 
 
