@@ -181,7 +181,8 @@ spark = (
     # Serialization & Execution
     # -----------------------------
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-
+    .config("spark.jars.packages","com.microsoft.azure:synapseml_2.12:1.1.1")
+    .config("spark.jars.repositories", "https://mmlspark.azureedge.net/maven")
     .getOrCreate()
 )
 #exit()
