@@ -181,8 +181,13 @@ spark = (
     # Serialization & Execution
     # -----------------------------
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-    .config("spark.jars.packages","com.microsoft.azure:synapseml_2.12:1.1.1")
+    #-----
     .config("spark.jars.repositories", "https://mmlspark.azureedge.net/maven")
+    .config("spark.jars.packages","com.microsoft.azure:synapseml_2.12:1.1.2")
+    .config("spark.jars.repositories","https://mmlspark.azureedge.net/maven")# optional but often helps avoid dependency clashes
+    .config("spark.jars.excludes", ",".join(
+        ["org.scala-lang:scala-reflect", "org.apache.spark:spark-tags_2.12", "org.scalactic:scalactic_2.12",
+            "org.scalatest:scalatest_2.12", "com.fasterxml.jackson.core:jackson-databind"])
     .getOrCreate()
 )
 #exit()
