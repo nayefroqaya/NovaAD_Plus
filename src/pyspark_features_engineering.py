@@ -839,72 +839,52 @@ class FeaturesEngineering:
             #------------(6)
 
             # ============================================
-            # IsolationForest Novelty Detection (Spark 4.x native only)
+            # IsolationForest using SynapseML
             # ============================================
 
             from pyspark.sql import functions as F
             from pyspark.sql.functions import col, when
-            from pyspark.ml.iforest import IsolationForest
+            from synapse.ml.isolationforest import IsolationForest
 
             # -----------------------------
             # CONFIG
             # -----------------------------
-            CONTAMINATION = 0.05  # expected anomaly ratio
-            QUANTILE_THRESHOLD = None  # e.g. 0.95 to override contamination-based prediction
+            CONTAMINATION = 0.05
             SEED = 42
 
             # -----------------------------
-            # 0) SPLIT DATA
+            # SPLIT DATA
             # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
             full_train_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
 
             if train_normal_df.count() == 0:
-                raise ValueError("No normal data (Temp_label=0) found.")
-
-            if train_unlabeled_df.count() == 0:
-                raise ValueError("No unlabeled data (Temp_label=999) found.")
+                raise ValueError("No normal data found.")
 
             # -----------------------------
-            # 1) FIT IsolationForest ON NORMAL ONLY
+            # TRAIN IF ON NORMAL ONLY
             # -----------------------------
-            iso = IsolationForest(featuresCol="features", anomalyScoreCol="if_score", predictionCol="if_pred",
-                contamination=float(CONTAMINATION), numTrees=200, maxDepth=10, seed=SEED)
+            iso = IsolationForest(featuresCol="features", scoreCol="if_score", predictionCol="if_pred",
+                contamination=float(CONTAMINATION), numEstimators=200, randomSeed=SEED)
 
             model = iso.fit(train_normal_df.select("features"))
 
-            print("✅ IsolationForest model trained on normal data")
+            print("✅ SynapseML IsolationForest trained.")
 
             # -----------------------------
-            # 2) SCORE + LABEL UNLABELED DATA
+            # LABEL UNLABELED
             # -----------------------------
-            unl_scored = model.transform(train_unlabeled_df)
-
-            if QUANTILE_THRESHOLD is not None:
-                # Custom thresholding based on score
-                thr = unl_scored.approxQuantile("if_score", [float(QUANTILE_THRESHOLD)], 0.001)[0]
-                unl_labeled = unl_scored.withColumn("pseudo_label", when(col("if_score") >= F.lit(thr), 1).otherwise(0))
-                print(f"✅ Using custom score threshold = {thr}")
-            else:
-                # Use model prediction directly
-                unl_labeled = unl_scored.withColumn("pseudo_label", col("if_pred").cast("int"))
-                print("✅ Using model prediction column")
+            unl_labeled = model.transform(train_unlabeled_df).withColumn("pseudo_label", col("if_pred").cast("int"))
 
             # -----------------------------
-            # 3) SCORE + LABEL FULL TRAIN (0 + 999)
+            # LABEL FULL TRAIN
             # -----------------------------
-            full_scored = model.transform(full_train_df)
-
-            if QUANTILE_THRESHOLD is not None:
-                thr = unl_scored.approxQuantile("if_score", [float(QUANTILE_THRESHOLD)], 0.001)[0]
-                full_labeled = full_scored.withColumn("pseudo_label",
-                    when(col("if_score") >= F.lit(thr), 1).otherwise(0))
-            else:
-                full_labeled = full_scored.withColumn("pseudo_label", col("if_pred").cast("int"))
+            full_labeled = model.transform(full_train_df) \
+                .withColumn("pseudo_label", col("if_pred").cast("int"))
 
             # -----------------------------
-            # 4) CHECK LABEL DISTRIBUTION
+            # DISTRIBUTION CHECK
             # -----------------------------
             print("\n--- UNLABELED pseudo_label distribution ---")
             unl_labeled.groupBy("pseudo_label").count().show()
@@ -913,7 +893,7 @@ class FeaturesEngineering:
             full_labeled.groupBy("pseudo_label").count().show()
 
             # -----------------------------
-            # 5) CLASSIFICATION REPORT (if ground truth Label exists)
+            # CLASSIFICATION REPORT
             # -----------------------------
             if "Label" in sequences_df.columns:
 
@@ -922,43 +902,44 @@ class FeaturesEngineering:
 
                 def print_report(df, title):
 
-                    agg = \
-                    df.select(col("Label").cast("int").alias("y"), col("pseudo_label").cast("int").alias("p")).agg(
+                    agg \
+                    = df.select(
+                        col("Label").cast("int").alias("y"),
+                        col("pseudo_label").cast("int").alias("p")
+                    ).agg(
                         F.sum(((col("y") == 1) & (col("p") == 1)).cast("int")).alias("tp"),
                         F.sum(((col("y") == 0) & (col("p") == 1)).cast("int")).alias("fp"),
                         F.sum(((col("y") == 0) & (col("p") == 0)).cast("int")).alias("tn"),
                         F.sum(((col("y") == 1) & (col("p") == 0)).cast("int")).alias("fn"),
-                        F.count(F.lit(1)).alias("n")).collect()[0]
+                        F.count(F.lit(1)).alias("n")
+                    ).collect()[0]
 
-                    tp, fp, tn, fn, n = [int(agg[k]) for k in ["tp", "fp", "tn", "fn", "n"]]
+                    tp, fp, tn, fn, n = [int(agg[k]) for k in ["tp ","fp ","tn ","fn ","n"]]
 
-                    p1 = safe_div(tp, tp + fp)
-                    r1 = safe_div(tp, tp + fn)
-                    f1 = safe_div(2 * p1 * r1, p1 + r1)
+                    p1 = safe_div(tp, tp +fp)
+                    r1 = safe_div(tp, tp +fn)
+                    f1 = safe_div( 2 *p1 *r1, p1 +r1)
 
-                    p0 = safe_div(tn, tn + fn)
-                    r0 = safe_div(tn, tn + fp)
-                    f0 = safe_div(2 * p0 * r0, p0 + r0)
+                    p0 = safe_div(tn, tn +fn)
+                    r0 = safe_div(tn, tn +fp)
+                    f0 = safe_div( 2 *p0 *r0, p0 +r0)
 
-                    acc = safe_div(tp + tn, n)
+                    acc = safe_div(tp +tn, n)
 
-                    print("\n" + "=" * 80)
+                    print("\n" + "= " *80)
                     print(title)
-                    print("=" * 80)
+                    print("= " *80)
                     print("class | precision | recall | f1-score")
                     print(f"0     | {p0:.4f} | {r0:.4f} | {f0:.4f}")
                     print(f"1     | {p1:.4f} | {r1:.4f} | {f1:.4f}")
                     print(f"accuracy: {acc:.4f}")
                     print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
 
-                print_report(unl_labeled.filter(col("Label").isNotNull()),
-                    "📌 Classification Report: train_unlabeled_df")
-
-                print_report(full_labeled.filter(col("Label").isNotNull()),
-                    "📌 Classification Report: FULL TRAIN (0 + 999)")
+                print_report(unl_labeled, "📌 train_unlabeled_df Report")
+                print_report(full_labeled, "📌 FULL TRAIN Report")
 
             else:
-                print("\n⚠️ No ground-truth 'Label' column found. Skipping classification report.")
+                print("⚠️ No ground-truth Label column found.")
             exit()
             # ============================================
             # OUTPUT DATAFRAMES:
