@@ -1914,21 +1914,22 @@ class FeaturesEngineering:
             else:
                 print(
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
-            exit()
+            #exit()
+
 
             print("=== SCHEMA ===")
             #df_final_train_cls.printSchema()
             #df_val_cls.printSchema()
             #df_test_cls.printSchema()
 
-            print("=== TRAIN Final_Label distribution ===")
-            df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            #print("=== TRAIN Final_Label distribution ===")
+            #df_final_train_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
 
-            print("=== VAL Final_Label distribution ===")
-            df_val_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            #print("=== VAL Final_Label distribution ===")
+            #df_val_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
 
-            print("=== TEST Final_Label distribution ===")
-            df_test_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
+            #print("=== TEST Final_Label distribution ===")
+            #df_test_cls.groupBy("Final_Label").count().orderBy("Final_Label").show()
 
             # ============================================================
             # SUPERVISED CLASSIFIER TRAINING AFTER NOVELTY/PSEUDO-LABELING
