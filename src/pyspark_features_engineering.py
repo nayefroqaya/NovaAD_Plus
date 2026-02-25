@@ -1217,10 +1217,12 @@ class FeaturesEngineering:
 
             # Join back the true label from sequences_df (or from the original train source)
             df_train_quality = (
-                df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")), on=id_col,
-                                        how="inner").select("true_label", "Final_Label").dropna())
+                df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label_raw")),
+                                        on=id_col, how="inner").withColumn("true_label",
+                    when(lower(trim(col("true_label_raw"))).isin("anomaly", "1", "true", "yes"), 1).when(
+                        lower(trim(col("true_label_raw"))).isin("normal", "0", "false", "no"), 0).otherwise(
+                        None)).select("true_label", "Final_Label").dropna())
 
-            # Convert to pandas for sklearn report
             pdf_train_quality = df_train_quality.toPandas()
             pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
             pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
