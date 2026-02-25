@@ -834,8 +834,7 @@ class FeaturesEngineering:
             from pyspark.ml.classification import LogisticRegression
             from pyspark.ml.evaluation import BinaryClassificationEvaluator
             from sklearn.metrics import precision_recall_curve
-
-
+            from pyspark.sql.functions import when, lower, trim, col
 
             #------------(5)
 
@@ -1163,12 +1162,22 @@ class FeaturesEngineering:
             # ============================================================
             # 8) DEBUG ONLY: evaluation if you have true labels for unlabeled
             # ============================================================
-            train_unlabeled_eval_df = unlab_gmm.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
-                                                     on=id_col, how="inner")
+            # Map true labels to ints to match pseudo labels (0=normal, 1=anomaly)
+            train_unlabeled_eval_df = (
+                unlab_gmm.join(sequences_df.select(col(id_col), col("Label").alias("true_label_raw")), on=id_col,
+                               how="inner").withColumn("true_label", when(
+                    lower(trim(col("true_label_raw"))).isin("anomaly", "1", "true", "yes"), 1).when(
+                    lower(trim(col("true_label_raw"))).isin("normal", "0", "false", "no"), 0).otherwise(None)).drop(
+                    "true_label_raw"))
 
-            pdf_unlabeled = train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
-                                                           "pseudo_label_and", "pseudo_label_or",
-                                                           "Final_Label").toPandas()
+            pdf_unlabeled = (
+                train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm", "pseudo_label_and",
+                                               "pseudo_label_or", "Final_Label").dropna().toPandas())
+
+            # Make sure everything is int
+            for c in ["true_label", "pseudo_label_pca", "pseudo_label_gmm", "pseudo_label_and", "pseudo_label_or",
+                      "Final_Label"]:
+                pdf_unlabeled[c] = pdf_unlabeled[c].astype(int)
 
             print("\n=== Classification_report on unlabeled (PCA-only) ===")
             print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_pca"], digits=3))
@@ -1219,6 +1228,7 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FINAL TRAIN SET (true_label vs Final_Label) ===")
             print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"], digits=3))
             print(f"\n[SELECTED] Best method (fixed unsupervised): {best_method}")
+            exit()
 
             #------------(4)
 
