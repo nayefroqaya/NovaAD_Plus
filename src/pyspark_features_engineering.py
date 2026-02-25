@@ -322,7 +322,7 @@ class FeaturesEngineering:
 
 
     @staticmethod
-    def novelty_detection_label_establishmentyyyyy(sequences_df, spark, method="auto", feature_col="features_vec_final",
+    def novelty_detection_label_establishmentxxxxx(sequences_df, spark, method="auto", feature_col="features_vec_final",
             id_col="Node_block_id", TARGET_FPR=0.01, candidate_ks=(10, 20, 40, 50, 60, 70), target_variance=0.999,
             gmm_ks=(2, 4, 6, 8, 10), SEED=123, SLICE_MOD=10, print_reports=True):
         # ============================================================
@@ -838,7 +838,463 @@ class FeaturesEngineering:
 
             #------------(4)
 
-           #------------- (3)
+            # 0) Split data---- Good but not perfect in classification ---- (1)
+            # -----------------------------
+            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+            train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+            df_test = sequences_df.filter(col("Temp_label") == 888)
+            df_val = sequences_df.filter(col("Temp_label") == 777)
+
+            if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data for novelty detection.")
+
+            feature_col = "features_vec_final"
+            id_col = "Node_block_id"
+
+            # -----------------------------
+            # Settings
+            # -----------------------------
+            TARGET_FPR = 0.01  # main knob: 0.005 / 0.001 for fewer false alarms; 0.02 for more recall
+            eps = 1e-9
+
+            print("\n🧠 Using PCA + GMM for novelty detection (stable version) ...")
+
+            # ============================================================
+            # 0.1) Deterministic key + deterministic normal split (80/20)
+            # ============================================================
+            train_normal_df = train_normal_df.withColumn("hid", F.xxhash64(col(id_col)))
+            train_unlabeled_df = train_unlabeled_df.withColumn("hid", F.xxhash64(col(id_col)))
+            df_test = df_test.withColumn("hid", F.xxhash64(col(id_col)))
+            df_val = df_val.withColumn("hid", F.xxhash64(col(id_col)))
+
+            norm_fit_df = train_normal_df.filter((col("hid") % lit(100)) < lit(80))
+            norm_holdout_df = train_normal_df.filter((col("hid") % lit(100)) >= lit(80))
+
+            # -----------------------------
+            # Helpers
+            # -----------------------------
+            def approx_quantile(df, c, q, rel=1e-3):
+                return float(df.approxQuantile(c, [q], rel)[0])
+
+            def threshold_from_norm_fit(norm_fit_scored_df, score_col, target_fpr=0.01):
+                return approx_quantile(norm_fit_scored_df, score_col, 1.0 - target_fpr)
+
+            def fpr_on_holdout(norm_holdout_scored_df, score_col, thr):
+                n = norm_holdout_scored_df.count()
+                if n == 0:
+                    return 1.0
+                fp = norm_holdout_scored_df.filter(col(score_col) > lit(thr)).count()
+                return fp / n
+
+            def anomaly_rate(df, label_col):
+                n = df.count()
+                if n == 0:
+                    return 0.0
+                a = df.filter(col(label_col) == 1).count()
+                return a / n
+
+            def jaccard_anomaly_sets(df1, df2, id_col, label_col):
+                a1 = df1.filter(col(label_col) == 1).select(id_col).distinct()
+                a2 = df2.filter(col(label_col) == 1).select(id_col).distinct()
+                inter = a1.join(a2, on=id_col, how="inner").count()
+                union = a1.union(a2).distinct().count()
+                return inter / union if union > 0 else 0.0
+
+            def separation_z(norm_scores, unlab_scores):
+                mu_n = float(np.mean(norm_scores))
+                sd_n = float(np.std(norm_scores)) + eps
+                mu_u = float(np.mean(unlab_scores))
+                return max(0.0, (mu_u - mu_n) / sd_n)
+
+            # ============================================================
+            # 1) Choose PCA k on NORMAL-fit only
+            # ============================================================
+            candidate_ks = [10, 20, 40, 50, 60, 70]
+            # candidate_ks = [10, 20, 40, 50 ]
+            # candidate_ks = [ 50, 60, 70, 80,90]
+            target_variance = 0.999
+
+            best_k = None
+            for k in candidate_ks:
+                print(f"[INFO] Testing PCA with k={k}")
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(norm_fit_df)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[INFO] PCA k={k}, cumulative explained variance = {explained_variance:.6f}")
+                if explained_variance >= target_variance:
+                    best_k = k
+                    print(f"[SELECTED] First k reaching target variance: {best_k}")
+                    break
+
+            if best_k is None:
+                best_k = candidate_ks[-1]
+                print(f"[WARNING] Target variance not reached. Using max k = {best_k}")
+
+            print(f"[RESULT] Selected PCA components (best_k): {best_k}")
+
+            # ============================================================
+            # 2) Fit PCA on NORMAL-fit + transform all
+            # ============================================================
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(norm_fit_df)
+
+            train_pca_normal_fit = pca_model.transform(norm_fit_df)
+            train_pca_normal_hold = pca_model.transform(norm_holdout_df)
+
+            train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
+            test_pca = pca_model.transform(df_test)
+            val_pca = pca_model.transform(df_val)
+
+            # ============================================================
+            # 3) PCA reconstruction error (handles pc orientation)
+            # ============================================================
+            pc = pca_model.pc.toArray()
+
+            # feature dimension d
+            d = len(train_pca_normal_fit.select(feature_col).head()[0])
+            use_pc_dk = (pc.shape[0] == d)  # if pc is (d,k) then pc @ z else z @ pc
+
+            pc_b = spark.sparkContext.broadcast(pc)
+            use_pc_dk_b = spark.sparkContext.broadcast(use_pc_dk)
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                pc_local = pc_b.value
+                if use_pc_dk_b.value:
+                    x_hat = pc_local @ z
+                else:
+                    x_hat = z @ pc_local
+                return float(np.linalg.norm(x - x_hat))
+
+            train_pca_normal_fit = train_pca_normal_fit.withColumn("anomaly_score_pca",
+                                                                   reconstruction_error(col(feature_col),
+                                                                                        col("pca_features")))
+            train_pca_normal_hold = train_pca_normal_hold.withColumn("anomaly_score_pca",
+                                                                     reconstruction_error(col(feature_col),
+                                                                                          col("pca_features")))
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
+                                                                 reconstruction_error(col(feature_col),
+                                                                                      col("pca_features")))
+
+            # ============================================================
+            # 4) PCA threshold (FPR-controlled)
+            # ============================================================
+            thr_pca = threshold_from_norm_fit(train_pca_normal_fit, "anomaly_score_pca", target_fpr=TARGET_FPR)
+            fpr_pca = fpr_on_holdout(train_pca_normal_hold, "anomaly_score_pca", thr_pca)
+            print(f"[PCA] thr={thr_pca:.6f}, holdout FPR={fpr_pca:.6f}")
+
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("pseudo_label_pca",
+                                                                 when(col("anomaly_score_pca") > lit(thr_pca),
+                                                                      1).otherwise(0))
+
+            # ============================================================
+            # 5) Fit GMM on NORMAL-fit PCA space (choose k by BIC), score by NLL
+            # ============================================================
+            gmm_ks = [2, 4, 6, 8, 10]
+            SEED = 123
+
+            def bic_from_model(model, df_features, k, d_pca):
+                try:
+                    ll = float(model.summary.logLikelihood)
+                except Exception:
+                    return float("inf")
+                n = df_features.count()
+                p = (k - 1) + (k * d_pca) + (k * (d_pca * (d_pca + 1) // 2))
+                return -2.0 * ll + p * np.log(max(n, 1))
+
+            feat_df = train_pca_normal_fit.select("pca_features")
+            d_pca = best_k
+
+            best_gmm_model = None
+            best_bic = float("inf")
+            best_gmm_k = None
+
+            for k in gmm_ks:
+                gmm = GaussianMixture(k=k, seed=SEED, featuresCol="pca_features", predictionCol="gmm_cluster",
+                                      probabilityCol="gmm_prob")
+                model = gmm.fit(feat_df)
+                bic = bic_from_model(model, feat_df, k, d_pca)
+                print(f"[GMM] k={k}, BIC={bic}")
+                if bic < best_bic:
+                    best_bic = bic
+                    best_gmm_model = model
+                    best_gmm_k = k
+
+            if best_gmm_model is None:
+                raise RuntimeError("❌ GMM selection failed (logLikelihood unavailable).")
+
+            print(f"[GMM] Selected k={best_gmm_k} by BIC.")
+
+            # ---- Robust extraction of means/covs (FIX for your error) ----
+            def vec_to_np(v):
+                return np.array(v.toArray(), dtype=float)
+
+            def cov_to_2d(cov, d_dim):
+                if hasattr(cov, "toArray"):
+                    A = np.array(cov.toArray(), dtype=float)
+                    if A.ndim == 2:
+                        return A
+                    if A.ndim == 1 and A.size == d_dim * d_dim:
+                        return A.reshape(d_dim, d_dim)
+                    raise ValueError(f"Unexpected cov shape from toArray: {A.shape}")
+                A = np.array(cov, dtype=float)
+                if A.ndim == 2 and A.shape == (d_dim, d_dim):
+                    return A
+                if A.ndim == 1 and A.size == d_dim * d_dim:
+                    return A.reshape(d_dim, d_dim)
+                raise ValueError(f"Could not convert covariance to (d,d). Got shape {A.shape}")
+
+            weights = np.array(best_gmm_model.weights, dtype=float)
+            gaussians = best_gmm_model.gaussians
+
+            means = np.stack([vec_to_np(g.mean) for g in gaussians], axis=0)  # (k,d)
+            covs = np.stack([cov_to_2d(g.cov, d_pca) for g in gaussians], axis=0)  # (k,d,d)
+
+            # jitter to avoid singular matrices
+            JITTER = 1e-6
+            covs = covs + np.eye(d_pca)[None, :, :] * JITTER
+
+            inv_covs = np.linalg.inv(covs)
+            sign, logdets = np.linalg.slogdet(covs)
+            if np.any(sign <= 0):
+                covs = covs + np.eye(d_pca)[None, :, :] * (JITTER * 100)
+                inv_covs = np.linalg.inv(covs)
+                sign, logdets = np.linalg.slogdet(covs)
+
+            const = d_pca * np.log(2.0 * np.pi)
+
+            bc_params = spark.sparkContext.broadcast(
+                {"weights": weights, "means": means, "inv_covs": inv_covs, "logdets": logdets, "const": const})
+
+            @udf(DoubleType())
+            def gmm_nll(pca_vec):
+                z = np.array(pca_vec.toArray(), dtype=float)
+                P = bc_params.value
+                w = P["weights"];
+                m = P["means"];
+                ic = P["inv_covs"];
+                ld = P["logdets"]
+                cst = float(P["const"])
+
+                logps = []
+                for i in range(len(w)):
+                    diff = z - m[i]
+                    quad = float(diff.T @ ic[i] @ diff)
+                    logN = -0.5 * (quad + float(ld[i]) + cst)
+                    logps.append(np.log(max(float(w[i]), 1e-300)) + logN)
+
+                a = float(np.max(logps))
+                logp = a + float(np.log(np.sum(np.exp(np.array(logps) - a))))
+                return float(-logp)  # higher => more anomalous
+
+            # Score normals and unlabeled with GMM-NLL
+            train_gmm_fit = train_pca_normal_fit.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+            train_gmm_hold = train_pca_normal_hold.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+            unlab_gmm = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+
+            # ============================================================
+            # 6) GMM threshold (FPR-controlled)
+            # ============================================================
+            thr_gmm = threshold_from_norm_fit(train_gmm_fit, "anomaly_score_gmm", target_fpr=TARGET_FPR)
+            fpr_gmm = fpr_on_holdout(train_gmm_hold, "anomaly_score_gmm", thr_gmm)
+            print(f"[GMM-NLL] thr={thr_gmm:.6f}, holdout FPR={fpr_gmm:.6f}")
+
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_gmm",
+                                             when(col("anomaly_score_gmm") > lit(thr_gmm), 1).otherwise(0))
+
+            # ============================================================
+            # 7) Create BOTH combined rules (AND + OR)
+            # ============================================================
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_and",
+                                             when((col("pseudo_label_pca") == 1) & (col("pseudo_label_gmm") == 1),
+                                                  1).otherwise(0))
+            unlab_gmm = unlab_gmm.withColumn("pseudo_label_or",
+                                             when((col("pseudo_label_pca") == 1) | (col("pseudo_label_gmm") == 1),
+                                                  1).otherwise(0))
+
+            # ============================================================
+            # 7.1) Holdout-normal FPR computation (PCA/GMM/AND/OR)
+            # ============================================================
+            norm_hold_join = (train_gmm_hold.select(id_col, "anomaly_score_gmm").join(
+                train_pca_normal_hold.select(id_col, "anomaly_score_pca"), on=id_col, how="inner").withColumn(
+                "pca_flag", when(col("anomaly_score_pca") > lit(thr_pca), 1).otherwise(0)).withColumn("gmm_flag", when(
+                col("anomaly_score_gmm") > lit(thr_gmm), 1).otherwise(0)).withColumn("and_flag", when(
+                (col("pca_flag") == 1) & (col("gmm_flag") == 1), 1).otherwise(0)).withColumn("or_flag", when(
+                (col("pca_flag") == 1) | (col("gmm_flag") == 1), 1).otherwise(0)))
+
+            fpr_and = anomaly_rate(norm_hold_join, "and_flag")
+            fpr_or = anomaly_rate(norm_hold_join, "or_flag")
+
+            print("\n[HOLDOUT NORMAL FPR] (lower is better)")
+            print(f"  PCA-only       : fpr={fpr_pca:.6f}")
+            print(f"  GMM-only       : fpr={fpr_gmm:.6f}")
+            print(f"  Combined(AND)  : fpr={fpr_and:.6f}")
+            print(f"  Combined(OR)   : fpr={fpr_or:.6f}")
+
+            # ============================================================
+            # 7.2) FIXED UNSUPERVISED SELECTION (deterministic)
+            # ============================================================
+            # deterministic slice for Pandas collection (avoid huge memory)
+            SLICE_MOD = 10  # keep ~10% deterministically; set 1 for full
+
+            norm_scores_pca = (
+                train_pca_normal_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                    "anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
+
+            unlab_scores_pca = (unlab_gmm.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                "anomaly_score_pca").toPandas()["anomaly_score_pca"].astype(float).values)
+
+            norm_scores_gmm = (train_gmm_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                "anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values)
+
+            unlab_scores_gmm = (unlab_gmm.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                "anomaly_score_gmm").toPandas()["anomaly_score_gmm"].astype(float).values)
+
+            norm_scores_comb = (train_gmm_fit.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
+                                    "comb_score"].astype(float).values)
+
+            unlab_scores_comb = (unlab_gmm.filter((col("hid") % lit(SLICE_MOD)) == lit(0)).orderBy("hid").select(
+                (col("anomaly_score_pca") + col("anomaly_score_gmm")).alias("comb_score")).toPandas()[
+                                     "comb_score"].astype(float).values)
+
+            sep_pca = separation_z(norm_scores_pca, unlab_scores_pca)
+            sep_gmm = separation_z(norm_scores_gmm, unlab_scores_gmm)
+            sep_comb = separation_z(norm_scores_comb, unlab_scores_comb)
+
+            # deterministic stability splits (no random sample)
+            u1 = unlab_gmm.filter((col("hid") % lit(100)) < lit(80))
+            u2 = unlab_gmm.filter((col("hid") % lit(100)) >= lit(20))
+
+            stab_pca = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_pca")
+            stab_gmm = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_gmm")
+            stab_and = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_and")
+            stab_or = jaccard_anomaly_sets(u1, u2, id_col, "pseudo_label_or")
+
+            score_pca = (sep_pca * stab_pca) / (fpr_pca + eps)
+            score_gmm = (sep_gmm * stab_gmm) / (fpr_gmm + eps)
+            score_and = (sep_comb * stab_and) / (fpr_and + eps)
+            score_or = (sep_comb * stab_or) / (fpr_or + eps)
+
+            print("\n[UNSUPERVISED SCORE (separation * stability / FPR)]")
+            print(f"  PCA          : sep={sep_pca:.4f},  stab={stab_pca:.4f}, fpr={fpr_pca:.6f}, score={score_pca:.6f}")
+            print(f"  GMM          : sep={sep_gmm:.4f},  stab={stab_gmm:.4f}, fpr={fpr_gmm:.6f}, score={score_gmm:.6f}")
+            print(f"  Combined(AND): sep={sep_comb:.4f}, stab={stab_and:.4f}, fpr={fpr_and:.6f}, score={score_and:.6f}")
+            print(f"  Combined(OR) : sep={sep_comb:.4f}, stab={stab_or:.4f},  fpr={fpr_or:.6f},  score={score_or:.6f}")
+
+            best_method = \
+                max([("pca", score_pca), ("gmm", score_gmm), ("and", score_and), ("or", score_or)], key=lambda x: x[1])[
+                    0]
+
+            print(f"\n[SELECTED] Best method (fixed unsupervised): {best_method}")
+
+            if method in ["pca", "gmm", "and", "or"]:
+                best_method = method  # user override
+
+            if best_method == "pca":
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_pca"))
+            elif best_method == "gmm":
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_gmm"))
+            elif best_method == "and":
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_and"))
+            else:
+                unlab_gmm = unlab_gmm.withColumn("Final_Label", col("pseudo_label_or"))
+
+            # ============================================================
+            # 8) DEBUG ONLY: evaluation if you have true labels for unlabeled
+            # ============================================================
+            try:
+                train_unlabeled_eval_df = unlab_gmm.join(
+                    sequences_df.select(col(id_col), col("Label").alias("true_label")), on=id_col, how="inner")
+
+                pdf_unlabeled = train_unlabeled_eval_df.select("true_label", "pseudo_label_pca", "pseudo_label_gmm",
+                                                               "pseudo_label_and", "pseudo_label_or",
+                                                               "Final_Label").toPandas()
+
+                print("\n=== Classification_report on unlabeled (PCA-only) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_pca"], digits=3))
+                print("\n=== Classification_report on unlabeled (GMM-only) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_gmm"], digits=3))
+                print("\n=== Classification_report on unlabeled (Combined-AND) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_and"], digits=3))
+                print("\n=== Classification_report on unlabeled (Combined-OR) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["pseudo_label_or"], digits=3))
+                print("\n=== Classification_report on unlabeled (SELECTED Final_Label) ===")
+                print(classification_report(pdf_unlabeled["true_label"], pdf_unlabeled["Final_Label"], digits=3))
+            except Exception as e:
+                print(f"[DEBUG] Skipping debug evaluation (Label column missing or error): {e}")
+
+            # ============================================================
+            # 9) Build final training set using SELECTED pseudo labels
+            # ============================================================
+
+            # Columns you want for classifier
+            keep_cols = [id_col, "pca_features", "Final_Label"]
+
+            # ---- Normal training part (true normal = 0) ----
+            # IMPORTANT: use the SAME PCA transform that produced unlabeled pca_features
+            # In the updated pipeline this is train_pca_normal_fit (PCA trained on norm_fit_df)
+            train_df_normal = (train_pca_normal_fit.withColumn("Final_Label", lit(0).cast("int")).select(*keep_cols))
+
+            # ---- Unlabeled training part (pseudo labels from SELECTED method) ----
+            train_df_unlabeled = (
+                unlab_gmm.withColumn("Final_Label", col("Final_Label").cast("int")).select(*keep_cols))
+
+            # ---- UNION ----
+            df_final_train_cls = train_df_normal.unionByName(train_df_unlabeled, allowMissingColumns=False)
+
+            # ============================================================
+            # Prepare test/val
+            # ============================================================
+            # Ensure test_pca / val_pca come from SAME PCA model and have pca_features
+            # If Label exists, keep it; otherwise set Final_Label to null.
+
+            test_has_label = "Label" in df_test.columns
+            val_has_label = "Label" in df_val.columns
+
+            df_test_cls = (test_pca.withColumn("Final_Label", (
+                col("Label").cast("int") if test_has_label else lit(None).cast("int"))).select(id_col, "pca_features",
+                                                                                               "Final_Label"))
+
+            df_val_cls = (val_pca.withColumn("Final_Label", (
+                col("Label").cast("int") if val_has_label else lit(None).cast("int"))).select(id_col, "pca_features",
+                                                                                              "Final_Label"))
+
+            # ============================================================
+            # FINAL TRAINING QUALITY REPORT (true Label vs Final_Label)
+            # ============================================================
+
+            # 1) Join true labels onto the final training set (only where Label exists)
+            if "Label" not in sequences_df.columns:
+                print(
+                    "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
+            else:
+                df_train_quality = (
+                    df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
+                                            on=id_col, how="inner").select("true_label", "Final_Label").dropna())
+
+                # 2) Ensure there is data to evaluate
+                n_quality = df_train_quality.count()
+                if n_quality == 0:
+                    print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
+                else:
+                    # 3) Convert to pandas for sklearn report
+                    pdf_train_quality = df_train_quality.toPandas()
+                    pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
+                    pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
+
+                    print(f"\n=== Nayef : Classification_report on Full FINAL TRAIN SET (n={n_quality}) ===")
+                    print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"],
+                                                digits=3))
+
+
+
+            exit()
+
+
+            #------------- (3)
             '''
             # -----------------------------
             # SETTINGS
@@ -1946,6 +2402,8 @@ class FeaturesEngineering:
             from pyspark.ml.classification import LogisticRegression
             from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
 
+            '''
+
             # -----------------------------
             # Settings
             # -----------------------------
@@ -2091,7 +2549,7 @@ class FeaturesEngineering:
 
             print("\nDone. Choose the model with best TEST class-1 F1/precision/recall under tuned threshold.")
             exit()
-
+            '''
             '''
             # -----------------------------
             # Settings
@@ -2312,12 +2770,6 @@ class FeaturesEngineering:
             accuracy = (tp + tn) / (tp + tn + fp + fn + eps)
             print(f"\nOverall Accuracy: {accuracy:.6f}")
             print("========================================================\n")
-
-
-
-
-
-            exit()
 
             return df_final_train_cls, df_test_cls, df_val_cls
             #return df_train_quality, df_test_cls, df_val_cls
