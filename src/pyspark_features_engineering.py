@@ -275,6 +275,37 @@ class FeaturesEngineering:
 
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
         summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
+            array_to_vector_udf(col("features")))
+
+        # --- split (use your Temp_label) ---
+        train_df = summ_train_test_val_combine.filter(F.col("Temp_label").isin([0, 999]))
+        test_df = summ_train_test_val_combine.filter(F.col("Temp_label") == 888)
+        val_df = summ_train_test_val_combine.filter(F.col("Temp_label") == 777)
+
+        # --- fit ONLY on train ---
+        scaler = StandardScaler(inputCol="features_vec", outputCol="features_vec_final", withMean=True, withStd=True)
+        scaler_model = scaler.fit(train_df)
+
+        # --- transform all using the same scaler_model ---
+        train_scaled = scaler_model.transform(train_df)
+        test_scaled = scaler_model.transform(test_df)
+        val_scaled = scaler_model.transform(val_df)
+
+        print("✅ StandardScaler fit on TRAIN only, applied to train/test/val (no leakage)")
+        print('scaling done finally -------')
+
+        # If you still want a single combined DF (same as before):
+        summ_train_test_val_combine_scaled = train_scaled.unionByName(test_scaled).unionByName(val_scaled)
+
+        # Keep your existing outputs:
+        X_sequences_df = summ_train_test_val_combine_scaled.select("features_vec_final")
+        y_sequences_df = summ_train_test_val_combine_scaled.select("Label")
+
+        return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
+
+        '''
+        array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
+        summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
                                                                              array_to_vector_udf(col("features")))
 
         scaler = StandardScaler(inputCol="features_vec", outputCol="features_vec_final", withMean=True, withStd=True)
@@ -287,6 +318,7 @@ class FeaturesEngineering:
         y_sequences_df = summ_train_test_val_combine_scaled.select("Label")
 
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
+        '''
 
 
     @staticmethod
@@ -967,8 +999,8 @@ class FeaturesEngineering:
             # ============================================================
             # 3) Choose PCA k on NORMAL-fit only
             # ============================================================
-            #candidate_ks = [10, 20, 40, 50, 60, 70]
-            candidate_ks = [20, 40, 60, 80]
+            candidate_ks = [10, 20, 40, 50, 60, 70]
+            #candidate_ks = [20, 40, 60, 80]
             target_variance = 0.999
 
             best_k = None
