@@ -1887,6 +1887,7 @@ class FeaturesEngineering:
                     df_final_train_cls.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                                             on=id_col, how="inner").select("true_label", "Final_Label").dropna())
 
+
                 n_quality = df_train_quality.count()
                 if n_quality == 0:
                     print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
@@ -1894,6 +1895,7 @@ class FeaturesEngineering:
                     pdf_train_quality = df_train_quality.toPandas()
 
                     # Now safe because true_label is already 0/1 numeric
+                    pdf_train_quality["true_label"] = pdf_train_quality["true_label"].str.strip().str.lower().map({"normal": 0, "anomaly": 1})
                     pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
                     pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
 
