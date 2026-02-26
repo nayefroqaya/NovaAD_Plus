@@ -1117,6 +1117,16 @@ class FeaturesEngineering:
 
             print("\n[FULL TRAIN label distribution]")
             df_full_train_labeled_features.groupBy("Final_Label").count().show()
+
+
+            test_df = sequences_df.filter(col("Temp_label") == 888)
+            val_df = sequences_df.filter(col("Temp_label") == 777)
+
+            df_full_train_labeled_features.printSchema()
+            test_df.printSchema()
+            val_df.printSchema()
+
+
             exit()
 
 
