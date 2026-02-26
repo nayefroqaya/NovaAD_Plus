@@ -950,7 +950,7 @@ class FeaturesEngineering:
             if best is None:
                 print(f"⚠️ No threshold met TARGET_FPR={TARGET_FPR}. Using strictest q={max(Q_GRID)}")
                 best_q = max(Q_GRID)
-                thr = val_scored.approxQuantile("if_score", [float(best_q)], 0.001)[0]
+                thr = val_scored.approxQuantile("if_score", [float(best_q)], 0.01)[0]
             else:
                 rec, neg_fpr, best_q, thr, prec, f1 = best
                 print(
