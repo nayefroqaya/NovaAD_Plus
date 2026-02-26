@@ -855,7 +855,7 @@ class FeaturesEngineering:
             CONTAMINATION = 0.05  # used by IF internally (still OK even if we threshold)
             THR_Q = 0.95  # threshold quantile from VAL scores (top 5% anomalies)
             GT_COL = "Label"  # ground truth column
-            FEATURES_COL = "features"
+            FEATURES_COL = "features_vec_final"
 
             # -----------------------------
             # 0) Ensure features is VectorUDT

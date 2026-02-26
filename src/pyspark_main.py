@@ -371,9 +371,9 @@ def main():
             final_train_with_test_with_val,
             DATASET
         )
-    print(sequences_df.columns)
+    print(sequences_df.columns)   # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 
-    exit()
+    #exit()
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
