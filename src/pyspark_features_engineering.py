@@ -845,6 +845,8 @@ class FeaturesEngineering:
             from pyspark.sql import functions as F
             from pyspark.sql.functions import col, when
             from synapse.ml.isolationforest import IsolationForest
+            from pyspark.sql.functions import col
+            from pyspark.ml.functions import array_to_vector
 
             # -----------------------------
             # CONFIG
@@ -855,6 +857,8 @@ class FeaturesEngineering:
             # -----------------------------
             # SPLIT DATA
             # -----------------------------
+            sequences_df = sequences_df.withColumn("features", array_to_vector(col("features")))
+
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
             full_train_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
@@ -865,6 +869,7 @@ class FeaturesEngineering:
             # -----------------------------
             # TRAIN IF ON NORMAL ONLY
             # -----------------------------
+
             iso = IsolationForest(featuresCol="features", scoreCol="if_score", predictionCol="if_pred",
                 contamination=float(CONTAMINATION), numEstimators=200, randomSeed=SEED)
 
