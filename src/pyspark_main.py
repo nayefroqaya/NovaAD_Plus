@@ -188,6 +188,7 @@ spark = (
     .config("spark.jars.excludes", ",".join(
         ["org.scala-lang:scala-reflect", "org.apache.spark:spark-tags_2.12", "org.scalactic:scalactic_2.12",
             "org.scalatest:scalatest_2.12", "com.fasterxml.jackson.core:jackson-databind"]))
+    #---------------
     .getOrCreate()
 )
 #exit()
