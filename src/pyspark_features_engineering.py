@@ -966,7 +966,7 @@ class FeaturesEngineering:
             # -----------------------------
             def print_report(df, title):
                 df2 = df.select(col("y_true").cast("int").alias("y_true"),
-                                col("pseudo_label").cast("int").alias("pred")) \.filter(col("y_true").isNotNull())
+                                col("pseudo_label").cast("int").alias("pred")).filter(col("y_true").isNotNull())
 
                 nrows = df2.count()
                 if nrows == 0:
@@ -1000,8 +1000,8 @@ class FeaturesEngineering:
                 print(title)
                 print("=" * 80)
                 print("class | precision | recall | f1-score | support")
-                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} | { t n+fp}")
-                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} | { t p+fn}")
+                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} | { tn+fp}")
+                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} | { tp+fn}")
                 print(f"acc   | {acc:9.4f} |        |          | {n}")
                 print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
 
