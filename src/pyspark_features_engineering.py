@@ -858,6 +858,8 @@ class FeaturesEngineering:
             # SPLIT DATA
             # -----------------------------
             sequences_df = sequences_df.withColumn("features", array_to_vector(col("features")))
+            sequences_df.printSchema()
+            exit()
 
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
