@@ -945,7 +945,7 @@ class FeaturesEngineering:
 
             def print_report(df, title):
                 df2 = df.select(col("y_true").cast("int").alias("y"),
-                                col("pseudo_label").cast("int").alias("p")) \.filter(col("y").isNotNull())
+                                col("pseudo_label").cast("int").alias("p")).filter(col("y").isNotNull())
 
                 nrows = df2.count()
                 if nrows == 0:
@@ -985,10 +985,10 @@ class FeaturesEngineering:
                 print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
 
             print("\n--- Ground truth distribution (UNLABELED) ---")
-            unl_labeled.groupBy("y_true").count().show(50, truncate=False)
+            #unl_labeled.groupBy("y_true").count().show(50, truncate=False)
 
             print("\n--- Ground truth distribution (FULL TRAIN) ---")
-            full_labeled.groupBy("y_true").count().show(50, truncate=False)
+            #full_labeled.groupBy("y_true").count().show(50, truncate=False)
 
             print_report(unl_labeled,  "📌 Report: UNLABELED (Temp_label=999)  y_true vs pseudo_label")
             print_report(full_labeled, "📌 Report: FULL TRAIN (Temp_label in {0,999})  y_true vs pseudo_label")
