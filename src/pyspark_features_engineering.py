@@ -852,30 +852,27 @@ class FeaturesEngineering:
             # CONFIG
             # -----------------------------
             SEED = 42
-            CONTAMINATION = 0.05  # used by IF internally (still OK even if we threshold)
-            THR_Q = 0.80  # threshold quantile from VAL scores (top 5% anomalies)
+            CONTAMINATION = 0.05  # IF internal parameter
             GT_COL = "Label"  # ground truth column
-            FEATURES_COL = "features_vec_final"
+            FEATURES_COL = "features_vec_final"  # your feature vector column
+            TUNE_QUANTILES = [0.90, 0.93, 0.95, 0.97, 0.98, 0.99]  # candidates for threshold quantile
 
             # -----------------------------
             # 0) Ensure features is VectorUDT
-            # If FEATURES_COL is already vector, array_to_vector will error.
-            # So we try to detect: if it's array -> convert; if vector -> keep.
             # -----------------------------
             feat_dtype = dict(sequences_df.dtypes).get(FEATURES_COL, None)
-            # dtypes returns strings like 'array<double>' or 'vector'
             if feat_dtype is not None and feat_dtype.startswith("array"):
                 sequences_df = sequences_df.withColumn(FEATURES_COL, array_to_vector(col(FEATURES_COL)))
 
             # -----------------------------
-            # 1) Make y_true from Final_Label (handles: Anomaly/anomaly/Normal/normal/0/1)
+            # 1) Create y_true from Label (Anomaly/anomaly/Normal/normal/0/1)
             # -----------------------------
             sequences_df = sequences_df.withColumn("y_true",
                 when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
                     lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
                     col(GT_COL).cast("int")))
 
-            # Optional: see any unmapped values
+            # Optional: check unmapped label values
             # sequences_df.filter(col("y_true").isNull()).groupBy(GT_COL).count().show(50, truncate=False)
 
             # -----------------------------
@@ -884,7 +881,7 @@ class FeaturesEngineering:
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
             df_val = sequences_df.filter(col("Temp_label") == 777).cache()
-            df_test = sequences_df.filter(col("Temp_label") == 888).cache()  # optional
+            df_test = sequences_df.filter(col("Temp_label") == 888).cache()
             full_train_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
 
             if train_normal_df.count() == 0:
@@ -910,23 +907,46 @@ class FeaturesEngineering:
             test_scored = model.transform(df_test).cache() if df_test.count() > 0 else None
 
             # -----------------------------
-            # 5) Threshold (prefer VAL; fallback to UNLABELED if no VAL)
-            # Higher if_score => more anomalous
+            # 5) Tune threshold quantile on VAL to maximize F1 (fallback: q=0.95 on UNLABELED)
             # -----------------------------
+            thr = None
+            best_q = None
+
             if val_scored is not None:
-                thr = val_scored.approxQuantile("if_score", [THR_Q], 0.001)[0]
-                print(f"✅ Threshold from VAL: q={THR_Q} -> thr={thr}")
+                best = None
+                for q in TUNE_QUANTILES:
+                    t = val_scored.approxQuantile("if_score", [float(q)], 0.001)[0]
+
+                    tmp = val_scored.withColumn("pred", when(col("if_score") >= lit(t), 1).otherwise(0))
+                    agg = tmp.select(col("y_true").cast("int").alias("y"), col("pred").alias("p")).filter(col("y").isNotNull()).agg(
+                        F.sum(((col("y ") ==1) & (col("p ") ==1)).cast("int")).alias("tp"),
+                        F.sum(((col("y ") ==0) & (col("p ") ==1)).cast("int")).alias("fp"),
+                        F.sum(((col("y ") ==1) & (col("p ") ==0)).cast("int")).alias("fn")
+                    ).collect()[0]
+
+                    tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
+                    prec = tp / (tp + fp) if (tp + fp) else 0.0
+                    rec  = tp / (tp + fn) if (tp + fn) else 0.0
+                    f1   = (2 * prec * rec) / (prec + rec) if (prec + rec) else 0.0
+
+                    cand = (f1, q, t, prec, rec)
+                    if best is None or cand[0] > best[0]:
+                        best = cand
+
+                best_f1, best_q, thr, best_prec, best_rec = best
+                print(f"✅ Best threshold on VAL: q={best_q} thr={thr}  F1={best_f1:.4f} P={best_prec:.4f} R={best_rec:.4f}")
+
             else:
-                thr = unl_scored.approxQuantile("if_score", [THR_Q], 0.001)[0]
-                print(f"⚠️ No VAL set. Threshold from UNLABELED: q={THR_Q} -> thr={thr}")
+                best_q = 0.95
+                thr = unl_scored.approxQuantile("if_score", [best_q], 0.001)[0]
+                print(f"⚠️ No VAL set. Using UNLABELED quantile q={best_q} -> thr={thr}")
 
             # -----------------------------
-            # 6) Create pseudo_label using threshold (stable, explicit)
+            # 6) Create pseudo_label using tuned threshold
             # -----------------------------
-            unl_labeled = unl_scored.withColumn("pseudo_label",
-                                                when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
-            full_labeled = full_scored.withColumn("pseudo_label",
-                                                  when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
+            unl_labeled = unl_scored.withColumn("pseudo_label"
+                                                , when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
+            full_labeled = full_scored.withColumn("pseudo_labe", when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
 
             print("\n--- UNLABELED pseudo_label distribution ---")
             unl_labeled.groupBy("pseudo_label").count().show()
@@ -934,25 +954,23 @@ class FeaturesEngineering:
             print("\n--- FULL TRAIN pseudo_label distribution ---")
             full_labeled.groupBy("pseudo_label").count().show()
 
-            # Optional sanity check:
-            # unl_labeled.select("if_score","pseudo_label").orderBy(F.desc("if_score")).show(20, truncate=False)
-
             # -----------------------------
-            # 7) Spark-only classification report using y_true vs pseudo_label
+            # 7) Spark-only classification report: y_true vs pseudo_label
             # -----------------------------
             def safe_div(a, b):
                 return float(a) / float(b) if b else 0.0
 
             def print_report(df, title):
-                df2 = df.select(col("y_true").cast("int").alias("y"),
-                                col("pseudo_label").cast("int").alias("p")).filter(col("y").isNotNull())
+                df2 = df.select(col("y_true").cast("int").alias("y"
+                                ), col("pseudo_label").cast("int").alias("p")) \
+                    .filter(col("y").isNotNull())
 
                 nrows = df2.count()
                 if nrows == 0:
                     print("\n" + "=" * 80)
                     print(title)
                     print("=" * 80)
-                    print("⚠️ No rows with non-null y_true. Check Final_Label mapping.")
+                    print("⚠️ No rows with non-null y_true. Check Label mapping.")
                     return
 
                 agg = df2.agg(
@@ -979,20 +997,17 @@ class FeaturesEngineering:
                 print(title)
                 print("=" * 80)
                 print("class | precision | recall | f1-score | support")
-                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} | { tn+fp}")
-                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} | { tp+fn}")
+                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} |   {tn+fp}")
+                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} |   {tp+fn}")
                 print(f"acc   | {acc:9.4f} |        |          | {n}")
                 print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
-
-            print("\n--- Ground truth distribution (UNLABELED) ---")
-            #unl_labeled.groupBy("y_true").count().show(50, truncate=False)
-
-            print("\n--- Ground truth distribution (FULL TRAIN) ---")
-            #full_labeled.groupBy("y_true").count().show(50, truncate=False)
 
             print_report(unl_labeled,  "📌 Report: UNLABELED (Temp_label=999)  y_true vs pseudo_label")
             print_report(full_labeled, "📌 Report: FULL TRAIN (Temp_label in {0,999})  y_true vs pseudo_label")
 
+            if test_scored is not None:
+                test_labeled = test_scored.withColumn("pseudo_label", when(col("if_score") >= lit(thr), 1).otherwise(0))
+                print_report(test_labeled, "📌 Report: TEST (Temp_label=888)  y_true vs pseudo_label")
             exit()
             # ============================================
             # OUTPUT DATAFRAMES:
