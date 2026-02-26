@@ -1143,17 +1143,31 @@ class FeaturesEngineering:
 
             #----- classification
 
+            # ============================================================
+            # FIXED: Weighted Logistic Regression + Threshold tuning
+            # Works when "probability" is VectorUDT struct (use vector_to_array)
+            # Prints Precision/Recall/F1 per class on TEST
+            # ============================================================
+
+            import numpy as np
             from pyspark.sql import functions as F
             from pyspark.ml.classification import LogisticRegression
             from pyspark.ml.evaluation import BinaryClassificationEvaluator
-            from sklearn.metrics import classification_report
-            import numpy as np
+            from pyspark.ml.functions import vector_to_array
+            from sklearn.metrics import classification_report, f1_score
 
             # ------------------------------------------------------------
-            # 1️⃣ Compute Class Weights (handle imbalance)
+            # 0) Safety: ensure label is int
             # ------------------------------------------------------------
-            label_counts = df_full_train_labeled_features.groupBy("Final_Label").count().collect()
-            counts = {row["Final_Label"]: row["count"] for row in label_counts}
+            train_base = df_full_train_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+            val_base = df_val_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+            test_base = df_test_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+
+            # ------------------------------------------------------------
+            # 1) Compute class weights
+            # ------------------------------------------------------------
+            label_counts = train_base.groupBy("Final_Label").count().collect()
+            counts = {int(r["Final_Label"]): int(r["count"]) for r in label_counts}
 
             n0 = counts.get(0, 1)
             n1 = counts.get(1, 1)
@@ -1164,57 +1178,63 @@ class FeaturesEngineering:
 
             print("Class weights -> 0:", weight_0, " | 1:", weight_1)
 
-            train_df = df_full_train_labeled_features.withColumn("classWeightCol",
-                F.when(F.col("Final_Label") == 1, weight_1).otherwise(weight_0))
+            train_df = train_base.withColumn("classWeightCol",
+                F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
 
             # ------------------------------------------------------------
-            # 2️⃣ Train Logistic Regression
+            # 2) Train weighted Logistic Regression
             # ------------------------------------------------------------
             lr = LogisticRegression(featuresCol="features_vec_final", labelCol="Final_Label",
-                weightCol="classWeightCol", maxIter=50, regParam=0.05, elasticNetParam=0.0
-                # L2 regularization (stable for noise)
-            )
+                weightCol="classWeightCol", maxIter=80, regParam=0.05, elasticNetParam=0.0)
 
             lr_model = lr.fit(train_df)
 
             # ------------------------------------------------------------
-            # 3️⃣ Tune Threshold on Validation Set (maximize F1 for class 1)
+            # 3) Validation predictions + threshold tuning (maximize F1 for class 1)
             # ------------------------------------------------------------
-            val_pred_raw = lr_model.transform(df_val_labeled_features)
+            val_pred_raw = lr_model.transform(val_base)
 
-            val_pdf = val_pred_raw.select("Final_Label", F.col("probability")[1].alias("prob_1")).toPandas()
+            val_pdf = (val_pred_raw.select(F.col("Final_Label").alias("y"),
+                vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
+
+            if len(val_pdf) == 0:
+                raise ValueError("❌ Validation set is empty after dropna(). Check your df_val_labeled_features.")
 
             best_threshold = 0.5
-            best_f1 = 0
+            best_f1 = -1.0
 
-            for t in np.arange(0.1, 0.9, 0.02):
-                preds = (val_pdf["prob_1"] >= t).astype(int)
-                from sklearn.metrics import f1_score
-                f1 = f1_score(val_pdf["Final_Label"], preds, pos_label=1)
+            for t in np.arange(0.05, 0.96, 0.01):
+                preds = (val_pdf["prob_1"].values >= t).astype(int)
+                f1 = f1_score(val_pdf["y"].values.astype(int), preds, pos_label=1)
                 if f1 > best_f1:
                     best_f1 = f1
-                    best_threshold = t
+                    best_threshold = float(t)
 
-            print("\nBest threshold from validation:", best_threshold)
-            print("Best validation F1 (class 1):", best_f1)
+            print("\nBest threshold from VAL:", best_threshold)
+            print("Best VAL F1 (class 1):", best_f1)
 
             # ------------------------------------------------------------
-            # 4️⃣ Evaluate on TEST using selected threshold
+            # 4) TEST evaluation (precision/recall/f1 per class)
             # ------------------------------------------------------------
-            test_pred_raw = lr_model.transform(df_test_labeled_features)
+            test_pred_raw = lr_model.transform(test_base)
 
-            test_pdf = test_pred_raw.select("Final_Label", F.col("probability")[1].alias("prob_1")).toPandas()
+            test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
+                vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
 
-            test_preds = (test_pdf["prob_1"] >= best_threshold).astype(int)
+            if len(test_pdf) == 0:
+                raise ValueError("❌ Test set is empty after dropna(). Check your df_test_labeled_features.")
 
-            print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(test_pdf["Final_Label"], test_preds, digits=4))
+            test_preds = (test_pdf["prob_1"].values >= best_threshold).astype(int)
 
-            # Optional: Print PR-AUC
+            print("\n================ TEST CLASSIFICATION REPORT (threshold tuned on VAL) ================")
+            print(classification_report(test_pdf["y"].values.astype(int), test_preds, digits=4))
+
+            # Optional: PR-AUC on test (uses rawPrediction column, no need for prob extraction)
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
-
             print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
+
+
 
 
             exit()
