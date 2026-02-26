@@ -1126,6 +1126,18 @@ class FeaturesEngineering:
             test_df.printSchema()
             val_df.printSchema()
 
+            df_test_labeled_features = test_df.select(col("Node_block_id"), col("features_vec_final"),
+                col("y_true").cast("int").alias("Final_Label"))
+
+            df_val_labeled_features = val_df.select(col("Node_block_id"), col("features_vec_final"),
+                col("y_true").cast("int").alias("Final_Label"))
+
+            print("\n=== TEST (LABELED FEATURES) SCHEMA ===")
+            df_test_labeled_features.printSchema()
+
+            print("\n=== VAL (LABELED FEATURES) SCHEMA ===")
+            df_val_labeled_features.printSchema()
+
 
             exit()
 
