@@ -1446,6 +1446,12 @@ class FeaturesEngineering:
             #------------(4)
             # 0) Split data---- Good but not perfect in classification ---- (1)
             # -----------------------------
+            GT_COL = "Label"
+            sequences_df = sequences_df.withColumn("y_true",
+                when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
+                    lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
+                    col(GT_COL).cast("int")))
+
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
             df_test = sequences_df.filter(col("Temp_label") == 888)
