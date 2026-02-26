@@ -855,7 +855,12 @@ class FeaturesEngineering:
             CONTAMINATION = 0.05
             GT_COL = "Label"
             FEATURES_COL = "features_vec_final"
-            TUNE_QUANTILES = [0.90, 0.93, 0.95, 0.97, 0.98, 0.99]
+
+            # Pick ONE target (smaller => higher precision, lower recall)
+            TARGET_FPR = 0.01  # 1% false positives on NORMAL on VAL (try 0.005 or 0.002)
+
+            # Threshold candidates (higher quantile => stricter => fewer anomalies)
+            Q_GRID = [0.95, 0.97, 0.98, 0.985, 0.99, 0.992, 0.995, 0.997, 0.999]
 
             # -----------------------------
             # 0) Ensure features is VectorUDT
@@ -865,7 +870,7 @@ class FeaturesEngineering:
                 sequences_df = sequences_df.withColumn(FEATURES_COL, array_to_vector(col(FEATURES_COL)))
 
             # -----------------------------
-            # 1) Create y_true from Label (Anomaly/anomaly/Normal/normal/0/1)
+            # 1) Create y_true from Label
             # -----------------------------
             sequences_df = sequences_df.withColumn("y_true",
                 when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
@@ -873,7 +878,7 @@ class FeaturesEngineering:
                     col(GT_COL).cast("int")))
 
             # -----------------------------
-            # 2) Split by Temp_label
+            # 2) Split
             # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0).cache()
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999).cache()
@@ -885,9 +890,11 @@ class FeaturesEngineering:
                 raise ValueError("❌ No normal data found (Temp_label=0).")
             if train_unlabeled_df.count() == 0:
                 raise ValueError("❌ No unlabeled data found (Temp_label=999).")
+            if df_val.count() == 0:
+                raise ValueError("❌ No VAL data found (Temp_label=777). Needed to tune threshold.")
 
             # -----------------------------
-            # 3) Train IsolationForest on NORMAL only
+            # 3) Train IF on normal only
             # -----------------------------
             iso = IsolationForest(featuresCol=FEATURES_COL, scoreCol="if_score", predictionCol="if_pred",
                 contamination=float(CONTAMINATION), numEstimators=200, randomSeed=SEED)
@@ -896,64 +903,70 @@ class FeaturesEngineering:
             print("✅ SynapseML IsolationForest trained.")
 
             # -----------------------------
-            # 4) Score datasets
+            # 4) Score VAL + TEST + UNLABELED + FULL
             # -----------------------------
+            val_scored = model.transform(df_val).filter(col("y_true").isNotNull()).cache()
+            test_scored = model.transform(df_test).filter(
+                col("y_true").isNotNull()).cache() if df_test.count() > 0 else None
             unl_scored = model.transform(train_unlabeled_df).cache()
             full_scored = model.transform(full_train_df).cache()
 
-            val_scored = model.transform(df_val).cache() if df_val.count() > 0 else None
-            test_scored = model.transform(df_test).cache() if df_test.count() > 0 else None
-
             # -----------------------------
-            # 5) Tune threshold on VAL to maximize F1
-            #    (FIXED: use y_true + pred directly, no alias col("y")/col("p"))
+            # 5) Tune threshold: pick the strictest threshold that achieves TARGET_FPR on NORMAL
+            #    then among feasible thresholds, choose the one with best recall (or best F1)
             # -----------------------------
-            thr = None
-            best_q = None
+            val_norm = val_scored.filter(col("y_true") == 0).cache()
+            val_anom = val_scored.filter(col("y_true") == 1).cache()
 
-            def safe_div(a, b):
-                return float(a) / float(b) if b else 0.0
+            n_norm = val_norm.count()
+            n_anom = val_anom.count()
+            print(f"VAL sizes: normal={n_norm}, anomaly={n_anom}")
 
-            if val_scored is not None:
-                best = None
+            best = None  # (recall, -fpr, q, thr, prec, f1)
+            for q in Q_GRID:
+                thr = val_scored.approxQuantile("if_score", [float(q)], 0.001)[0]
 
-                # keep only rows with y_true known
-                val_base = val_scored.filter(col("y_true").isNotNull()).cache()
+                # predictions on VAL
+                pred_norm = val_norm.withColumn("pred", when(col("if_score") >= lit(thr), 1).otherwise(0))
+                pred_anom = val_anom.withColumn("pred", when(col("if_score") >= lit(thr), 1).otherwise(0))
 
-                for q in TUNE_QUANTILES:
-                    t = val_base.approxQuantile("if_score", [float(q)], 0.001)[0]
-                    tmp = val_base.withColumn("pred", when(col("if_score") >= lit(t), 1).otherwise(0))
+                fp = pred_norm.filter(col("pred") == 1).count()
+                tp = pred_anom.filter(col("pred") == 1).count()
+                fn = n_anom - tp
 
-                    agg = tmp.agg(F.sum(((col("y_true") == 1) & (col("pred") == 1)).cast("int")).alias("tp"),
-                        F.sum(((col("y_true") == 0) & (col("pred") == 1)).cast("int")).alias("fp"),
-                        F.sum(((col("y_true") == 1) & (col("pred") == 0)).cast("int")).alias("fn")).collect()[0]
+                fpr = fp / n_norm if n_norm else 0.0
+                rec = tp / (tp + fn) if (tp + fn) else 0.0
+                prec = tp / (tp + fp) if (tp + fp) else 0.0
+                f1 = (2 * prec * rec) / (prec + rec) if (prec + rec) else 0.0
 
-                    tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
-                    prec = safe_div(tp, tp + fp)
-                    rec = safe_div(tp, tp + fn)
-                    f1 = safe_div(2 * prec * rec, prec + rec)
+                print(f"[VAL] q={q:.3f} thr={thr:.6f} FPR={fpr:.4f} P={prec:.4f} R={rec:.4f} F1={f1:.4f}")
 
-                    cand = (f1, q, t, prec, rec)
-                    if best is None or cand[0] > best[0]:
+                # keep only thresholds that satisfy FPR constraint
+                if fpr <= TARGET_FPR:
+                    cand = (rec, -fpr, q, thr, prec, f1)
+                    if best is None or cand > best:
                         best = cand
 
-                best_f1, best_q, thr, best_prec, best_rec = best
-                print(
-                    f"✅ Best threshold on VAL: q={best_q} thr={thr}  F1={best_f1:.4f} P={best_prec:.4f} R={best_rec:.4f}")
-
+            if best is None:
+                print(f"⚠️ No threshold met TARGET_FPR={TARGET_FPR}. Using strictest q={max(Q_GRID)}")
+                best_q = max(Q_GRID)
+                thr = val_scored.approxQuantile("if_score", [float(best_q)], 0.001)[0]
             else:
-                # fallback if no val set
-                best_q = 0.95
-                thr = unl_scored.approxQuantile("if_score", [best_q], 0.001)[0]
-                print(f"⚠️ No VAL set. Using UNLABELED quantile q={best_q} -> thr={thr}")
+                rec, neg_fpr, best_q, thr, prec, f1 = best
+                print(
+                    f"✅ Selected threshold: q={best_q} thr={thr} (VAL)  FPR<= {TARGET_FPR}, P={prec:.4f}, R={rec:.4f}, F1={f1:.4f}")
 
             # -----------------------------
-            # 6) Create pseudo_label using tuned threshold
+            # 6) Label UNLABELED, FULL, TEST using tuned threshold
             # -----------------------------
             unl_labeled = unl_scored.withColumn("pseudo_label",
                                                 when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
             full_labeled = full_scored.withColumn("pseudo_label",
                                                   when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
+
+            if test_scored is not None:
+                test_labeled = test_scored.withColumn("pseudo_label",
+                                                      when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
 
             print("\n--- UNLABELED pseudo_label distribution ---")
             unl_labeled.groupBy("pseudo_label").count().show()
@@ -962,19 +975,14 @@ class FeaturesEngineering:
             full_labeled.groupBy("pseudo_label").count().show()
 
             # -----------------------------
-            # 7) Spark-only classification report: y_true vs pseudo_label
+            # 7) Report
             # -----------------------------
+            def safe_div(a, b):
+                return float(a) / float(b) if b else 0.0
+
             def print_report(df, title):
                 df2 = df.select(col("y_true").cast("int").alias("y_true"),
                                 col("pseudo_label").cast("int").alias("pred")).filter(col("y_true").isNotNull())
-
-                nrows = df2.count()
-                if nrows == 0:
-                    print("\n" + "=" * 80)
-                    print(title)
-                    print("=" * 80)
-                    print("⚠️ No rows with non-null y_true. Check Label mapping.")
-                    return
 
                 agg = df2.agg(
                     F.sum(((col("y_true") == 1) & (col("pred") == 1)).cast("int")).alias("tp"),
@@ -1005,11 +1013,8 @@ class FeaturesEngineering:
                 print(f"acc   | {acc:9.4f} |        |          | {n}")
                 print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
 
-            print_report(unl_labeled,  "📌 Report: UNLABELED (Temp_label=999)  y_true vs pseudo_label")
             print_report(full_labeled, "📌 Report: FULL TRAIN (Temp_label in {0,999})  y_true vs pseudo_label")
-
             if test_scored is not None:
-                test_labeled = test_scored.withColumn("pseudo_label", when(col("if_score") >= lit(thr), 1).otherwise(0))
                 print_report(test_labeled, "📌 Report: TEST (Temp_label=888)  y_true vs pseudo_label")
             exit()
             # ============================================
