@@ -848,6 +848,7 @@ class FeaturesEngineering:
             from pyspark.sql.functions import col
             from pyspark.ml.functions import array_to_vector
 
+            '''
             # -----------------------------
             # CONFIG
             # -----------------------------
@@ -1017,12 +1018,13 @@ class FeaturesEngineering:
             if test_scored is not None:
                 print_report(test_labeled, "📌 Report: TEST (Temp_label=888)  y_true vs pseudo_label")
             exit()
+            '''
             # ============================================
             # OUTPUT DATAFRAMES:
             #   unl_labeled  -> unlabeled data with pseudo_label
             #   full_labeled -> full train with pseudo_label
             # ============================================
-
+            '''
             #------------(5)
             from pyspark.sql.functions import col, when
             from pyspark.ml.iforest import IsolationForest
@@ -1439,9 +1441,9 @@ class FeaturesEngineering:
             print(classification_report(pdf_train_quality["true_label"], pdf_train_quality["Final_Label"], digits=3))
             print(f"\n[SELECTED] Best method (fixed unsupervised): {best_method}")
             exit()
-
+            '''
+            '''
             #------------(4)
-
             # 0) Split data---- Good but not perfect in classification ---- (1)
             # -----------------------------
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
@@ -1896,6 +1898,7 @@ class FeaturesEngineering:
 
 
             exit()
+            '''
 
 
             #------------- (3)
@@ -2974,7 +2977,7 @@ class FeaturesEngineering:
             else:
                 print(
                     "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
-            #exit()
+            exit()
 
 
             print("=== SCHEMA ===")
