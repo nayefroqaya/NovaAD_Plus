@@ -853,7 +853,7 @@ class FeaturesEngineering:
             # -----------------------------
             SEED = 42
             CONTAMINATION = 0.05  # used by IF internally (still OK even if we threshold)
-            THR_Q = 0.90  # threshold quantile from VAL scores (top 5% anomalies)
+            THR_Q = 0.80  # threshold quantile from VAL scores (top 5% anomalies)
             GT_COL = "Label"  # ground truth column
             FEATURES_COL = "features_vec_final"
 
