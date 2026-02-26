@@ -919,7 +919,7 @@ class FeaturesEngineering:
                         F.count(F.lit(1)).alias("n")
                     ).collect()[0]
 
-                    tp, fp, tn, fn, n = [int(agg[k]) for k in ["tp ","fp ","tn ","fn ","n"]]
+                    tp, fp, tn, fn, n = [int(agg[k]) for k in ["tp","fp","tn","fn","n"]]
 
                     p1 = safe_div(tp, tp +fp)
                     r1 = safe_div(tp, tp +fn)
