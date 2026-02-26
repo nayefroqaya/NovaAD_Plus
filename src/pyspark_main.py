@@ -373,7 +373,7 @@ def main():
         )
     print(sequences_df.columns)
 
-    #exit()
+    exit()
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
