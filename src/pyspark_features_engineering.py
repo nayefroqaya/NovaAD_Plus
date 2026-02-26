@@ -1879,21 +1879,21 @@ class FeaturesEngineering:
             # ============================================================
 
             # 1) Join true labels onto the final training set (only where Label exists)
-            if "Label" not in sequences_df.columns:
+            if "y_true" not in sequences_df.columns:
                 print(
-                    "[WARN] sequences_df has no 'Label' column -> cannot compute final training classification report.")
+                    "[WARN] sequences_df has no 'y_true' column -> cannot compute final training classification report.")
             else:
                 df_train_quality = (
-                    df_final_train_cls.join(sequences_df.select(col(id_col), col("Label").alias("true_label")),
+                    df_final_train_cls.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                                             on=id_col, how="inner").select("true_label", "Final_Label").dropna())
 
-                # 2) Ensure there is data to evaluate
                 n_quality = df_train_quality.count()
                 if n_quality == 0:
                     print("[WARN] No rows with both true_label and Final_Label -> report skipped.")
                 else:
-                    # 3) Convert to pandas for sklearn report
                     pdf_train_quality = df_train_quality.toPandas()
+
+                    # Now safe because true_label is already 0/1 numeric
                     pdf_train_quality["true_label"] = pdf_train_quality["true_label"].astype(int)
                     pdf_train_quality["Final_Label"] = pdf_train_quality["Final_Label"].astype(int)
 
