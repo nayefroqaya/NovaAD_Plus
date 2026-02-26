@@ -1141,6 +1141,81 @@ class FeaturesEngineering:
             print("\n=== VAL (LABELED FEATURES) SCHEMA ===")
             df_val_labeled_features.printSchema()
 
+            #----- classification
+
+            from pyspark.sql import functions as F
+            from pyspark.ml.classification import LogisticRegression
+            from pyspark.ml.evaluation import BinaryClassificationEvaluator
+            from sklearn.metrics import classification_report
+            import numpy as np
+
+            # ------------------------------------------------------------
+            # 1️⃣ Compute Class Weights (handle imbalance)
+            # ------------------------------------------------------------
+            label_counts = df_full_train_labeled_features.groupBy("Final_Label").count().collect()
+            counts = {row["Final_Label"]: row["count"] for row in label_counts}
+
+            n0 = counts.get(0, 1)
+            n1 = counts.get(1, 1)
+            total = n0 + n1
+
+            weight_0 = total / (2.0 * n0)
+            weight_1 = total / (2.0 * n1)
+
+            print("Class weights -> 0:", weight_0, " | 1:", weight_1)
+
+            train_df = df_full_train_labeled_features.withColumn("classWeightCol",
+                F.when(F.col("Final_Label") == 1, weight_1).otherwise(weight_0))
+
+            # ------------------------------------------------------------
+            # 2️⃣ Train Logistic Regression
+            # ------------------------------------------------------------
+            lr = LogisticRegression(featuresCol="features_vec_final", labelCol="Final_Label",
+                weightCol="classWeightCol", maxIter=50, regParam=0.05, elasticNetParam=0.0
+                # L2 regularization (stable for noise)
+            )
+
+            lr_model = lr.fit(train_df)
+
+            # ------------------------------------------------------------
+            # 3️⃣ Tune Threshold on Validation Set (maximize F1 for class 1)
+            # ------------------------------------------------------------
+            val_pred_raw = lr_model.transform(df_val_labeled_features)
+
+            val_pdf = val_pred_raw.select("Final_Label", F.col("probability")[1].alias("prob_1")).toPandas()
+
+            best_threshold = 0.5
+            best_f1 = 0
+
+            for t in np.arange(0.1, 0.9, 0.02):
+                preds = (val_pdf["prob_1"] >= t).astype(int)
+                from sklearn.metrics import f1_score
+                f1 = f1_score(val_pdf["Final_Label"], preds, pos_label=1)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = t
+
+            print("\nBest threshold from validation:", best_threshold)
+            print("Best validation F1 (class 1):", best_f1)
+
+            # ------------------------------------------------------------
+            # 4️⃣ Evaluate on TEST using selected threshold
+            # ------------------------------------------------------------
+            test_pred_raw = lr_model.transform(df_test_labeled_features)
+
+            test_pdf = test_pred_raw.select("Final_Label", F.col("probability")[1].alias("prob_1")).toPandas()
+
+            test_preds = (test_pdf["prob_1"] >= best_threshold).astype(int)
+
+            print("\n================ TEST CLASSIFICATION REPORT ================")
+            print(classification_report(test_pdf["Final_Label"], test_preds, digits=4))
+
+            # Optional: Print PR-AUC
+            evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
+                metricName="areaUnderPR")
+
+            print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
+
 
             exit()
 
