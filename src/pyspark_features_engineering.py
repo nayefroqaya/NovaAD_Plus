@@ -852,10 +852,10 @@ class FeaturesEngineering:
             # CONFIG
             # -----------------------------
             SEED = 42
-            CONTAMINATION = 0.05  # IF internal parameter
-            GT_COL = "Label"  # ground truth column
-            FEATURES_COL = "features_vec_final"  # your feature vector column
-            TUNE_QUANTILES = [0.90, 0.93, 0.95, 0.97, 0.98, 0.99]  # candidates for threshold quantile
+            CONTAMINATION = 0.05
+            GT_COL = "Label"
+            FEATURES_COL = "features_vec_final"
+            TUNE_QUANTILES = [0.90, 0.93, 0.95, 0.97, 0.98, 0.99]
 
             # -----------------------------
             # 0) Ensure features is VectorUDT
@@ -871,9 +871,6 @@ class FeaturesEngineering:
                 when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
                     lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
                     col(GT_COL).cast("int")))
-
-            # Optional: check unmapped label values
-            # sequences_df.filter(col("y_true").isNull()).groupBy(GT_COL).count().show(50, truncate=False)
 
             # -----------------------------
             # 2) Split by Temp_label
@@ -903,40 +900,49 @@ class FeaturesEngineering:
             # -----------------------------
             unl_scored = model.transform(train_unlabeled_df).cache()
             full_scored = model.transform(full_train_df).cache()
+
             val_scored = model.transform(df_val).cache() if df_val.count() > 0 else None
             test_scored = model.transform(df_test).cache() if df_test.count() > 0 else None
 
             # -----------------------------
-            # 5) Tune threshold quantile on VAL to maximize F1 (fallback: q=0.95 on UNLABELED)
+            # 5) Tune threshold on VAL to maximize F1
+            #    (FIXED: use y_true + pred directly, no alias col("y")/col("p"))
             # -----------------------------
             thr = None
             best_q = None
 
+            def safe_div(a, b):
+                return float(a) / float(b) if b else 0.0
+
             if val_scored is not None:
                 best = None
-                for q in TUNE_QUANTILES:
-                    t = val_scored.approxQuantile("if_score", [float(q)], 0.001)[0]
 
-                    tmp = val_scored.withColumn("pred", when(col("if_score") >= lit(t), 1).otherwise(0))
-                    agg = tmp.select(col("y_true").cast("int").alias("y"), col("pred").alias("p")).filter(col("y").isNotNull()).agg(
-                        F.sum(((col("y ") ==1) & (col("p ") ==1)).cast("int")).alias("tp"),
-                        F.sum(((col("y ") ==0) & (col("p ") ==1)).cast("int")).alias("fp"),
-                        F.sum(((col("y ") ==1) & (col("p ") ==0)).cast("int")).alias("fn")
-                    ).collect()[0]
+                # keep only rows with y_true known
+                val_base = val_scored.filter(col("y_true").isNotNull()).cache()
+
+                for q in TUNE_QUANTILES:
+                    t = val_base.approxQuantile("if_score", [float(q)], 0.001)[0]
+                    tmp = val_base.withColumn("pred", when(col("if_score") >= lit(t), 1).otherwise(0))
+
+                    agg = tmp.agg(F.sum(((col("y_true") == 1) & (col("pred") == 1)).cast("int")).alias("tp"),
+                        F.sum(((col("y_true") == 0) & (col("pred") == 1)).cast("int")).alias("fp"),
+                        F.sum(((col("y_true") == 1) & (col("pred") == 0)).cast("int")).alias("fn")).collect()[0]
 
                     tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
-                    prec = tp / (tp + fp) if (tp + fp) else 0.0
-                    rec  = tp / (tp + fn) if (tp + fn) else 0.0
-                    f1   = (2 * prec * rec) / (prec + rec) if (prec + rec) else 0.0
+                    prec = safe_div(tp, tp + fp)
+                    rec = safe_div(tp, tp + fn)
+                    f1 = safe_div(2 * prec * rec, prec + rec)
 
                     cand = (f1, q, t, prec, rec)
                     if best is None or cand[0] > best[0]:
                         best = cand
 
                 best_f1, best_q, thr, best_prec, best_rec = best
-                print(f"✅ Best threshold on VAL: q={best_q} thr={thr}  F1={best_f1:.4f} P={best_prec:.4f} R={best_rec:.4f}")
+                print(
+                    f"✅ Best threshold on VAL: q={best_q} thr={thr}  F1={best_f1:.4f} P={best_prec:.4f} R={best_rec:.4f}")
 
             else:
+                # fallback if no val set
                 best_q = 0.95
                 thr = unl_scored.approxQuantile("if_score", [best_q], 0.001)[0]
                 print(f"⚠️ No VAL set. Using UNLABELED quantile q={best_q} -> thr={thr}")
@@ -944,9 +950,10 @@ class FeaturesEngineering:
             # -----------------------------
             # 6) Create pseudo_label using tuned threshold
             # -----------------------------
-            unl_labeled = unl_scored.withColumn("pseudo_label"
-                                                , when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
-            full_labeled = full_scored.withColumn("pseudo_labe", when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
+            unl_labeled = unl_scored.withColumn("pseudo_label",
+                                                when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
+            full_labeled = full_scored.withColumn("pseudo_label",
+                                                  when(col("if_score") >= lit(thr), 1).otherwise(0)).cache()
 
             print("\n--- UNLABELED pseudo_label distribution ---")
             unl_labeled.groupBy("pseudo_label").count().show()
@@ -957,13 +964,9 @@ class FeaturesEngineering:
             # -----------------------------
             # 7) Spark-only classification report: y_true vs pseudo_label
             # -----------------------------
-            def safe_div(a, b):
-                return float(a) / float(b) if b else 0.0
-
             def print_report(df, title):
-                df2 = df.select(col("y_true").cast("int").alias("y"
-                                ), col("pseudo_label").cast("int").alias("p")) \
-                    .filter(col("y").isNotNull())
+                df2 = df.select(col("y_true").cast("int").alias("y_true"),
+                                col("pseudo_label").cast("int").alias("pred")) \.filter(col("y_true").isNotNull())
 
                 nrows = df2.count()
                 if nrows == 0:
@@ -974,10 +977,10 @@ class FeaturesEngineering:
                     return
 
                 agg = df2.agg(
-                    F.sum(((col("y") == 1) & (col("p") == 1)).cast("int")).alias("tp"),
-                    F.sum(((col("y") == 0) & (col("p") == 1)).cast("int")).alias("fp"),
-                    F.sum(((col("y") == 0) & (col("p") == 0)).cast("int")).alias("tn"),
-                    F.sum(((col("y") == 1) & (col("p") == 0)).cast("int")).alias("fn"),
+                    F.sum(((col("y_true") == 1) & (col("pred") == 1)).cast("int")).alias("tp"),
+                    F.sum(((col("y_true") == 0) & (col("pred") == 1)).cast("int")).alias("fp"),
+                    F.sum(((col("y_true") == 0) & (col("pred") == 0)).cast("int")).alias("tn"),
+                    F.sum(((col("y_true") == 1) & (col("pred") == 0)).cast("int")).alias("fn"),
                     F.count(F.lit(1)).alias("n")
                 ).collect()[0]
 
@@ -997,8 +1000,8 @@ class FeaturesEngineering:
                 print(title)
                 print("=" * 80)
                 print("class | precision | recall | f1-score | support")
-                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} |   {tn+fp}")
-                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} |   {tp+fn}")
+                print(f"0     | {p0:9.4f} | {r0:6.4f} | {f0:8.4f} | { t n+fp}")
+                print(f"1     | {p1:9.4f} | {r1:6.4f} | {f1:8.4f} | { t p+fn}")
                 print(f"acc   | {acc:9.4f} |        |          | {n}")
                 print(f"confusion matrix: tn={tn}, fp={fp}, fn={fn}, tp={tp}")
 
