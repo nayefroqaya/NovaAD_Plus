@@ -910,7 +910,7 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings
             # -----------------------------
-            TARGET_FPR = 0.05   #0.1  #0.01
+            TARGET_FPR = 0.08 #0.05   #0.1  #0.01
             eps = 1e-9
             GMM_SEED = 123
 
