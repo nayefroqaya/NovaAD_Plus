@@ -102,32 +102,21 @@ class Utilities:
 
         if dataset=='BGL':
 
-            # One row per block with start time + label  (still block-id based)
-            block_df = (df_features.groupBy("Node_block_id").agg(F.min("Timestamp_ts").alias("block_start_ts"),
-                F.first("Label", ignorenulls=True).alias("Label")))
+            # One row per block with its start time
+            block_time_df = (df_features.groupBy("Node_block_id").agg(F.min("Timestamp_ts").alias("block_start_ts")))
 
-            def split_block_ids(df_one_label):
-                w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
-                ob = df_one_label.withColumn("rn", F.row_number().over(w)).cache()
-                n = ob.count()
+            # Deterministic chronological ordering (tie-break by id)
+            w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
+            ordered_blocks = block_time_df.withColumn("rn", F.row_number().over(w)).cache()
+            total_blocks = ordered_blocks.count()  # materialize
 
-                tr = int(0.6 * n)
-                va = int(0.1 * n)
+            train_size = int(0.6 * total_blocks)
+            val_size = int(0.1 * total_blocks)
 
-                train = ob.filter(F.col("rn") <= tr).select("Node_block_id")
-                val = ob.filter((F.col("rn") > tr) & (F.col("rn") <= tr + va)).select("Node_block_id")
-                test = ob.filter(F.col("rn") > tr + va).select("Node_block_id")
-                return train, val, test
-
-            normal_blocks = block_df.filter(F.col("Label") == "Normal")
-            anom_blocks = block_df.filter(F.col("Label") == "Anomaly")
-
-            train_n, val_n, test_n = split_block_ids(normal_blocks)
-            train_a, val_a, test_a = split_block_ids(anom_blocks)
-
-            train_ids = train_n.unionByName(train_a).cache()
-            val_ids = val_n.unionByName(val_a).cache()
-            test_ids = test_n.unionByName(test_a).cache()
+            train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
+            val_ids = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select(
+                "Node_block_id").cache()
+            test_ids = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
 
             _ = train_ids.count();
             _ = val_ids.count();
