@@ -822,6 +822,13 @@ class FeaturesEngineering:
                     lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
                     col(GT_COL).cast("int")))
 
+            sequences_df.printSchema()
+            train_counts = sequences_df.groupBy("Label").count()
+            print("=== Label Distribution (All Data) ===")
+            train_counts.show(truncate=False)
+
+            exit()
+
             # -----------------------------
             # (B) Split data
             # -----------------------------
