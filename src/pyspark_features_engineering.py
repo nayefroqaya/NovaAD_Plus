@@ -826,7 +826,7 @@ class FeaturesEngineering:
             # (B) Split data
             # -----------------------------
 
-            # check specal case where the Normal less than anomaly:
+            # check special case where the Normal less than anomaly:---------------------------------------------------
             # =============================
             # TRAIN-only view (Temp_label 0 or 999)
             # =============================
