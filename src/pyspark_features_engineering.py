@@ -1180,6 +1180,8 @@ class FeaturesEngineering:
 
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (Label missing or error): {e}")
+            exit()
+
 
             print("\n✅ Output DataFrames created:")
             print(" - df_unlabeled_labeled_features      (unlabeled train only, OR labels, ORIGINAL features)")
