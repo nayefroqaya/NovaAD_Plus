@@ -194,7 +194,7 @@ class Utilities:
         df_block_test = test_df.dropDuplicates(['Node_block_id'])
         print(' Normal seq Test : ' + str(df_block_test.filter(F.col("Label") == "Normal").count()))
         print(' Anomaly seq Test : ' + str(df_block_test.filter(F.col("Label") == "Anomaly").count()))
-        exit()
+        #exit()
 
         return train_df, val_df, test_df, df_features
 
