@@ -832,7 +832,7 @@ class FeaturesEngineering:
             print("=== Label Distribution (All Data) ===")
             train_counts.show(truncate=False)
 
-            exit()
+            #exit()
 
             # -----------------------------
             # (B) Split data
