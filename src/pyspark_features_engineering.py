@@ -825,6 +825,61 @@ class FeaturesEngineering:
             # -----------------------------
             # (B) Split data
             # -----------------------------
+
+            # check specal case where the Normal less than anomaly:
+            # =============================
+            # TRAIN-only view (Temp_label 0 or 999)
+            # =============================
+            train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
+            _ = train_seq_df.count()
+
+            # Check TRUE label distribution only in TRAIN
+            train_counts = train_seq_df.groupBy("Label").count()
+            print("[TRAIN ONLY] Label distribution (Temp_label in {0,999}):")
+            train_counts.show(truncate=False)
+
+            n_train_normal = train_seq_df.filter(col("Label") == "Normal").count()
+            n_train_anom = train_seq_df.filter(col("Label") == "Anomaly").count()
+            print(f"[TRAIN ONLY] Normal={n_train_normal}, Anomaly={n_train_anom}")
+
+            # Optional: see where anomalies are (0 vs 999 bucket)
+            print("[TRAIN ONLY] Temp_label vs Label:")
+            (train_seq_df.groupBy("Temp_label", "Label").count()).orderBy("Temp_label", "Label").show(truncate=False)
+
+            # =============================
+            # OPTIONAL: balance TRAIN ONLY (oversample Normal sequences)
+            # - does NOT change val/test (777/888)
+            # - keeps Temp_label values as they are
+            # =============================
+            if n_train_normal > 0 and n_train_anom > n_train_normal:
+                k = int((n_train_anom + n_train_normal - 1) / n_train_normal)  # ceil
+                print(f"[BALANCE TRAIN ONLY] Oversampling Normal sequences x{k}")
+
+                train_normal_seq = train_seq_df.filter(col("Label") == "Normal")
+                train_other_seq = train_seq_df.filter(col("Label") != "Normal")  # anomalies + anything else
+
+                normal_rep = train_normal_seq
+                for _ in range(k - 1):
+                    normal_rep = normal_rep.unionByName(train_normal_seq)
+
+                balanced_train_seq_df = normal_rep.unionByName(train_other_seq)
+
+                # Rebuild sequences_df: replace ONLY the train part, keep val/test unchanged
+                val_test_df = sequences_df.filter(~col("Temp_label").isin([0, 999]))
+                sequences_df = balanced_train_seq_df.unionByName(val_test_df)
+
+                # Re-check
+                n2_norm = balanced_train_seq_df.filter(col("Label") == "Normal").count()
+                n2_anom = balanced_train_seq_df.filter(col("Label") == "Anomaly").count()
+                print(f"[TRAIN ONLY AFTER] Normal={n2_norm}, Anomaly={n2_anom}")
+
+            else:
+                print("[BALANCE TRAIN ONLY] No balancing needed (Normal >= Anomaly) or no Normal found.")
+            exit()
+
+
+            #----------------------------------------------------------------------------------------------
+
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 

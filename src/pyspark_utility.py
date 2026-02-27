@@ -194,54 +194,6 @@ class Utilities:
         print(' Normal seq Test : ' + str(df_block_test.filter(F.col("Label") == "Normal").count()))
         print(' Anomaly seq Test : ' + str(df_block_test.filter(F.col("Label") == "Anomaly").count()))
 
-        # Fix train imbalance (block-level oversampling of Normal)
-        # Keeps 60/10/30 split IDs unchanged
-        # =============================
-        train_blocks = (train_df.groupBy("Node_block_id").agg(F.first("Label", ignorenulls=True).alias("Label")))
-
-        n_normal = train_blocks.filter(F.col("Label") == "Normal").count()
-        n_anom = train_blocks.filter(F.col("Label") == "Anomaly").count()
-
-        print(YELLOW + f"[INFO] Train blocks before balance: Normal={n_normal}, Anomaly={n_anom}" + RESET)
-
-        if n_normal > 0 and n_anom > n_normal:
-            # replicate Normal blocks so that Normal ~= Anomaly
-            k = int((n_anom + n_normal - 1) / n_normal)  # ceil(n_anom / n_normal)
-
-            normal_ids = train_blocks.filter(F.col("Label") == "Normal").select("Node_block_id")
-            anom_ids = train_blocks.filter(F.col("Label") == "Anomaly").select("Node_block_id")
-
-            normal_rep = normal_ids
-            for _ in range(k - 1):
-                normal_rep = normal_rep.unionByName(normal_ids)
-
-            balanced_train_ids = normal_rep.unionByName(anom_ids)
-
-            # rebuild train_df using duplicated normal ids (block-level oversampling)
-            train_df = (df_features.join(balanced_train_ids, "Node_block_id", "inner").withColumn("Type_ds", F.lit(
-                "Train")).orderBy("Node_block_id", "Timestamp_ts"))
-
-            print(YELLOW + f"[FIX] Oversampled Normal blocks x{k} (train split 60/10/30 unchanged)." + RESET)
-        else:
-            print(YELLOW + "[FIX] No oversampling needed." + RESET)
-
-
-        # ------Check the results
-
-        train_block_freq = (
-            train_df.select("Node_block_id", "Label").groupBy("Node_block_id").agg(F.count(F.lit(1)).alias("rep"))
-        # how many times this block appears
-        )
-
-        effective_counts = (
-            train_df.select("Node_block_id", "Label").dropDuplicates(["Node_block_id", "Label"])  # one label per block
-                                                     .join(train_block_freq, "Node_block_id", "inner").groupBy(
-                "Label").agg(F.sum("rep").alias("effective_blocks")))
-
-        print(GREEN + "[INFO] Effective TRAIN block frequency after oversampling:" + RESET)
-        effective_counts.show(truncate=False)
-
-        exit()
 
         return train_df, val_df, test_df, df_features
 
