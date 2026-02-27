@@ -1180,7 +1180,7 @@ class FeaturesEngineering:
 
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (Label missing or error): {e}")
-            #exit()
+            exit()
 
 
             print("\n✅ Output DataFrames created:")
