@@ -225,10 +225,21 @@ class Utilities:
         else:
             print(YELLOW + "[FIX] No oversampling needed." + RESET)
 
-        df_block_train = train_df.dropDuplicates(['Node_block_id'])
-        print(' Normal seq Train : ' + str(df_block_train.filter(F.col("Label") == "Normal").count()))
-        print(' Anomaly seq Train : ' + str(df_block_train.filter(F.col("Label") == "Anomaly").count()))
 
+        # ------Check the results
+
+        train_block_freq = (
+            train_df.select("Node_block_id", "Label").groupBy("Node_block_id").agg(F.count(F.lit(1)).alias("rep"))
+        # how many times this block appears
+        )
+
+        effective_counts = (
+            train_df.select("Node_block_id", "Label").dropDuplicates(["Node_block_id", "Label"])  # one label per block
+                                                     .join(train_block_freq, "Node_block_id", "inner").groupBy(
+                "Label").agg(F.sum("rep").alias("effective_blocks")))
+
+        print(GREEN + "[INFO] Effective TRAIN block frequency after oversampling:" + RESET)
+        effective_counts.show(truncate=False)
 
         exit()
 
