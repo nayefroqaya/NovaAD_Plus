@@ -248,7 +248,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -273,7 +273,7 @@ def main():
     anomaly_detection_obj = AnomalyDetector()
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
-    '''
+
     # ---------------- Data as CSV ----------------
     #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
     #print(' Reading the file was done successfully ')
@@ -351,8 +351,8 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    #exit()
-    '''
+    exit()
+
 
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
