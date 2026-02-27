@@ -822,6 +822,11 @@ class FeaturesEngineering:
                     lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
                     col(GT_COL).cast("int")))
 
+            sequences_df = sequences_df.withColumn("Label",
+                when(col("Label") == "normal", 0).when(col("Label") == "anomaly", 1).otherwise(None)
+                # or keep original if needed
+            )
+
             sequences_df.printSchema()
             train_counts = sequences_df.groupBy("Label").count()
             print("=== Label Distribution (All Data) ===")
