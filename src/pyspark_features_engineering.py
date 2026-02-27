@@ -885,18 +885,24 @@ class FeaturesEngineering:
                 n2_anom = balanced_train_seq_df.filter(col("Label") == 1).count()
                 print(f"[TRAIN ONLY AFTER] Normal={n2_norm}, Anomaly={n2_anom}")
 
+                train_normal_df = balanced_train_seq_df.filter(col("Temp_label") == 0)
+                train_unlabeled_df = balanced_train_seq_df.filter(col("Temp_label") == 999)
+
+                if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
+                    raise ValueError("❌ Not enough data for novelty detection.")
+
+
             else:
                 print("[BALANCE TRAIN ONLY] No balancing needed (Normal >= Anomaly) or no Normal found.")
-            exit()
+                 #----------------------------------------------------------------------------------------------
+
+                train_normal_df = sequences_df.filter(col("Temp_label") == 0)
+                train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
+
+                if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
+                    raise ValueError("❌ Not enough data for novelty detection.")
 
 
-            #----------------------------------------------------------------------------------------------
-
-            train_normal_df = sequences_df.filter(col("Temp_label") == 0)
-            train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
-
-            if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
-                raise ValueError("❌ Not enough data for novelty detection.")
 
             feature_col = "features_vec_final"  # ORIGINAL feature vector (required at the end)
             id_col = "Node_block_id"
