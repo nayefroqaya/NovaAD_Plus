@@ -826,7 +826,7 @@ class FeaturesEngineering:
             # (B) Split data
             # -----------------------------
 
-            # check special case where the Normal less than anomaly:---------------------------------------------------
+            # check special case where the Normal less than anomaly:---------------start-----------------------------
             # =============================
             # TRAIN-only view (Temp_label 0 or 999)
             # =============================
@@ -838,8 +838,8 @@ class FeaturesEngineering:
             print("[TRAIN ONLY] Label distribution (Temp_label in {0,999}):")
             train_counts.show(truncate=False)
 
-            n_train_normal = train_seq_df.filter(col("Label") == "Normal").count()
-            n_train_anom = train_seq_df.filter(col("Label") == "Anomaly").count()
+            n_train_normal = train_seq_df.filter(col("Label") == 0).count()
+            n_train_anom = train_seq_df.filter(col("Label") == 1).count()
             print(f"[TRAIN ONLY] Normal={n_train_normal}, Anomaly={n_train_anom}")
 
             # Optional: see where anomalies are (0 vs 999 bucket)
@@ -855,8 +855,8 @@ class FeaturesEngineering:
                 k = int((n_train_anom + n_train_normal - 1) / n_train_normal)  # ceil
                 print(f"[BALANCE TRAIN ONLY] Oversampling Normal sequences x{k}")
 
-                train_normal_seq = train_seq_df.filter(col("Label") == "Normal")
-                train_other_seq = train_seq_df.filter(col("Label") != "Normal")  # anomalies + anything else
+                train_normal_seq = train_seq_df.filter(col("Label") == 0)
+                train_other_seq = train_seq_df.filter(col("Label") == 1)  # anomalies + anything else
 
                 normal_rep = train_normal_seq
                 for _ in range(k - 1):
@@ -869,8 +869,8 @@ class FeaturesEngineering:
                 sequences_df = balanced_train_seq_df.unionByName(val_test_df)
 
                 # Re-check
-                n2_norm = balanced_train_seq_df.filter(col("Label") == "Normal").count()
-                n2_anom = balanced_train_seq_df.filter(col("Label") == "Anomaly").count()
+                n2_norm = balanced_train_seq_df.filter(col("Label") == 0).count()
+                n2_anom = balanced_train_seq_df.filter(col("Label") == 1).count()
                 print(f"[TRAIN ONLY AFTER] Normal={n2_norm}, Anomaly={n2_anom}")
 
             else:
