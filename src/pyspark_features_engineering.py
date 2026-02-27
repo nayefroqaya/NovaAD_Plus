@@ -863,12 +863,16 @@ class FeaturesEngineering:
             # - does NOT change val/test (777/888)
             # - keeps Temp_label values as they are
             # =============================
+
             if n_train_normal > 0 and n_train_anom > n_train_normal:
                 k = int((n_train_anom + n_train_normal - 1) / n_train_normal)  # ceil
                 print(f"[BALANCE TRAIN ONLY] Oversampling Normal sequences x{k}")
 
+                # Normal sequences (Label=0) from TRAIN (Temp_label 0 or 999)
                 train_normal_seq = train_seq_df.filter(col("Label") == 0)
-                train_other_seq = train_seq_df.filter(col("Label") == 1)  # anomalies + anything else
+
+                # Keep ALL the rest of TRAIN (this includes unlabeled normals, anomalies, etc.)
+                train_other_seq = train_seq_df.filter(col("Label") != 0)
 
                 normal_rep = train_normal_seq
                 for _ in range(k - 1):
@@ -876,21 +880,24 @@ class FeaturesEngineering:
 
                 balanced_train_seq_df = normal_rep.unionByName(train_other_seq)
 
-                # Rebuild sequences_df: replace ONLY the train part, keep val/test unchanged
+                # Rebuild sequences_df: replace ONLY the TRAIN part, keep val/test unchanged
                 val_test_df = sequences_df.filter(~col("Temp_label").isin([0, 999]))
                 sequences_df = balanced_train_seq_df.unionByName(val_test_df)
 
-                # Re-check
+                # Re-check (TRAIN only)
                 n2_norm = balanced_train_seq_df.filter(col("Label") == 0).count()
                 n2_anom = balanced_train_seq_df.filter(col("Label") == 1).count()
                 print(f"[TRAIN ONLY AFTER] Normal={n2_norm}, Anomaly={n2_anom}")
 
+                # Rebuild splits for novelty detection (TRAIN only)
                 train_normal_df = balanced_train_seq_df.filter(col("Temp_label") == 0)
                 train_unlabeled_df = balanced_train_seq_df.filter(col("Temp_label") == 999)
 
+                print(
+                    f"[TRAIN ONLY AFTER] train_normal_df={train_normal_df.count()}, train_unlabeled_df={train_unlabeled_df.count()}")
+
                 if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
                     raise ValueError("❌ Not enough data for novelty detection.")
-
 
             else:
                 print("[BALANCE TRAIN ONLY] No balancing needed (Normal >= Anomaly) or no Normal found.")
@@ -910,7 +917,7 @@ class FeaturesEngineering:
             # -----------------------------
             # Settings
             # -----------------------------
-            TARGET_FPR = 0.08 #0.05   #0.1  #0.01
+            TARGET_FPR = 0.01 #0.08 #0.05   #0.1  #0.01
             eps = 1e-9
             GMM_SEED = 123
 
