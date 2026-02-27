@@ -98,55 +98,26 @@ class Utilities:
         supported = {'HDFS','BGL','HDO','SP_100MB','SP_150MB','TH_1G','TH_2G','TH_5G','S_BGL'}
         if dataset not in supported:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
+        # One row per block with its start time (sequence time)
+        block_time_df = (
+            df_features
+            .groupBy("Node_block_id")
+            .agg(F.min("Timestamp_ts").alias("block_start_ts"))
+        )
 
+        # Deterministic chronological ordering (tie-break by id)
+        w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
+        ordered_blocks = block_time_df.withColumn("rn", F.row_number().over(w)).cache()
+        total_blocks = ordered_blocks.count()  # materialize
 
-        if dataset=='BGL':
+        train_size = int(0.6 * total_blocks)
+        val_size   = int(0.1 * total_blocks)
 
-            # One row per block with its start time
-            block_time_df = (df_features.groupBy("Node_block_id").agg(F.min("Timestamp_ts").alias("block_start_ts")))
+        train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
+        val_ids   = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select("Node_block_id").cache()
+        test_ids  = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
 
-            # Deterministic chronological ordering (tie-break by id)
-            w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
-            ordered_blocks = block_time_df.withColumn("rn", F.row_number().over(w)).cache()
-            total_blocks = ordered_blocks.count()  # materialize
-
-            train_size = int(0.6 * total_blocks)
-            val_size = int(0.1 * total_blocks)
-
-            train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
-            val_ids = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select(
-                "Node_block_id").cache()
-            test_ids = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
-
-            _ = train_ids.count();
-            _ = val_ids.count();
-            _ = test_ids.count()
-
-
-
-
-        else:
-
-            # One row per block with its start time (sequence time)
-            block_time_df = (
-                df_features
-                .groupBy("Node_block_id")
-                .agg(F.min("Timestamp_ts").alias("block_start_ts"))
-            )
-
-            # Deterministic chronological ordering (tie-break by id)
-            w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
-            ordered_blocks = block_time_df.withColumn("rn", F.row_number().over(w)).cache()
-            total_blocks = ordered_blocks.count()  # materialize
-
-            train_size = int(0.6 * total_blocks)
-            val_size   = int(0.1 * total_blocks)
-
-            train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
-            val_ids   = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select("Node_block_id").cache()
-            test_ids  = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
-
-            _ = train_ids.count(); _ = val_ids.count(); _ = test_ids.count()
+        _ = train_ids.count(); _ = val_ids.count(); _ = test_ids.count()
 
         # =============================
         # Overlap checks (no collect)
@@ -222,6 +193,43 @@ class Utilities:
         df_block_test = test_df.dropDuplicates(['Node_block_id'])
         print(' Normal seq Test : ' + str(df_block_test.filter(F.col("Label") == "Normal").count()))
         print(' Anomaly seq Test : ' + str(df_block_test.filter(F.col("Label") == "Anomaly").count()))
+
+        # Fix train imbalance (block-level oversampling of Normal)
+        # Keeps 60/10/30 split IDs unchanged
+        # =============================
+        train_blocks = (train_df.groupBy("Node_block_id").agg(F.first("Label", ignorenulls=True).alias("Label")))
+
+        n_normal = train_blocks.filter(F.col("Label") == "Normal").count()
+        n_anom = train_blocks.filter(F.col("Label") == "Anomaly").count()
+
+        print(YELLOW + f"[INFO] Train blocks before balance: Normal={n_normal}, Anomaly={n_anom}" + RESET)
+
+        if n_normal > 0 and n_anom > n_normal:
+            # replicate Normal blocks so that Normal ~= Anomaly
+            k = int((n_anom + n_normal - 1) / n_normal)  # ceil(n_anom / n_normal)
+
+            normal_ids = train_blocks.filter(F.col("Label") == "Normal").select("Node_block_id")
+            anom_ids = train_blocks.filter(F.col("Label") == "Anomaly").select("Node_block_id")
+
+            normal_rep = normal_ids
+            for _ in range(k - 1):
+                normal_rep = normal_rep.unionByName(normal_ids)
+
+            balanced_train_ids = normal_rep.unionByName(anom_ids)
+
+            # rebuild train_df using duplicated normal ids (block-level oversampling)
+            train_df = (df_features.join(balanced_train_ids, "Node_block_id", "inner").withColumn("Type_ds", F.lit(
+                "Train")).orderBy("Node_block_id", "Timestamp_ts"))
+
+            print(YELLOW + f"[FIX] Oversampled Normal blocks x{k} (train split 60/10/30 unchanged)." + RESET)
+        else:
+            print(YELLOW + "[FIX] No oversampling needed." + RESET)
+
+        df_block_train = train_df.dropDuplicates(['Node_block_id'])
+        print(' Normal seq Train : ' + str(df_block_train.filter(F.col("Label") == "Normal").count()))
+        print(' Anomaly seq Train : ' + str(df_block_train.filter(F.col("Label") == "Anomaly").count()))
+
+
         exit()
 
         return train_df, val_df, test_df, df_features
