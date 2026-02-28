@@ -1264,8 +1264,7 @@ class FeaturesEngineering:
                 df_unlab_eval = df_unlabeled_labeled_features.join(
                     sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                     on=id_col, how="inner"
-                ).sele \
-                    ct("true_label", "Final_Label").dropna()
+                ).select("true_label", "Final_Label").dropna()
 
                 n_unlab = df_unlab_eval.count()
                 if n_unlab > 0:
@@ -1281,8 +1280,7 @@ class FeaturesEngineering:
                 df_full_eval = df_full_train_labeled_features.join(
                     sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                     on=id_col, how="inner"
-                ).sele \
-                    ct("true_label", "Final_Label").dropna()
+                ).select("true_label", "Final_Label").dropna()
 
                 n_full = df_full_eval.count()
                 if n_full > 0:
