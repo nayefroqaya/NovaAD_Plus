@@ -1200,20 +1200,51 @@ class FeaturesEngineering:
             print(f"[BEFORE CAP] holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}")
 
             # ============================================================
-            # 8) ✅ FP CAP on unlabeled predicted anomaly rate
+            # 8) ✅ SOFT FP CAP (won’t destroy anomaly recall)
             # ============================================================
+            MAX_UNLAB_POS_RATE = 0.20  # softer default (0.20–0.35 works better than 0.10–0.15 here)
+            RECALL_FLOOR = 0.90  # do not allow cap to reduce tuned recall below this
+
+            # Compute unlabeled positive rate before cap
             unlab_total = max(unlab_fused.count(), 1)
             pos_rate_before = unlab_fused.filter(col("fused_score") > lit(thr_final)).count() / unlab_total
-            print(f"[BEFORE CAP] unlabeled_pos_rate={pos_rate_before:.4f} (cap={MAX_UNLAB_POS_RATE:.4f})")
+            print(f"[BEFORE CAP] unlabeled_pos_rate={pos_rate_before:.4f} (soft cap={MAX_UNLAB_POS_RATE:.4f})")
+
+            # If we have tuning labels, estimate recall impact of the cap threshold before applying
+            tune_has_labels = (n_tune is not None) and (n_tune >= 200)
 
             if pos_rate_before > MAX_UNLAB_POS_RATE:
                 thr_cap = approx_quantile(unlab_fused, "fused_score", 1.0 - MAX_UNLAB_POS_RATE)
-                thr_final = max(float(thr_final), float(thr_cap))
-                print(f"[CAP APPLIED] thr_cap={thr_cap:.6f} -> new thr_final={thr_final:.6f}")
+
+                if tune_has_labels:
+                    # Evaluate recall at thr_cap using the SAME tune_scored pandas data you already built
+                    # If you didn’t keep pdf/y/s around, rebuild quickly:
+                    pdf_tmp = tune_scored.toPandas()
+                    y_tmp = pdf_tmp["true_label"].astype(int).values
+                    s_tmp = pdf_tmp["fused_score"].astype(float).values
+
+                    yhat_cap = (s_tmp > float(thr_cap)).astype(int)
+                    tp = np.sum((yhat_cap == 1) & (y_tmp == 1))
+                    fn = np.sum((yhat_cap == 0) & (y_tmp == 1))
+                    rec_cap = tp / max(tp + fn, 1)
+
+                    print(
+                        f"[SOFT CAP CHECK] thr_cap={float(thr_cap):.6f} -> tune_recall={rec_cap:.4f} (floor={RECALL_FLOOR:.2f})")
+
+                    # apply cap only if recall stays acceptable
+                    if rec_cap >= RECALL_FLOOR:
+                        thr_final = max(float(thr_final), float(thr_cap))
+                        print(f"[CAP APPLIED] new thr_final={thr_final:.6f}")
+                    else:
+                        print("[CAP SKIPPED] would drop recall too much; keeping tuned threshold.")
+                else:
+                    # no labels to protect recall: apply only a very mild cap
+                    thr_final = max(float(thr_final), float(thr_cap))
+                    print(f"[CAP APPLIED NO-LABELS] new thr_final={thr_final:.6f}")
 
             pos_rate_after = unlab_fused.filter(col("fused_score") > lit(thr_final)).count() / unlab_total
-            print(f"[AFTER CAP] holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}, "
-                  f"unlabeled_pos_rate={pos_rate_after:.4f}")
+            print(
+                f"[AFTER CAP] unlabeled_pos_rate={pos_rate_after:.4f}, holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}")
 
             # ============================================================
             # 9) Final label (unlabeled only)
