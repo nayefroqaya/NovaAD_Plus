@@ -849,7 +849,7 @@ class FeaturesEngineering:
             print("[TRAIN ONLY] Temp_label vs Label:")
             (train_seq_df.groupBy("Temp_label", "Label").count()).orderBy("Temp_label", "Label").show(truncate=False)
 
-            # Optional: oversample NORMAL sequences in TRAIN ONLY if anomalies > normals (kept from your code)
+            # Optional: oversample NORMAL sequences in TRAIN ONLY if anomalies > normals (kept)
             if n_train_normal > 0 and n_train_anom > n_train_normal:
                 k = int((n_train_anom + n_train_normal - 1) / n_train_normal)  # ceil
                 print(f"[BALANCE TRAIN ONLY] Oversampling Normal sequences x{k}")
@@ -865,9 +865,6 @@ class FeaturesEngineering:
 
                 val_test_df = sequences_df.filter(~col("Temp_label").isin([0, 999]))
                 sequences_df = balanced_train_seq_df.unionByName(val_test_df)
-
-                print(f"[TRAIN ONLY AFTER] Normal={balanced_train_seq_df.filter(col('Label') == 0).count()}, "
-                      f"Anomaly={balanced_train_seq_df.filter(col('Label') == 1).count()}")
 
                 train_normal_df = balanced_train_seq_df.filter(col("Temp_label") == 0)
                 train_unlabeled_df = balanced_train_seq_df.filter(col("Temp_label") == 999)
@@ -890,9 +887,19 @@ class FeaturesEngineering:
             eps = 1e-9
             GMM_SEED = 123
             JITTER = 1e-5
-            MIN_RECALL = 0.92  # ✅ new objective: maximize precision subject to recall >= MIN_RECALL
 
-            print("\n🧠 Using PCA + GMM novelty detection (scaled + MAD fusion + precision@recall tuning) ...")
+            # ✅ NEW: weighted fusion (GMM usually stronger on logs)
+            ALPHA = 0.25  # PCA weight
+            BETA = 0.75  # GMM weight
+
+            # ✅ NEW: precision@recall tuning
+            MIN_RECALL = 0.92
+
+            # ✅ NEW: stronger guard that actually changes predictions
+            USE_BORDERLINE_GUARD = True
+            GUARD_Z = 0.75  # require at least one z-score above this when fused_score triggers
+
+            print("\n🧠 Using PCA + GMM novelty detection (scaled + MAD fusion + weighted + tuned threshold) ...")
 
             # ============================================================
             # 0.1) Deterministic key + deterministic normal split (80/20)
@@ -926,7 +933,7 @@ class FeaturesEngineering:
                 return med, max(mad, eps)
 
             # ============================================================
-            # 1) ✅ StandardScaler (fit on NORMAL-fit only) + transform
+            # 1) StandardScaler (fit on NORMAL-fit only) + transform
             # ============================================================
             scaler = StandardScaler(inputCol=feature_col, outputCol="scaled_features", withStd=True, withMean=False)
             scaler_model = scaler.fit(norm_fit_df)
@@ -970,7 +977,7 @@ class FeaturesEngineering:
             train_unlabeled_pca = pca_model.transform(unlab_scaled).cache()
 
             # ============================================================
-            # 4) ✅ PCA reconstruction error WITH mean (FIX)
+            # 4) PCA reconstruction error WITH mean
             # ============================================================
             pc = pca_model.pc.toArray()  # (d,k)
 
@@ -1006,7 +1013,7 @@ class FeaturesEngineering:
             print(f"[PCA] thr={thr_pca:.6f}, holdout FPR={fpr_pca:.6f}")
 
             # ============================================================
-            # 5) Fit GMM on NORMAL-fit PCA space (choose k by BIC), score by NLL
+            # 5) GMM on NORMAL-fit PCA space (choose k by BIC), score by NLL
             # ============================================================
             gmm_ks = [2, 4, 6, 8, 10]
             d_pca = best_k
@@ -1099,12 +1106,8 @@ class FeaturesEngineering:
             train_gmm_hold = train_pca_normal_hold.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features"))).cache()
             unlab_gmm = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features"))).cache()
 
-            thr_gmm = threshold_from_norm_fit(train_gmm_fit, "anomaly_score_gmm", target_fpr=TARGET_FPR)
-            fpr_gmm = fpr_on_holdout(train_gmm_hold, "anomaly_score_gmm", thr_gmm)
-            print(f"[GMM-NLL] thr={thr_gmm:.6f}, holdout FPR={fpr_gmm:.6f}")
-
             # ============================================================
-            # 6) ✅ FINAL labeling using MAD-fused score + precision@recall threshold tuning
+            # 6) ✅ Weighted MAD fused score
             # ============================================================
             pca_med, pca_mad = median_and_mad(train_gmm_fit, "anomaly_score_pca")
             gmm_med, gmm_mad = median_and_mad(train_gmm_fit, "anomaly_score_gmm")
@@ -1116,14 +1119,17 @@ class FeaturesEngineering:
                 return (df.withColumn("z_pca", (col("anomaly_score_pca") - lit(pca_med)) / (
                             lit(1.4826) * lit(pca_mad))).withColumn("z_gmm",
                                                                     (col("anomaly_score_gmm") - lit(gmm_med)) / (
-                                                                                lit(1.4826) * lit(gmm_mad))).withColumn(
-                    "fused_score", (col("z_pca") + col("z_gmm")) / lit(2.0)))
+                                                                                lit(1.4826) * lit(
+                                                                            gmm_mad)))# ✅ weighted fusion (GMM stronger)
+                        .withColumn("fused_score", lit(ALPHA) * col("z_pca") + lit(BETA) * col("z_gmm")))
 
             fit_fused = add_fused(train_gmm_fit).cache()
             hold_fused = add_fused(train_gmm_hold).cache()
             unlab_fused = add_fused(unlab_gmm).cache()
 
-            # Build tuning set (prefer 777/888, else any y_true)
+            # ============================================================
+            # 7) Threshold tuning: maximize Precision with Recall >= MIN_RECALL
+            # ============================================================
             tune_df = sequences_df.filter(col("Temp_label").isin([777, 888])).select(col(id_col),
                                                                                      col("y_true").alias("true_label"))
             if tune_df.count() == 0:
@@ -1143,7 +1149,7 @@ class FeaturesEngineering:
                 y = pdf["true_label"].astype(int).values
                 s = pdf["fused_score"].astype(float).values
 
-                qs = np.linspace(0.80, 0.999, 250)
+                qs = np.linspace(0.80, 0.999, 300)
                 thr_candidates = np.quantile(s, qs)
 
                 best_prec = -1.0
@@ -1167,7 +1173,7 @@ class FeaturesEngineering:
                         best_rec = rec
                         best_f1 = f1
 
-                # fallback to best F1 if recall constraint too strict
+                # fallback to best F1 if constraint too strict
                 if best_prec < 0:
                     best_f1 = -1.0
                     best_thr = float(np.quantile(s, 0.95))
@@ -1190,7 +1196,7 @@ class FeaturesEngineering:
                             best_rec = rec
 
                 thr_final = best_thr
-                print(f"[TUNE] Selected thr={thr_final:.6f} | Precision={best_prec:.4f} Recall={best_rec:.4f} F1={best_f1:.4f}")
+                print(f"[TUNE] thr={thr_final:.6f} | Precision={best_prec:.4f} Recall={best_rec:.4f} F1={best_f1:.4f}")
 
             else:
                 # fallback sweep to avoid predicting all normal
@@ -1213,15 +1219,16 @@ class FeaturesEngineering:
 
             print(f"[FINAL] thr_final={thr_final:.6f}, holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}")
 
-            # Optional additional guard (reduces borderline FPs). Set to True to enable.
-            USE_BORDERLINE_GUARD = True
-
+            # ============================================================
+            # 8) Final label with optional borderline guard (ACTUALLY changes results)
+            # ============================================================
             if USE_BORDERLINE_GUARD:
+                # require fused_score trigger AND at least one strong component signal
                 unlab_fused = unlab_fused.withColumn(
                     "Final_Label",
                     when(
                         (col("fused_score") > lit(thr_final)) &
-                        ((col("z_pca") > lit(0.5)) | (col("z_gmm") > lit(0.5))),
+                        ((col("z_gmm") > lit(GUARD_Z)) | (col("z_pca") > lit(GUARD_Z))),
                         1
                     ).otherwise(0)
                 ).withColumn("Final_Label", col("Final_Label").cast("int")).cache()
@@ -1232,7 +1239,7 @@ class FeaturesEngineering:
                 ).withColumn("Final_Labe", col("Final_Label").cast("int")).cache()
 
             # ============================================================
-            # 7) Build requested output dataframes (labels + ORIGINAL features)
+            # 9) Build requested output dataframes (ORIGINAL features)
             # ============================================================
             df_unlabeled_labeled_features = unlab_fused.select(
                 col(id_col),
@@ -1251,42 +1258,48 @@ class FeaturesEngineering:
             )
 
             # ============================================================
-            # 8) Classification reports (same style as yours)
+            # 10) Classification reports
             # ============================================================
             try:
-                df_unlab_eval = df_unlabeled_labeled_features.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")),
+                df_unlab_eval = df_unlabeled_labeled_features.join(
+                    sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                     on=id_col, how="inner"
-                ).select("true_label", "Final_Label").dropna()
+                ).sele \
+                    ct("true_label", "Final_Label").dropna()
 
                 n_unlab = df_unlab_eval.count()
-                if n_unlab == 0:
-                    print("[WARN] Unlabeled train: no rows with both true_label and Final_Label -> report skipped.")
-                else:
+                if n_unlab > 0:
                     pdf_unlab = df_unlab_eval.toPandas()
                     pdf_unlab["true_label"] = pdf_unlab["true_label"].astype(int)
                     pdf_unlab["Final_Label"] = pdf_unlab["Final_Label"].astype(int)
 
                     print(f"\n=== Classification_report on UNLABELED TRAIN (n={n_unlab}) ===")
                     print(classification_report(pdf_unlab["true_label"], pdf_unlab["Final_Label"], digits=3))
+                else:
+                    print("[WARN] Unlabeled train: no rows with both true_label and Final_Label -> report skipped.")
 
                 df_full_eval = df_full_train_labeled_features.join(
                     sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                     on=id_col, how="inner"
-                ).select("true_label", "Final_Label").dropna()
+                ).sele \
+                    ct("true_label", "Final_Label").dropna()
 
                 n_full = df_full_eval.count()
-                if n_full == 0:
-                    print("[WARN] Full train: no rows with both true_label and Final_Label -> report skipped.")
-                else:
+                if n_full > 0:
                     pdf_full = df_full_eval.toPandas()
                     pdf_full["true_label"] = pdf_full["true_label"].astype(int)
                     pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
 
                     print(f"\n=== Classification_report on FULL TRAIN (NORMAL + UNLABELED) (n={n_full}) ===")
                     print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+                else:
+                    print("[WARN] Full train: no rows with both true_label and Final_Label -> report skipped.")
 
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (Label missing or error): {e}")
+
+
+
 
             exit()
 
