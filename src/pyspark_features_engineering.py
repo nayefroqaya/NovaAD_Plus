@@ -809,6 +809,7 @@ class FeaturesEngineering:
             from pyspark.sql.types import DoubleType
             from pyspark.ml.feature import PCA as SparkPCA
             from pyspark.ml.clustering import GaussianMixture
+            from pyspark.ml.functions import vector_to_array
             from sklearn.metrics import classification_report
 
             # -----------------------------
@@ -975,7 +976,7 @@ class FeaturesEngineering:
 
             # Label: P(anom_comp) > 0.5
             unlab_labeled = (
-                unlab_with_prob.withColumn("p_anom", col("mix_prob").getItem(anom_comp)).withColumn("Final_Label", when(col("p_anom") > lit(0.5), lit(1)).otherwise(lit(0)).cast("int"))
+                unlab_with_prob.withColumn("p_anom", vector_to_array(col("mix_prob")).getItem(anom_comp)).withColumn("Final_Label", when(col("p_anom") > lit(0.5), lit(1)).otherwise(lit(0)).cast("int"))
                 .select(id_col
                                                                                             , "Final_Label")
                 .cache()
@@ -987,7 +988,7 @@ class FeaturesEngineering:
 
             # Diagnostics: FPR-ish on normal holdout using same posterior rule
             hold_with_prob = gmm_model.transform(va_1d.transform(norm_hold_scored.select(id_col, "knn_score"))).select(id_col, "knn_score", "mix_prob") \
-                .withColumn("p_anom", col("mix_prob").getItem(anom_comp))
+                .withColumn("p_anom", vector_to_array(col("mix_prob")).getItem(anom_comp))
 
             hold_n = hold_with_prob.count()
             hold_fp = hold_with_prob.filter(col("p_anom") > lit(0.5)).count()
