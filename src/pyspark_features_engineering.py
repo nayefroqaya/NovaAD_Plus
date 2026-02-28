@@ -1058,17 +1058,15 @@ class FeaturesEngineering:
             # Strategy: keep lowest PU_KEEP_FRAC by fused score as "likely normal" and recompute scaling/PCA/GMM? (expensive)
             # We do a light PU: use current model, filter unlabeled to "likely normal", then re-estimate thresholds more robustly.
             # ============================================================
+            from pyspark.sql.window import Window
 
             def add_rank_fused(df, pca_col="pca_err", gmm_col="gmm_nll", out_col="fused_score"):
-                # rank-normalize each score to [0,1] using percent_rank (scale-free, robust across datasets)
-                w1 = F.window.partitionBy().orderBy(col(pca_col))
-                w2 = F.window.partitionBy().orderBy(col(gmm_col))
-                # Spark percent_rank needs Window from pyspark.sql.window
-                from pyspark.sql.window import Window
-                w1 = Window.orderBy(col(pca_col))
-                w2 = Window.orderBy(col(gmm_col))
-                return (df.withColumn("r_pca", F.percent_rank().over(w1)).withColumn("r_gmm", F.percent_rank().over(
-                    w2)).withColumn(out_col, (col("r_pca") + col("r_gmm")) / lit(2.0)))
+                # percent_rank() gives [0..1] and is scale-free (good across datasets)
+                w_pca = Window.orderBy(col(pca_col))
+                w_gmm = Window.orderBy(col(gmm_col))
+
+                return (df.withColumn("r_pca", F.percent_rank().over(w_pca)).withColumn("r_gmm", F.percent_rank().over(
+                    w_gmm)).withColumn(out_col, (col("r_pca") + col("r_gmm")) / lit(2.0)))
 
             norm_fit_fused = add_rank_fused(norm_fit_scored).cache()
             norm_hold_fused = add_rank_fused(norm_hold_scored).cache()
