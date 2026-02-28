@@ -814,30 +814,26 @@ class FeaturesEngineering:
             # -----------------------------
             # REQUIRED INPUT COLUMNS
             # -----------------------------
-
             # -----------------------------
             # REQUIRED INPUT COLUMNS
             # -----------------------------
             feature_col = "features_vec_final"  # Vector
             id_col = "Node_block_id"  # unique sequence id
             temp_col = "Temp_label"  # 0 / 999 / 777 / 888
-            GT_COL = "Label"  # ground-truth column (string/int) - used ONLY for evaluation
+            GT_COL = "Label"  # ground-truth col for eval only
 
             # -----------------------------
-            # SETTINGS (start here)
+            # SETTINGS
             # -----------------------------
-            PCA_VAR_TARGET = 0.98  # try 0.98 or 0.99 for BGL/TBird
+            PCA_VAR_TARGET = 0.98
             CANDIDATE_KS = [10, 20, 30, 40, 50]
+
             ANCHOR_SIZE = 5000  # 2000..10000 depending on driver memory
-            KNN_K = 20  # 10..30 typical
+            KNN_K = 20
             SEED = 123
 
-            # Mixture threshold sampling
-            SAMPLE_N_UNLAB = 200000  # sample unlabeled scores to fit 1D mixture threshold
-
-            # Optional: normal-fit safety floor for threshold
-            USE_NORM_FLOOR = True
-            NORM_FLOOR_Q = 0.90  # don't set threshold below this normal-fit quantile
+            # Fit GMM on at most this many unlabeled rows (for speed); set to None to use all
+            UNLAB_GMM_FIT_LIMIT = 200000
 
             # ============================================================
             # (A) Build y_true ONCE (ONLY for evaluation; NOT used in training)
@@ -846,6 +842,12 @@ class FeaturesEngineering:
                 when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
                     lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
                     col(GT_COL).cast("int")))
+
+            sequences_df = sequences_df.withColumn("Label",
+                                                   when(col("Label") == "normal", 0).when(col("Label") == "anomaly",
+                                                                                          1).otherwise(None)
+                                                   # or keep original if needed
+                                                   )
 
             # -----------------------------
             # Basic splits (NO GT)
@@ -870,19 +872,6 @@ class FeaturesEngineering:
             _ = norm_hold_df.count()
 
             print(f"[INFO] norm_fit={norm_fit_df.count()}, norm_hold={norm_hold_df.count()}")
-
-            # ------------------------------------------------------------
-            # Helpers
-            # ------------------------------------------------------------
-            def approx_quantile(df, c, q, rel=1e-3):
-                return float(df.approxQuantile(c, [q], rel)[0])
-
-            def fpr_on_holdout(norm_holdout_scored_df, score_col, thr):
-                n = norm_holdout_scored_df.count()
-                if n == 0:
-                    return 1.0
-                fp = norm_holdout_scored_df.filter(col(score_col) > lit(thr)).count()
-                return fp / n
 
             # ------------------------------------------------------------
             # 1) Choose PCA k on NORMAL-fit only (by explained variance)
@@ -952,66 +941,76 @@ class FeaturesEngineering:
             _ = unlab_scored.count()
 
             # ------------------------------------------------------------
-            # 4) Threshold selection (GT-free): 2-component GMM on UNLABELED scores
+            # 4) PySpark GaussianMixture on UNLABELED 1D scores (NO sklearn)
+            #    We label by posterior probability > 0.5 for high-mean component
             # ------------------------------------------------------------
-            print("\n[THRESHOLD] Fitting 2-component 1D GMM on unlabeled(999) scores (GT-free)...")
+            print("\n[MIX] Fitting PySpark GaussianMixture(k=2) on unlabeled knn_score (1D)...")
 
-            pdf_unlab_scores = (unlab_scored.select("knn_score").orderBy(F.rand(SEED)).limit(SAMPLE_N_UNLAB).toPandas())
+            # Prepare 1D feature vector for Spark GMM
+            va_1d = VectorAssembler(inputCols=["knn_score"], outputCol="score_vec")
 
-            X = pdf_unlab_scores["knn_score"].astype(float).values.reshape(-1, 1)
+            unlab_for_gmm = unlab_scored.select("knn_score")
+            if UNLAB_GMM_FIT_LIMIT is not None:
+                unlab_for_gmm = unlab_for_gmm.orderBy(F.rand(SEED)).limit(int(UNLAB_GMM_FIT_LIMIT))
+            unlab_for_gmm = va_1d.transform(unlab_for_gmm).select("score_vec").cache()
+            _ = unlab_for_gmm.count()
 
-            gmm1d = GaussianMixture(n_components=2, random_state=SEED)
-            gmm1d.fit(X)
+            gmm = GaussianMixture(k=2, seed=SEED, featuresCol="score_vec", predictionCol="mix_cluster",
+                probabilityCol="mix_prob")
+            gmm_model = gmm.fit(unlab_for_gmm)
 
-            means = gmm1d.means_.ravel()
-            anom_comp = int(np.argmax(means))  # higher mean => more anomalous
+            # Extract component means (1D)
+            weights = np.array(gmm_model.weights, dtype=float)
+            means = []
+            for g in gmm_model.gaussians:
+                # g.mean is a DenseVector of length 1
+                means.append(float(g.mean[0]))
+            means = np.array(means, dtype=float)
 
-            grid = np.linspace(float(np.min(X)), float(np.max(X)), 4000).reshape(-1, 1)
-            probs = gmm1d.predict_proba(grid)[:, anom_comp]
-            idx = int(np.argmin(np.abs(probs - 0.5)))
-            thr_mix = float(grid[idx, 0])
+            anom_comp = int(np.argmax(means))  # higher mean => more anomalous scores
+            print(f"[MIX] weights={weights}, means={means}, anom_comp={anom_comp}")
 
-            print(f"[MIX-THR] means={means}, anom_comp={anom_comp}, thr_mix={thr_mix:.6f}")
+            # Apply model to unlabeled scores to get posterior probability of anom_comp
+            unlab_with_prob = gmm_model.transform(va_1d.transform(unlab_scored.select(id_col, "knn_score"))).select(id_col, "knn_score", "mix_prob")
 
-            thr = thr_mix
-            if USE_NORM_FLOOR:
-                thr_floor = approx_quantile(norm_fit_scored, "knn_score", NORM_FLOOR_Q)
-                thr = max(thr, thr_floor)
-                print(f"[THRESHOLD] norm_floor_q={NORM_FLOOR_Q}, thr_floor={thr_floor:.6f}, thr_final={thr:.6f}")
-            else:
-                print(f"[THRESHOLD] thr_final={thr:.6f}")
-
-            hold_fpr = fpr_on_holdout(norm_hold_scored, "knn_score", thr)
-            print(f"[DIAG] holdout_FPR@thr_final={hold_fpr:.6f}")
-
-            # ------------------------------------------------------------
-            # 5) Label unlabeled(999) using final threshold
-            # ------------------------------------------------------------
-            unlab_labeled = (unlab_scored.withColumn("Final_Label",
-                                                     when(col("knn_score") > lit(thr), lit(1)).otherwise(lit(0)).cast(
-                                                         "int")).select(id_col, "Final_Label").cache())
+            # Label: P(anom_comp) > 0.5
+            unlab_labeled = (
+                unlab_with_prob.withColumn("p_anom", col("mix_prob").getItem(anom_comp)).withColumn("Final_Label", when(col("p_anom") > lit(0.5), lit(1)).otherwise(lit(0)).cast("int"))
+                .select(id_col
+                                                                                            , "Final_Label")
+                .cache()
+            )
             _ = unlab_labeled.count()
 
             print("\n[DIAG] Predicted anomaly rate on unlabeled(999):")
             unlab_labeled.groupBy("Final_Label").count().show(truncate=False)
 
+            # Diagnostics: FPR-ish on normal holdout using same posterior rule
+            hold_with_prob = gmm_model.transform(va_1d.transform(norm_hold_scored.select(id_col, "knn_score"))).select(id_col, "knn_score", "mix_prob") \
+                .withColumn("p_anom", col("mix_prob").getItem(anom_comp))
+
+            hold_n = hold_with_prob.count()
+            hold_fp = hold_with_prob.filter(col("p_anom") > lit(0.5)).count()
+            hold_fpr = (hold_fp / hold_n) if hold_n > 0 else 1.0
+            print(f"[DIAG] holdout flagged as anomaly (p>0.5): {hold_fp}/{hold_n} => {hold_fpr:.6f}")
+
             # ------------------------------------------------------------
-            # 6) Build output dataframes with ORIGINAL features
+            # 5) Build output dataframes with ORIGINAL features
             # ------------------------------------------------------------
             df_unlabeled_labeled_features = (
-                train_unlabeled_df.join(unlab_labeled, on=id_col, how="inner").select(col(id_col),
-                                                                                      col(feature_col).alias(
-                                                                                          "features_vec_final"),
-                                                                                      col("Final_Label")))
+                train_unlabeled_df.join(unlab_labeled, on=id_col, how="inner")
+                .select(col(id_col), col(feature_col).alias("features_vec_fina"), col("Final_Label"))
+            )
 
-            df_normal_labeled_features = (sequences_df.filter(col(temp_col) == 0).select(col(id_col),
-                                                                                         col(feature_col).alias(
-                                                                                             "features_vec_final")).withColumn(
-                "Final_Label", lit(0).cast("int")))
+            df_normal_labeled_features = (sequences_df.filter(col(temp_col) == 0)
+                .select(col(id_col), col(feature_col).alias("features_vec_final"))
+                .withColumn("Final_Label", lit(0).cast("int"))
+            )
 
             df_full_train_labeled_features = df_normal_labeled_features.unionByName(
                 df_unlabeled_labeled_features.select(id_col, "features_vec_final", "Final_Label"),
-                allowMissingColumns=False)
+                allowMissingColumns=False
+            )
 
             print(f"\n[OUTPUT] df_unlabeled_labeled_features={df_unlabeled_labeled_features.count()}")
             print(f"[OUTPUT] df_full_train_labeled_features={df_full_train_labeled_features.count()}")
@@ -1021,9 +1020,10 @@ class FeaturesEngineering:
             # ============================================================
             try:
                 # ---------- 1) UNLABELED TRAIN (999) ----------
-                df_unlab_eval = (df_unlabeled_labeled_features.join(
-                    sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
-                    "true_label", "Final_Label").dropna())
+                df_unlab_eval = (df_unlabeled_labeled_features.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner")
+                    .select("true_label", "Final_Label")
+                    .dropna()
+                )
 
                 n_unlab = df_unlab_eval.count()
                 if n_unlab == 0:
@@ -1037,9 +1037,11 @@ class FeaturesEngineering:
                     print(classification_report(pdf_unlab["true_label"], pdf_unlab["Final_Label"], digits=3))
 
                 # ---------- 2) FULL TRAIN (0 + 999) ----------
-                df_full_eval = (df_full_train_labeled_features.join(
-                    sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
-                    "true_label", "Final_Label").dropna())
+                df_full_eval = (
+                    df_full_train_labeled_features.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner")
+                    .select("true_label", "Final_Label")
+                    .dropna()
+                )
 
                 n_full = df_full_eval.count()
                 if n_full == 0:
@@ -1054,6 +1056,12 @@ class FeaturesEngineering:
 
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (y_true missing or error): {e}")
+
+            # ============================================================
+            # Done. Use df_full_train_labeled_features downstream.
+            # ============================================================
+
+
 
             exit()
 
