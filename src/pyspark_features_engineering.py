@@ -890,7 +890,7 @@ class FeaturesEngineering:
             eps = 1e-9
             GMM_SEED = 123
             JITTER = 1e-5
-            MIN_RECALL = 0.90  # ✅ new objective: maximize precision subject to recall >= MIN_RECALL
+            MIN_RECALL = 0.92  # ✅ new objective: maximize precision subject to recall >= MIN_RECALL
 
             print("\n🧠 Using PCA + GMM novelty detection (scaled + MAD fusion + precision@recall tuning) ...")
 
@@ -1214,7 +1214,7 @@ class FeaturesEngineering:
             print(f"[FINAL] thr_final={thr_final:.6f}, holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}")
 
             # Optional additional guard (reduces borderline FPs). Set to True to enable.
-            USE_BORDERLINE_GUARD = False
+            USE_BORDERLINE_GUARD = True
 
             if USE_BORDERLINE_GUARD:
                 unlab_fused = unlab_fused.withColumn(
