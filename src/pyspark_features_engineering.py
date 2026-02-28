@@ -811,6 +811,268 @@ class FeaturesEngineering:
             from pyspark.ml.clustering import GaussianMixture
             from sklearn.metrics import classification_report
 
+            # -----------------------------
+            # REQUIRED INPUT COLUMNS
+            # -----------------------------
+            feature_col = "features_vec_final"  # Vector
+            id_col = "Node_block_id"  # unique sequence id
+            temp_col = "Temp_label"  # 0 / 999 / 777 / 888
+            GT_COL = "Label"  # ground-truth column (string/int)
+
+            # -----------------------------
+            # SETTINGS (tune these first)
+            # -----------------------------
+            TARGET_FPR = 0.01  # desired false positive rate on clean normals
+            PCA_VAR_TARGET = 0.99  # 0.98..0.995 works better than 0.999 for BGL/TBird
+            CANDIDATE_KS = [10, 20, 30, 40, 50]
+            SELF_FILTER_ITERS = 2
+            SELF_FILTER_DROP = 0.02  # drop top 2% from normal-fit during cleaning
+
+            ANCHOR_SIZE = 2000  # increase if you can
+            KNN_K = 20
+            SEED = 123
+
+            # ============================================================
+            # (A) Build y_true ONCE (ONLY for evaluation; NOT used in training)
+            # ============================================================
+            sequences_df = sequences_df.withColumn("y_true",
+                when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
+                    lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
+                    col(GT_COL).cast("int")))
+
+            # Optional: also normalize Label to 0/1 if you want
+            sequences_df = sequences_df.withColumn("Label_norm",
+                when(lower(trim(col(GT_COL))) == "normal", lit(0)).when(lower(trim(col(GT_COL))) == "anomaly",
+                                                                        lit(1)).otherwise(col(GT_COL).cast("int")))
+
+            # -----------------------------
+            # Basic splits (NO GT)
+            # -----------------------------
+            train_normal_df = sequences_df.filter(col(temp_col) == 0).select(id_col, feature_col)
+            train_unlabeled_df = sequences_df.filter(col(temp_col) == 999).select(id_col, feature_col)
+
+            if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
+                raise ValueError("❌ Not enough data: need Temp_label==0 and Temp_label==999.")
+
+            print(f"[INFO] normal(0)={train_normal_df.count()}, unlabeled(999)={train_unlabeled_df.count()}")
+
+            # ------------------------------------------------------------
+            # 0) Deterministic 80/20 split of normal(0): fit vs holdout
+            # ------------------------------------------------------------
+            train_normal_df = train_normal_df.withColumn("hid", F.xxhash64(col(id_col)))
+            norm_fit_df = train_normal_df.filter((col("hid") % lit(100)) < lit(80)).cache()
+            norm_hold_df = train_normal_df.filter((col("hid") % lit(100)) >= lit(80)).cache()
+            _ = norm_fit_df.count();
+            _ = norm_hold_df.count()
+
+            print(f"[INFO] norm_fit={norm_fit_df.count()}, norm_hold={norm_hold_df.count()}")
+
+            # ------------------------------------------------------------
+            # Helpers: quantile threshold + FPR on holdout
+            # ------------------------------------------------------------
+            def approx_quantile(df, c, q, rel=1e-3):
+                return float(df.approxQuantile(c, [q], rel)[0])
+
+            def threshold_from_norm_fit(norm_fit_scored_df, score_col, target_fpr=0.01):
+                return approx_quantile(norm_fit_scored_df, score_col, 1.0 - target_fpr)
+
+            def fpr_on_holdout(norm_holdout_scored_df, score_col, thr):
+                n = norm_holdout_scored_df.count()
+                if n == 0:
+                    return 1.0
+                fp = norm_holdout_scored_df.filter(col(score_col) > lit(thr)).count()
+                return fp / n
+
+            # ------------------------------------------------------------
+            # 1) Choose PCA k on NORMAL-fit only (by explained variance)
+            # ------------------------------------------------------------
+            best_k = None
+            for k in CANDIDATE_KS:
+                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(norm_fit_df)
+                explained = float(sum(pca_tmp_model.explainedVariance))
+                print(f"[PCA] k={k}, cumulative explained variance={explained:.6f}")
+                if explained >= PCA_VAR_TARGET:
+                    best_k = k
+                    print(f"[PCA] selected k={best_k} (>= {PCA_VAR_TARGET})")
+                    break
+
+            if best_k is None:
+                best_k = CANDIDATE_KS[-1]
+                print(f"[PCA] target variance not reached; using k={best_k}")
+
+            # ------------------------------------------------------------
+            # 2) Fit PCA on normal-fit; transform normal-fit/holdout/unlabeled
+            # ------------------------------------------------------------
+            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            pca_model = pca.fit(norm_fit_df)
+
+            norm_fit_pca = pca_model.transform(norm_fit_df).select(id_col, "pca_features")
+            norm_hold_pca = pca_model.transform(norm_hold_df).select(id_col, "pca_features")
+            unlab_pca = pca_model.transform(train_unlabeled_df).select(id_col, "pca_features")
+
+            # ------------------------------------------------------------
+            # 3) kNN-to-anchors scoring
+            # ------------------------------------------------------------
+            def collect_anchors(df_pca, anchor_size=2000, seed=123):
+                anchors = (df_pca.orderBy(F.rand(seed)).limit(anchor_size).select("pca_features").collect())
+                if len(anchors) == 0:
+                    raise ValueError("❌ No anchors collected from normal-fit.")
+                A = np.stack([np.array(r["pca_features"].toArray(), dtype=np.float64) for r in anchors], axis=0)
+                return A
+
+            def make_knn_udf(anchors_np, k=20):
+                bc = spark.sparkContext.broadcast(anchors_np)
+
+                @F.udf(DoubleType())
+                def knn_kth_dist(pca_vec):
+                    z = np.array(pca_vec.toArray(), dtype=np.float64)
+                    A = bc.value
+                    d2 = np.sum((A - z[None, :]) ** 2, axis=1)
+                    kk = min(max(1, int(k)), d2.size)
+                    kth = float(np.partition(d2, kk - 1)[kk - 1])
+                    return float(np.sqrt(max(kth, 0.0)))
+
+                return knn_kth_dist
+
+            # ------------------------------------------------------------
+            # 4) Self-filter contaminated normals (NO GT)
+            # ------------------------------------------------------------
+            current_norm_fit_df = norm_fit_df.select(id_col, feature_col).cache()
+            _ = current_norm_fit_df.count()
+
+            for it in range(SELF_FILTER_ITERS):
+                print(f"\n[SELF-FILTER] Iteration {it + 1}/{SELF_FILTER_ITERS}")
+
+                pca_model_it = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features").fit(
+                    current_norm_fit_df)
+                cur_fit_pca = pca_model_it.transform(current_norm_fit_df).select(id_col, "pca_features")
+
+                anchors_np = collect_anchors(cur_fit_pca, anchor_size=ANCHOR_SIZE, seed=SEED + it)
+                knn_udf = make_knn_udf(anchors_np, k=KNN_K)
+
+                cur_fit_scored = cur_fit_pca.withColumn("knn_score", knn_udf(col("pca_features"))).cache()
+                _ = cur_fit_scored.count()
+
+                thr_drop = approx_quantile(cur_fit_scored, "knn_score", 1.0 - SELF_FILTER_DROP)
+                kept_ids = cur_fit_scored.filter(col("knn_score") <= lit(thr_drop)).select(id_col).cache()
+
+                kept_n = kept_ids.count()
+                total_n = cur_fit_scored.count()
+                print(
+                    f"[SELF-FILTER] drop_thr={thr_drop:.6f}, kept={kept_n}/{total_n} ({kept_n / max(total_n, 1):.3f})")
+
+                current_norm_fit_df = current_norm_fit_df.join(kept_ids, on=id_col, how="inner").cache()
+                _ = current_norm_fit_df.count()
+
+            # ------------------------------------------------------------
+            # 5) Final PCA fit on cleaned normal-fit; transform all sets
+            # ------------------------------------------------------------
+            final_pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+            final_pca_model = final_pca.fit(current_norm_fit_df)
+
+            final_norm_fit_pca = final_pca_model.transform(current_norm_fit_df).select(id_col, "pca_features").cache()
+            final_norm_hold_pca = final_pca_model.transform(norm_hold_df).select(id_col, "pca_features").cache()
+            final_unlab_pca = final_pca_model.transform(train_unlabeled_df).select(id_col, "pca_features").cache()
+
+            _ = final_norm_fit_pca.count();
+            _ = final_norm_hold_pca.count();
+            _ = final_unlab_pca.count()
+
+            final_anchors_np = collect_anchors(final_norm_fit_pca, anchor_size=ANCHOR_SIZE, seed=SEED + 999)
+            final_knn_udf = make_knn_udf(final_anchors_np, k=KNN_K)
+
+            final_norm_fit_scored = final_norm_fit_pca.withColumn("knn_score",
+                                                                  final_knn_udf(col("pca_features"))).cache()
+            final_norm_hold_scored = final_norm_hold_pca.withColumn("knn_score",
+                                                                    final_knn_udf(col("pca_features"))).cache()
+            final_unlab_scored = final_unlab_pca.withColumn("knn_score", final_knn_udf(col("pca_features"))).cache()
+
+            _ = final_norm_fit_scored.count();
+            _ = final_norm_hold_scored.count();
+            _ = final_unlab_scored.count()
+
+            # ------------------------------------------------------------
+            # 6) Threshold from cleaned normal-fit only (TARGET_FPR), check holdout FPR
+            # ------------------------------------------------------------
+            thr = threshold_from_norm_fit(final_norm_fit_scored, "knn_score", target_fpr=TARGET_FPR)
+            hold_fpr = fpr_on_holdout(final_norm_hold_scored, "knn_score", thr)
+            print(f"\n[THRESHOLD] thr={thr:.6f} (cleaned norm-fit), holdout_FPR={hold_fpr:.6f}")
+
+            # ------------------------------------------------------------
+            # 7) Label unlabeled(999) by novelty threshold (Final_Label)
+            # ------------------------------------------------------------
+            unlab_labeled = (final_unlab_scored.withColumn("Final_Label",
+                                                           when(col("knn_score") > lit(thr), lit(1)).otherwise(
+                                                               lit(0)).cast("int")).select(id_col, "Final_Label"))
+
+            # ------------------------------------------------------------
+            # 8) Build output dataframes with ORIGINAL features
+            # ------------------------------------------------------------
+            df_unlabeled_labeled_features = (
+                train_unlabeled_df.join(unlab_labeled, on=id_col, how="inner").select(col(id_col),
+                                                                                      col(feature_col).alias(
+                                                                                          "features_vec_final"),
+                                                                                      col("Final_Label")))
+
+            df_normal_labeled_features = (sequences_df.filter(col(temp_col) == 0).select(col(id_col),
+                                                                                         col(feature_col).alias(
+                                                                                             "features_vec_final")).withColumn(
+                "Final_Label", lit(0).cast("int")))
+
+            df_full_train_labeled_features = df_normal_labeled_features.unionByName(
+                df_unlabeled_labeled_features.select(id_col, "features_vec_final", "Final_Label"),
+                allowMissingColumns=False)
+
+            print(f"\n[OUTPUT] df_unlabeled_labeled_features={df_unlabeled_labeled_features.count()}")
+            print(f"[OUTPUT] df_full_train_labeled_features={df_full_train_labeled_features.count()}")
+
+            print("\n[PSEUDO LABELS] Unlabeled(999) predicted distribution:")
+            df_unlabeled_labeled_features.groupBy("Final_Label").count().show(truncate=False)
+
+            # ============================================================
+            # (B) EVALUATION (uses y_true ONLY for reporting)
+            #     1) Unlabeled train report (Temp_label==999)
+            #     2) Full train report (Temp_label==0 + 999)
+            # ============================================================
+            try:
+                # ---------- 1) UNLABELED TRAIN (999) ----------
+                df_unlab_eval = (df_unlabeled_labeled_features.join(
+                    sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
+                    "true_label", "Final_Label").dropna())
+
+                n_unlab = df_unlab_eval.count()
+                if n_unlab == 0:
+                    print("[WARN] Unlabeled train: no rows with both true_label and Final_Label -> report skipped.")
+                else:
+                    pdf_unlab = df_unlab_eval.toPandas()
+                    pdf_unlab["true_label"] = pdf_unlab["true_label"].astype(int)
+                    pdf_unlab["Final_Label"] = pdf_unlab["Final_Label"].astype(int)
+
+                    print(f"\n=== Classification_report on UNLABELED TRAIN (Temp_label=999) (n={n_unlab}) ===")
+                    print(classification_report(pdf_unlab["true_label"], pdf_unlab["Final_Label"], digits=3))
+
+                # ---------- 2) FULL TRAIN (0 + 999) ----------
+                df_full_eval = (df_full_train_labeled_features.join(
+                    sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
+                    "true_label", "Final_Label").dropna())
+
+                n_full = df_full_eval.count()
+                if n_full == 0:
+                    print("[WARN] Full train: no rows with both true_label and Final_Label -> report skipped.")
+                else:
+                    pdf_full = df_full_eval.toPandas()
+                    pdf_full["true_label"] = pdf_full["true_label"].astype(int)
+                    pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
+
+                    print(f"\n=== Classification_report on FULL TRAIN (Temp_label in {{0,999}}) (n={n_full}) ===")
+                    print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
+            except Exception as e:
+                print(f"[DEBUG] Skipping classification reports (y_true missing or error): {e}")
+
+            exit()
+
 
             # ---------BB ------------
             # -----------------------------
@@ -1188,6 +1450,12 @@ class FeaturesEngineering:
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (Label missing or error): {e}")
             exit()
+
+
+
+
+
+
 
 
             print("\n✅ Output DataFrames created:")
