@@ -1132,15 +1132,14 @@ class FeaturesEngineering:
             # ============================================================
             MIN_RECALL = 0.92  # you can change to 0.90 or 0.88 for higher precision
 
-            tune_df = sequences_df.filter(col("Temp_label").isin([777, 888])) \.select(col(id_col)
+            tune_df = sequences_df.filter(col("Temp_label").isin([777, 888])).select(col(id_col)
                                                                                      , col("y_true").alias("true_label"))
 
             if tune_df.count() == 0:
                 tune_df = sequences_df.select(col(id_col), col("y_true").alias("true_label")).dropna()
 
             all_scored = hold_scored.select(id_col, "final_score") \
-                .unionByNa \
-                me(unlab_scored.select(id_col, "final_score")) \
+                .unionByName(unlab_scored.select(id_col, "final_score")) \
                 .dropDuplicates([id_col])
 
             tune_scored = tune_df.join(all_scored, on=id_col, how="inner") \
@@ -1170,8 +1169,9 @@ class FeaturesEngineering:
                     fp = np.sum((yhat == 1) & (y == 0))
                     fn = np.sum((yhat == 0) & (y == 1))
 
-                    prec = tp / max(tp + fp, 1) rec  = tp / max(tp + fn, 1)
-                    f1   = (2 * prec * rec) / max(prec + rec, 1e-12)
+                    prec = tp / max(tp + fp, 1)
+                    rec = tp / max(tp + fn, 1)
+                    f1 = (2 * prec * rec) / max(prec + rec, 1e-12)
 
                     if rec >= MIN_RECALL and prec > best_prec:
                         best_prec = prec
@@ -1214,18 +1214,16 @@ class FeaturesEngineering:
                     t = threshold_from_norm_fit(fit_scored, "final_score", target_fpr=float(fpr_t))
                     hold_fpr = fpr_on_holdout(hold_scored, "final_score", t)
                     pos_rate = unlab_scored.filter(col("final_score") > lit(t)).count() / unlab_total
-                    print(f"[FALLBACK] 
-                        targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
+                    print(f"[FALLBACK] targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
                     if pos_rate > 0.01:
                         chosen = float(t)
                         break
 
-                thr_final = chosen if chosen is not None else threshold_from_norm_fit(fit_scored, "final_score", target_fpr=0
-                                                                                      10)
+                thr_final = chosen if chosen is not None else threshold_from_norm_fit(fit_scored, "final_score",
+                                                                                      target_fpr=0.10)
                 print(f"[FALLBACK] Using thr_final={thr_final:.6f}")
 
-            print(f"[FINAL] thr
-                _final={thr_final:.6f}, holdoutFPR={fpr_on_holdout(hold_scored, 'final_score', thr_final):.6f}")
+            print(f"[FINAL] thr_final={thr_final:.6f}, holdoutFPR={fpr_on_holdout(hold_scored, 'final_score', thr_final):.6f}")
 
             # ============================================================
             # 8) Final label (guard optional but now meaningful: uses z_gmm only)
@@ -1236,16 +1234,12 @@ class FeaturesEngineering:
             if USE_GMM_GUARD:
                 unlab_scored = unlab_scored.withColumn(
                     "Final_Label",
-                    when((col("final_score") > lit(thr_final)) & (col("z_gmm") > lit(GUARD_Z_GMM)), 1).ot
-                        herwise(0)
-                ).withColumn("Final_Label", col("Final_Label").cast("int")).cache()
+                    when((col("final_score") > lit(thr_final)) & (col("z_gmm") > lit(GUARD_Z_GMM)), 1).otherwise(0)).withColumn("Final_Label", col("Final_Label").cast("int")).cache()
             else:
                 unlab_scored = unlab_scored.withColumn(
                     "Final_Label",
                     when(col("final_score") > lit(thr_final), 1).otherwise(0)
-                ).withColumn("Final
-                                                                                          Label", col("Final_Label
-                                                                                              ").cast("int")).cache()
+                ).withColumn("Final_Label", col("Final_Label").cast("int")).cache()
 
             # ============================================================
             # 9) Outputs (same as your original)
