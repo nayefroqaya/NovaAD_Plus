@@ -822,14 +822,14 @@ class FeaturesEngineering:
             # -----------------------------
             # SETTINGS (tune these first)
             # -----------------------------
-            TARGET_FPR = 0.01  # desired false positive rate on clean normals
-            PCA_VAR_TARGET = 0.99  # 0.98..0.995 works better than 0.999 for BGL/TBird
+            TARGET_FPR = 0.10  # desired false positive rate on clean normals
+            PCA_VAR_TARGET = 0.98  # 0.98..0.995 works better than 0.999 for BGL/TBird
             CANDIDATE_KS = [10, 20, 30, 40, 50]
             SELF_FILTER_ITERS = 2
             SELF_FILTER_DROP = 0.02  # drop top 2% from normal-fit during cleaning
 
             ANCHOR_SIZE = 2000  # increase if you can
-            KNN_K = 20
+            KNN_K = 10
             SEED = 123
 
             # ============================================================
