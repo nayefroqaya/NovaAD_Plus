@@ -830,9 +830,8 @@ class FeaturesEngineering:
                                                                          lit(1)).otherwise(col("Label").cast("int")))
 
             sequences_df.printSchema()
-            train_counts = sequences_df.groupBy("Label").count()
             print("=== Label Distribution (All Data) ===")
-            train_counts.show(truncate=False)
+            sequences_df.groupBy("Label").count().show(truncate=False)
 
             # -----------------------------
             # (B) TRAIN-only view (Temp_label 0 or 999)
@@ -840,9 +839,8 @@ class FeaturesEngineering:
             train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
             _ = train_seq_df.count()
 
-            train_counts = train_seq_df.groupBy("Label").count()
             print("[TRAIN ONLY] Label distribution (Temp_label in {0,999}):")
-            train_counts.show(truncate=False)
+            train_seq_df.groupBy("Label").count().show(truncate=False)
 
             n_train_normal = train_seq_df.filter(col("Label") == 0).count()
             n_train_anom = train_seq_df.filter(col("Label") == 1).count()
@@ -851,7 +849,7 @@ class FeaturesEngineering:
             print("[TRAIN ONLY] Temp_label vs Label:")
             (train_seq_df.groupBy("Temp_label", "Label").count()).orderBy("Temp_label", "Label").show(truncate=False)
 
-            # Optional: oversample NORMAL sequences in TRAIN ONLY if anomalies > normals (your code kept)
+            # Optional: oversample NORMAL sequences in TRAIN ONLY if anomalies > normals (kept from your code)
             if n_train_normal > 0 and n_train_anom > n_train_normal:
                 k = int((n_train_anom + n_train_normal - 1) / n_train_normal)  # ceil
                 print(f"[BALANCE TRAIN ONLY] Oversampling Normal sequences x{k}")
@@ -868,15 +866,11 @@ class FeaturesEngineering:
                 val_test_df = sequences_df.filter(~col("Temp_label").isin([0, 999]))
                 sequences_df = balanced_train_seq_df.unionByName(val_test_df)
 
-                n2_norm = balanced_train_seq_df.filter(col("Label") == 0).count()
-                n2_anom = balanced_train_seq_df.filter(col("Label") == 1).count()
-                print(f"[TRAIN ONLY AFTER] Normal={n2_norm}, Anomaly={n2_anom}")
+                print(f"[TRAIN ONLY AFTER] Normal={balanced_train_seq_df.filter(col('Label') == 0).count()}, "
+                      f"Anomaly={balanced_train_seq_df.filter(col('Label') == 1).count()}")
 
                 train_normal_df = balanced_train_seq_df.filter(col("Temp_label") == 0)
                 train_unlabeled_df = balanced_train_seq_df.filter(col("Temp_label") == 999)
-
-                print(
-                    f"[TRAIN ONLY AFTER] train_normal_df={train_normal_df.count()}, train_unlabeled_df={train_unlabeled_df.count()}")
 
                 if train_normal_df.count() == 0 or train_unlabeled_df.count() == 0:
                     raise ValueError("❌ Not enough data for novelty detection.")
@@ -895,9 +889,10 @@ class FeaturesEngineering:
             TARGET_FPR = 0.01
             eps = 1e-9
             GMM_SEED = 123
-            JITTER = 1e-5  # slightly higher than 1e-6 helps stability on BGL/TB
+            JITTER = 1e-5
+            MIN_RECALL = 0.90  # ✅ new objective: maximize precision subject to recall >= MIN_RECALL
 
-            print("\n🧠 Using PCA + GMM novelty detection (scaled + MAD-fusion threshold) ...")
+            print("\n🧠 Using PCA + GMM novelty detection (scaled + MAD fusion + precision@recall tuning) ...")
 
             # ============================================================
             # 0.1) Deterministic key + deterministic normal split (80/20)
@@ -933,9 +928,7 @@ class FeaturesEngineering:
             # ============================================================
             # 1) ✅ StandardScaler (fit on NORMAL-fit only) + transform
             # ============================================================
-            scaler = StandardScaler(inputCol=feature_col, outputCol="scaled_features", withStd=True, withMean=False
-                # safe for sparse vectors; set True only if dense & memory OK
-            )
+            scaler = StandardScaler(inputCol=feature_col, outputCol="scaled_features", withStd=True, withMean=False)
             scaler_model = scaler.fit(norm_fit_df)
 
             norm_fit_scaled = scaler_model.transform(norm_fit_df).cache()
@@ -943,7 +936,7 @@ class FeaturesEngineering:
             unlab_scaled = scaler_model.transform(train_unlabeled_df).cache()
 
             # ============================================================
-            # 2) Choose PCA k on NORMAL-fit only (same as your logic)
+            # 2) Choose PCA k on NORMAL-fit only
             # ============================================================
             candidate_ks = [10, 20, 40, 50, 60, 70]
             target_variance = 0.999
@@ -980,7 +973,7 @@ class FeaturesEngineering:
             # 4) ✅ PCA reconstruction error WITH mean (FIX)
             # ============================================================
             pc = pca_model.pc.toArray()  # (d,k)
-            # compute mean of scaled_features on norm_fit_scaled
+
             norm_fit_arr = norm_fit_scaled.select(vector_to_array(col("scaled_features")).alias("x"))
             d = len(norm_fit_arr.head()["x"])
 
@@ -1008,15 +1001,12 @@ class FeaturesEngineering:
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
                 reconstruction_error_scaled(col("scaled_features"), col("pca_features"))).cache()
 
-            # ============================================================
-            # 5) PCA threshold (FPR-controlled) [kept for logging]
-            # ============================================================
             thr_pca = threshold_from_norm_fit(train_pca_normal_fit, "anomaly_score_pca", target_fpr=TARGET_FPR)
             fpr_pca = fpr_on_holdout(train_pca_normal_hold, "anomaly_score_pca", thr_pca)
             print(f"[PCA] thr={thr_pca:.6f}, holdout FPR={fpr_pca:.6f}")
 
             # ============================================================
-            # 6) Fit GMM on NORMAL-fit PCA space (choose k by BIC), score by NLL
+            # 5) Fit GMM on NORMAL-fit PCA space (choose k by BIC), score by NLL
             # ============================================================
             gmm_ks = [2, 4, 6, 8, 10]
             d_pca = best_k
@@ -1048,7 +1038,7 @@ class FeaturesEngineering:
                     best_gmm_k = k
 
             if best_gmm_model is None:
-                raise RuntimeError("❌ GMM selection failed (logLikelihood unavailable).")
+                raise RuntimeError("❌ GMM selection failed.")
 
             print(f"[GMM] Selected k={best_gmm_k} by BIC.")
 
@@ -1109,15 +1099,12 @@ class FeaturesEngineering:
             train_gmm_hold = train_pca_normal_hold.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features"))).cache()
             unlab_gmm = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features"))).cache()
 
-            # ============================================================
-            # 7) GMM threshold (FPR-controlled) [kept for logging]
-            # ============================================================
             thr_gmm = threshold_from_norm_fit(train_gmm_fit, "anomaly_score_gmm", target_fpr=TARGET_FPR)
             fpr_gmm = fpr_on_holdout(train_gmm_hold, "anomaly_score_gmm", thr_gmm)
             print(f"[GMM-NLL] thr={thr_gmm:.6f}, holdout FPR={fpr_gmm:.6f}")
 
             # ============================================================
-            # 8) ✅ FINAL: replace OR with MAD-fused score + tuned threshold
+            # 6) ✅ FINAL labeling using MAD-fused score + precision@recall threshold tuning
             # ============================================================
             pca_med, pca_mad = median_and_mad(train_gmm_fit, "anomaly_score_pca")
             gmm_med, gmm_mad = median_and_mad(train_gmm_fit, "anomaly_score_gmm")
@@ -1136,17 +1123,17 @@ class FeaturesEngineering:
             hold_fused = add_fused(train_gmm_hold).cache()
             unlab_fused = add_fused(unlab_gmm).cache()
 
-            # ---- threshold tuning labels (prefer 777/888, else y_true) ----
+            # Build tuning set (prefer 777/888, else any y_true)
             tune_df = sequences_df.filter(col("Temp_label").isin([777, 888])).select(col(id_col),
                                                                                      col("y_true").alias("true_label"))
             if tune_df.count() == 0:
                 tune_df = sequences_df.select(col(id_col), col("y_true").alias("true_label")).dropna()
 
-            all_scored_for_join = hold_fused.select(id_col, "fused_score").unionByName(unlab_fused.select(id_col, "fused_score")) \
+            all_scored = hold_fused.select(id_col, "fused_score") \.unionByNam \
+                e(unlab_fused.select(id_col, "fused_score")) \
                 .dropDuplicates([id_col])
 
-            tune_scored = tune_df.join(all_scored_for_join, on=id_col, how="inner").select("true_label"
-                                                                                           , "fused_score").dropna()
+            tune_scored = tune_df.join(all_scored, on=id_col, how="inner").select("true_label", "fused_score").dropna()
             n_tune = tune_scored.count()
             print(f"[TUNE] rows available for threshold tuning: {n_tune}")
 
@@ -1157,11 +1144,13 @@ class FeaturesEngineering:
                 y = pdf["true_label"].astype(int).values
                 s = pdf["fused_score"].astype(float).values
 
-                qs = np.linspace(0.80, 0.999, 200)
+                qs = np.linspace(0.80, 0.999, 250)
                 thr_candidates = np.quantile(s, qs)
 
-                best_f1 = -1.0
+                best_prec = -1.0
                 best_thr = float(np.quantile(s, 0.95))
+                best_rec = 0.0
+                best_f1 = 0.0
 
                 for t in thr_candidates:
                     yhat = (s > t).astype(int)
@@ -1170,15 +1159,40 @@ class FeaturesEngineering:
                     fn = np.sum((yhat == 0) & (y == 1))
 
                     prec = tp / max(tp + fp, 1)
-                    rec = tp / max(tp + fn, 1)
-                    f1 = (2 * prec * rec) / max(prec + rec, 1e-12)
+                    rec  = tp / max(tp + fn, 1)
+                    f1   = (2 * prec * rec) / max(prec + rec, 1e-12)
 
-                    if f1 > best_f1:
-                        best_f1 = f1
+                    if rec >= MIN_RECALL and prec > best_prec:
+                        best_prec = prec
                         best_thr = float(t)
+                        best_rec = rec
+                        best_f1 = f1
+
+                # fallback to best F1 if recall constraint too strict
+                if best_prec < 0:
+                    best_f1 = -1.0
+                    best_thr = float(np.quantile(s, 0.95))
+                    best_prec = 0.0
+                    best_rec = 0.0
+                    for t in thr_candidates:
+                        yhat = (s > t).astype(int)
+                        tp = np.sum((yhat == 1) & (y == 1))
+                        fp = np.sum((yhat == 1) & (y == 0))
+                        fn = np.sum((yhat == 0) & (y == 1))
+
+                        prec = tp / max(tp + fp, 1)
+                        rec  = tp / max(tp + fn, 1)
+                        f1   = (2 * prec * rec) / max(prec + rec, 1e-12)
+
+                        if f1 > best_f1:
+                            best_f1 = f1
+                            best_thr = float(t)
+                            best_prec = prec
+                            best_rec = rec
 
                 thr_final = best_thr
-                print(f"[TUNE] Selected thr={thr_final:.6f} by best F1={best_f1:.4f}")
+                print(f"[TUNE] Selected thr={thr_final:.6f} | Precision={best_prec:.4f} Recall={best_rec:.4f} F1={best_f1:.4f}")
+
             else:
                 # fallback sweep to avoid predicting all normal
                 fpr_grid = [0.01, 0.02, 0.05, 0.08, 0.10, 0.15, 0.20]
@@ -1189,29 +1203,47 @@ class FeaturesEngineering:
                     t = threshold_from_norm_fit(fit_fused, "fused_score", target_fpr=float(fpr_t))
                     hold_fpr = fpr_on_holdout(hold_fused, "fused_score", t)
                     pos_rate = unlab_fused.filter(col("fused_score") > lit(t)).count() / unlab_total
-                    print(f"[FALLBACK] targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
+                    prin
+                        t(f"[FALLBACK] targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
                     if pos_rate > 0.01:
                         chosen = float(t)
                         break
 
-                thr_final = chosen if chosen is not None else threshold_from_norm_fit(fit_fused, "fused_score", target_fpr=0.0)
+                thr_final = chosen if chosen is not None else threshold_from_norm_fit(fit_fused, "fused_score"
+                                                                                      , target_fpr=0.10)
                 print(f"[FALLBACK] Using thr_final={thr_final:.6f}")
 
             print(f"[FINAL] thr_final={thr_final:.6f}, holdoutFPR={fpr_on_holdout(hold_fused, 'fused_score', thr_final):.6f}")
 
-            unlab_fused = unlab_fused.withColumn(
-                "Final_Label",
-                when(col("fused_score") > lit(thr_final), 1).otherwise(0)
-            ).withColumn("Final_Label",col("Final_Label").cast("int")).cache()
+            # Optional additional guard (reduces borderline FPs). Set to True to enable.
+            USE_BORDERLINE_GUARD = False
+
+            if USE_BORDERLINE_GUARD:
+                unlab_fused = unlab_fused.withColumn(
+                    "Final_Label",
+                    when(
+                        (col("fused_score") > lit(thr_final)) &
+                        ((col("z_pca") > lit(0.5)) | (col("z_gmm") > lit(0.5))),
+                        1
+                    ).otherwise(0)
+                ).withColumn("Final_Label", col("Final_Label").cast("int")).cache()
+            else:
+                unlab_fused = unlab_fused.withColumn(
+                    "Final_Label",
+                    when(col("fused_score") > lit(thr_final), 1).otherwise(0)
+                ).withColumn("Final_Labe", col("Final_Label").cast("int")).cache()
 
             # ============================================================
-            # 9) Build requested output dataframes (labels + ORIGINAL features)
+            # 7) Build requested output dataframes (labels + ORIGINAL features)
             # ============================================================
-            df_unlabeled_labeled_features = unlab_fused.select(col(id_col),
-                col(feature_col).alias("features_vec_final"), col("Final_Label")
+            df_unlabeled_labeled_features = unlab_fused.select(
+                col(id_col),
+                col(feature_col).alias("features_vec_final"),
+                col("Final_Label")
             )
 
-            df_normal_labeled_features = train_normal_df.select(col(id_col),
+            df_normal_labeled_features = train_normal_df.select(
+                col(id_col),
                 col(feature_col).alias("features_vec_final")
             ).withColumn("Final_Label", lit(0).cast("int"))
 
@@ -1221,11 +1253,10 @@ class FeaturesEngineering:
             )
 
             # ============================================================
-            # 10) Classification reports (same style as yours)
+            # 8) Classification reports (same style as yours)
             # ============================================================
             try:
-                df_unlab_eval = df_unlabeled_labeled_features.join(
-                    sequences_df.select(col(id_col), col("y_true").alias("true_label")),
+                df_unlab_eval = df_unlabeled_labeled_features.join(sequences_df.select(col(id_col), col("y_true").alias("true_label")),
                     on=id_col, how="inner"
                 ).select("true_label", "Final_Label").dropna()
 
@@ -1259,7 +1290,6 @@ class FeaturesEngineering:
             except Exception as e:
                 print(f"[DEBUG] Skipping classification reports (Label missing or error): {e}")
 
-            # Optional: stop like your original
             exit()
 
 
