@@ -1129,8 +1129,7 @@ class FeaturesEngineering:
             if tune_df.count() == 0:
                 tune_df = sequences_df.select(col(id_col), col("y_true").alias("true_label")).dropna()
 
-            all_scored = hold_fused.select(id_col, "fused_score") \.unionByNam \
-                e(unlab_fused.select(id_col, "fused_score")) \
+            all_scored = hold_fused.select(id_col, "fused_score").unionByName(unlab_fused.select(id_col, "fused_score")) \
                 .dropDuplicates([id_col])
 
             tune_scored = tune_df.join(all_scored, on=id_col, how="inner").select("true_label", "fused_score").dropna()
@@ -1203,8 +1202,7 @@ class FeaturesEngineering:
                     t = threshold_from_norm_fit(fit_fused, "fused_score", target_fpr=float(fpr_t))
                     hold_fpr = fpr_on_holdout(hold_fused, "fused_score", t)
                     pos_rate = unlab_fused.filter(col("fused_score") > lit(t)).count() / unlab_total
-                    prin
-                        t(f"[FALLBACK] targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
+                    print(f"[FALLBACK] targetFPR={fpr_t:.3f}, thr={t:.6f}, holdoutFPR={hold_fpr:.4f}, unlabeled_pos_rate={pos_rate:.4f}")
                     if pos_rate > 0.01:
                         chosen = float(t)
                         break
