@@ -1011,19 +1011,22 @@ class FeaturesEngineering:
             # 0) Prepare train and test sets
             # =============================================
 
-            # df_full_train_labeled_features: pseudo-labeled train (GMM OR)
-            # sequences_df: original dataset with Temp_label & y_true
-
-            # Original true normals (Temp_label = 0)
+            # True normals
             df_train_normal = sequences_df.filter(F.col("Temp_label") == 0).select(F.col("Node_block_id"),
                 F.col("features_vec_final"), F.lit(0).alias("Final_Label"))
 
-            # Merge pseudo-labeled train + true normals
+            # Merge pseudo-labeled anomalies + true normals
             train_df = df_full_train_labeled_features.unionByName(df_train_normal, allowMissingColumns=False)
 
+            # Split a small validation set for threshold tuning (e.g., 10% of train)
+            train_count = train_df.count()
+            val_fraction = 0.1
+            train_base_df = train_df.sample(False, 1 - val_fraction, seed=42)
+            val_df = train_df.subtract(train_base_df)
+
             # Test set (Temp_label = 888)
-            df_test_labeled_features = sequences_df.filter(F.col("Temp_label") == 888).select(F.col("Node_block_id"),
-                F.col("features_vec_final"), F.col("y_true").alias("Final_Label"), # Include PCA/GMM scores if available
+            test_df = sequences_df.filter(F.col("Temp_label") == 888).select(F.col("Node_block_id"),
+                F.col("features_vec_final"), F.col("y_true").alias("Final_Label"),
                 F.col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else F.lit(0.0).alias(
                     "anomaly_score_pca"),
                 F.col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else F.lit(0.0).alias(
@@ -1035,62 +1038,75 @@ class FeaturesEngineering:
             # =============================================
             # 1) Compute class weights
             # =============================================
-            label_counts = train_df.groupBy("Final_Label").count().collect()
+            label_counts = train_base_df.groupBy("Final_Label").count().collect()
             counts = {int(r["Final_Label"]): int(r["count"]) for r in label_counts}
             n0 = counts.get(0, 1)
             n1 = counts.get(1, 1)
             total = n0 + n1
-
             weight_0 = total / (2.0 * n0)
             weight_1 = total / (2.0 * n1)
             print("Class weights -> 0:", weight_0, "| 1:", weight_1)
 
-            train_df = train_df.withColumn("classWeightCol",
+            train_base_df = train_base_df.withColumn("classWeightCol",
                 F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
 
             # =============================================
             # 2) Assemble features
             # =============================================
             feature_cols = ["features_vec_final"]
-            if "anomaly_score_pca" in train_df.columns:
+            if "anomaly_score_pca" in train_base_df.columns:
                 feature_cols.append("anomaly_score_pca")
-            if "anomaly_score_gmm" in train_df.columns:
+            if "anomaly_score_gmm" in train_base_df.columns:
                 feature_cols.append("anomaly_score_gmm")
 
             assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
-            train_df = assembler.transform(train_df)
-            df_test_labeled_features = assembler.transform(df_test_labeled_features)
+            train_base_df = assembler.transform(train_base_df)
+            val_df = assembler.transform(val_df)
+            test_df = assembler.transform(test_df)
             features_col = "features_augmented"
 
             # =============================================
             # 3) Train Weighted GBT Classifier
             # =============================================
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=80, maxDepth=6,
-                minInstancesPerNode=10, stepSize=0.1, seed=123)
-            gbt_model = gbt.fit(train_df)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=100, maxDepth=6,
+                minInstancesPerNode=10, stepSize=0.05, seed=123)
+            gbt_model = gbt.fit(train_base_df)
 
             # =============================================
-            # 4) Predict on test set
+            # 4) Validation predictions + threshold tuning
             # =============================================
-            test_pred_raw = gbt_model.transform(df_test_labeled_features)
+            val_pred = gbt_model.transform(val_df)
+            val_pdf = (val_pred.select(F.col("Final_Label").alias("y"),
+                                       vector_to_array(F.col("probability")).getItem(1).alias(
+                                           "prob_1")).dropna().toPandas())
 
-            test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
+            # Tune threshold to maximize weighted F1
+            best_threshold = 0.5
+            best_f1 = -1.0
+            for t in np.arange(0.05, 0.96, 0.01):
+                preds = (val_pdf["prob_1"].values >= t).astype(int)
+                f1 = f1_score(val_pdf["y"].values.astype(int), preds, average="weighted")
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = float(t)
+
+            print("Best threshold from VAL:", best_threshold)
+            print("Best VAL weighted F1:", best_f1)
+
+            # =============================================
+            # 5) Test predictions
+            # =============================================
+            test_pred = gbt_model.transform(test_df)
+            test_pdf = (test_pred.select(F.col("Final_Label").alias("y"),
                 vector_to_array(F.col("probability")).getItem(1).alias("prob_1"), F.col("pca_flag"),
                 F.col("gmm_flag")).dropna().toPandas())
 
-            # =============================================
-            # 5) Determine heuristic threshold
-            # =============================================
-            train_anom_ratio = train_df.filter(F.col("Final_Label") == 1).count() / train_df.count()
-            heuristic_threshold = max(0.5, 1 - train_anom_ratio)
-            print("Heuristic threshold for anomalies:", heuristic_threshold)
-
             # Classifier predictions
-            test_preds_gbt = (test_pdf["prob_1"].values >= heuristic_threshold).astype(int)
+            test_preds_gbt = (test_pdf["prob_1"].values >= best_threshold).astype(int)
 
-            # OR-ensemble with PCA/GMM flags
-            test_preds_final = (
-                    (test_preds_gbt == 1) | (test_pdf["pca_flag"] == 1) | (test_pdf["gmm_flag"] == 1)).astype(int)
+            # Voting ensemble: predict anomaly if >=2 signals are positive
+            test_preds_final = ((test_preds_gbt.astype(int) + test_pdf["pca_flag"].astype(int) + test_pdf[
+                "gmm_flag"].astype(int)) >= 2).astype(int)
 
             # =============================================
             # 6) Classification report
@@ -1099,11 +1115,11 @@ class FeaturesEngineering:
             print(classification_report(test_pdf["y"].values.astype(int), test_preds_final, digits=4))
 
             # =============================================
-            # 7) Optional: PR-AUC on test
+            # 7) PR-AUC on test
             # =============================================
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
-            print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
+            print("Test PR-AUC:", evaluator.evaluate(test_pred))
 
 
 
