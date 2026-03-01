@@ -1006,7 +1006,6 @@ class FeaturesEngineering:
 
 
             # ------- classification stage.
-
             # =============================================
             # 0) Prepare train and test sets
             # =============================================
@@ -1018,13 +1017,23 @@ class FeaturesEngineering:
             # Merge pseudo-labeled anomalies + true normals
             train_df = df_full_train_labeled_features.unionByName(df_train_normal, allowMissingColumns=False)
 
-            # Split a small validation set for threshold tuning (e.g., 10% of train)
+            # Optional: oversample pseudo-labeled anomalies to balance
+            pseudo_anom_df = train_df.filter(F.col("Final_Label") == 1)
+            n0 = train_df.filter(F.col("Final_Label") == 0).count()
+            n1 = pseudo_anom_df.count()
+            k = int(np.ceil(n0 / max(n1, 1)))  # oversample factor
+            oversampled_anom = pseudo_anom_df
+            for _ in range(k - 1):
+                oversampled_anom = oversampled_anom.unionByName(pseudo_anom_df)
+            train_df = train_df.unionByName(oversampled_anom)
+
+            # Small validation split for threshold tuning
             train_count = train_df.count()
             val_fraction = 0.1
             train_base_df = train_df.sample(False, 1 - val_fraction, seed=42)
             val_df = train_df.subtract(train_base_df)
 
-            # Test set (Temp_label = 888)
+            # Test set
             test_df = sequences_df.filter(F.col("Temp_label") == 888).select(F.col("Node_block_id"),
                 F.col("features_vec_final"), F.col("y_true").alias("Final_Label"),
                 F.col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else F.lit(0.0).alias(
@@ -1044,8 +1053,7 @@ class FeaturesEngineering:
             n1 = counts.get(1, 1)
             total = n0 + n1
             weight_0 = total / (2.0 * n0)
-            weight_1 = total / (2.0 * n1)
-            print("Class weights -> 0:", weight_0, "| 1:", weight_1)
+            weight_1 = total / max(n1, 1)  # stronger weight for anomalies
 
             train_base_df = train_base_df.withColumn("classWeightCol",
                 F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
@@ -1080,7 +1088,6 @@ class FeaturesEngineering:
                                        vector_to_array(F.col("probability")).getItem(1).alias(
                                            "prob_1")).dropna().toPandas())
 
-            # Tune threshold to maximize weighted F1
             best_threshold = 0.5
             best_f1 = -1.0
             for t in np.arange(0.05, 0.96, 0.01):
@@ -1104,9 +1111,9 @@ class FeaturesEngineering:
             # Classifier predictions
             test_preds_gbt = (test_pdf["prob_1"].values >= best_threshold).astype(int)
 
-            # Voting ensemble: predict anomaly if >=2 signals are positive
+            # Voting ensemble: predict anomaly if >=1 signal (relaxed)
             test_preds_final = ((test_preds_gbt.astype(int) + test_pdf["pca_flag"].astype(int) + test_pdf[
-                "gmm_flag"].astype(int)) >= 2).astype(int)
+                "gmm_flag"].astype(int)) >= 1).astype(int)
 
             # =============================================
             # 6) Classification report
