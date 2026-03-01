@@ -1076,8 +1076,8 @@ class FeaturesEngineering:
             # =============================================
             # 3) Train Weighted GBT Classifier
             # =============================================
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=100, maxDepth=6,
-                minInstancesPerNode=10, stepSize=0.05, seed=123)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=150, maxDepth=10,
+                minInstancesPerNode=10, stepSize=0.08, seed=123)
             gbt_model = gbt.fit(train_base_df)
 
             # =============================================
