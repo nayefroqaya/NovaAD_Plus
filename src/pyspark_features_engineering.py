@@ -1005,8 +1005,7 @@ class FeaturesEngineering:
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
 
-
-
+            # ------- classification stage.
             # ======================================
             # 0) Safety: ensure Final_Label is int
             # ======================================
@@ -1029,10 +1028,41 @@ class FeaturesEngineering:
             val_base = df_val_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
             test_base = df_test_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
 
-            # ======================================
+            # ============================================================
+            # 0) Prepare train, validation, test sets
+            # ============================================================
+
+            # df_full_train_labeled_features = GMM pseudo-labeled train data
+            # sequences_df = original full dataset with true labels and Temp_label
+
+            # Original true-normal sequences from train (Temp_label = 0)
+            df_train_normal = sequences_df.filter(F.col("Temp_label") == 0).select(F.col("Node_block_id"),
+                F.col("features_vec_final"), F.lit(0).alias("Final_Label")  # true normal = 0
+            )
+
+            # Merge pseudo-labeled train (GMM) + original normal train
+            train_merged = df_full_train_labeled_features.unionByName(df_train_normal, allowMissingColumns=False)
+
+            # Validation set (Temp_label = 777) with true labels
+            df_val_labeled_features = sequences_df.filter(F.col("Temp_label") == 777).select(F.col("Node_block_id"),
+                F.col("features_vec_final"), F.col("y_true").alias("Final_Label")).withColumn("Final_Label",
+                                                                                              F.col("Final_Label").cast(
+                                                                                                  "int"))
+
+            # Test set (Temp_label = 888) with true labels
+            df_test_labeled_features = sequences_df.filter(F.col("Temp_label") == 888).select(F.col("Node_block_id"),
+                F.col("features_vec_final"), F.col("y_true").alias("Final_Label")).withColumn("Final_Label",
+                                                                                              F.col("Final_Label").cast(
+                                                                                                  "int"))
+
+            print("[INFO] Training count:", train_merged.count())
+            print("[INFO] Validation count:", df_val_labeled_features.count())
+            print("[INFO] Test count:", df_test_labeled_features.count())
+
+            # ============================================================
             # 1) Compute class weights
-            # ======================================
-            label_counts = train_base.groupBy("Final_Label").count().collect()
+            # ============================================================
+            label_counts = train_merged.groupBy("Final_Label").count().collect()
             counts = {int(r["Final_Label"]): int(r["count"]) for r in label_counts}
 
             n0 = counts.get(0, 1)
@@ -1041,30 +1071,25 @@ class FeaturesEngineering:
 
             weight_0 = total / (2.0 * n0)
             weight_1 = total / (2.0 * n1)
-
             print("Class weights -> 0:", weight_0, "| 1:", weight_1)
 
-            train_df = train_base.withColumn("classWeightCol",
+            train_df = train_merged.withColumn("classWeightCol",
                 F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
 
-            # ======================================
+            # ============================================================
             # 2) Train weighted Logistic Regression
-            # ======================================
+            # ============================================================
             lr = LogisticRegression(featuresCol="features_vec_final", labelCol="Final_Label",
                 weightCol="classWeightCol", maxIter=80, regParam=0.05, elasticNetParam=0.0)
-
             lr_model = lr.fit(train_df)
 
-            # ======================================
+            # ============================================================
             # 3) Validation predictions + threshold tuning
-            # ======================================
-            val_pred_raw = lr_model.transform(val_base)
+            # ============================================================
+            val_pred_raw = lr_model.transform(df_val_labeled_features)
 
             val_pdf = (val_pred_raw.select(F.col("Final_Label").alias("y"),
                 vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
-
-            if len(val_pdf) == 0:
-                raise ValueError("❌ Validation set is empty after dropna(). Check your df_val_labeled_features.")
 
             best_threshold = 0.5
             best_f1 = -1.0
@@ -1079,16 +1104,13 @@ class FeaturesEngineering:
             print("\nBest threshold from VAL:", best_threshold)
             print("Best VAL F1 (class 1):", best_f1)
 
-            # ======================================
+            # ============================================================
             # 4) Test evaluation
-            # ======================================
-            test_pred_raw = lr_model.transform(test_base)
+            # ============================================================
+            test_pred_raw = lr_model.transform(df_test_labeled_features)
 
             test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
                 vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
-
-            if len(test_pdf) == 0:
-                raise ValueError("❌ Test set is empty after dropna(). Check your df_test_labeled_features.")
 
             test_preds = (test_pdf["prob_1"].values >= best_threshold).astype(int)
 
@@ -1099,6 +1121,8 @@ class FeaturesEngineering:
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
             print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
+
+
 
 
 
