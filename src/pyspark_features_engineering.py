@@ -820,9 +820,11 @@ class FeaturesEngineering:
             from pyspark.ml.stat import Summarizer
             import numpy as np
 
-            # ===========================
+            spark = SparkSession.builder.appName("NoveltyDetectionFullTrain").getOrCreate()
+
+            # ===================================
             # 1) Prepare y_true and Label
-            # ===========================
+            # ===================================
             GT_COL = "Label"
             sequences_df = sequences_df.withColumn("y_true",
                 when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
@@ -832,9 +834,9 @@ class FeaturesEngineering:
             sequences_df = sequences_df.withColumn("Label",
                 when(col("Label") == "normal", 0).when(col("Label") == "anomaly", 1).otherwise(None))
 
-            # ===========================
+            # ===================================
             # 2) Split TRAIN (Temp_label 0 or 999)
-            # ===========================
+            # ===================================
             train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
             train_counts = train_seq_df.groupBy("Label").count()
             print("[TRAIN ONLY] Label distribution:")
@@ -858,9 +860,9 @@ class FeaturesEngineering:
             train_normal_df = sequences_df.filter(col("Temp_label") == 0)
             train_unlabeled_df = sequences_df.filter(col("Temp_label") == 999)
 
-            # ===========================
+            # ===================================
             # 3) PCA for dimensionality reduction
-            # ===========================
+            # ===================================
             feature_col = "features_vec_final"
             id_col = "Node_block_id"
 
@@ -892,20 +894,34 @@ class FeaturesEngineering:
             train_pca_normal_hold = pca_model.transform(norm_holdout_df)
             train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
 
-            # ===========================
-            # 4) Mahalanobis distance for novelty detection
-            # ===========================
-            # Compute mean + covariance on normal-fit
-            mean_vec = train_pca_normal_fit.select(Summarizer.mean(col("pca_features")).alias("mean")).first()["mean"]
-            mean_np = np.array(mean_vec.toArray())
-            cov_mat = train_pca_normal_fit.select(Summarizer.covariance(col("pca_features")).alias("cov")).first()[
-                "cov"]
-            cov_np = np.array(cov_mat.toArray())
+            # ===================================
+            # 4) Compute mean and covariance manually
+            # ===================================
+            # Compute mean
+            mean_vec = train_pca_normal_fit.select(Summarizer.mean(col("pca_features")).alias("mean")).first()
+            mean_np = np.array(mean_vec["mean"].toArray())
+
+            # Compute covariance manually
+            def compute_covariance(df, feature_col, mean_vec):
+                d = len(mean_vec)
+                n = df.count()
+                # Compute difference (x - mean) for each row
+                diff_rdd = df.select(feature_col).rdd.map(lambda r: np.array(r[0].toArray()) - mean_vec)
+                # Sum outer products
+                cov_np = np.zeros((d, d), dtype=float)
+                for diff in diff_rdd.collect():  # collect row by row (small PCA space)
+                    cov_np += np.outer(diff, diff)
+                cov_np /= max(n - 1, 1)
+                return cov_np
+
+            cov_np = compute_covariance(train_pca_normal_fit, "pca_features", mean_np)
             cov_np += np.eye(cov_np.shape[0]) * 1e-6
             inv_cov = np.linalg.inv(cov_np)
 
+            # Broadcast parameters
             bc_params = spark.sparkContext.broadcast({"mean": mean_np, "inv_cov": inv_cov})
 
+            # Mahalanobis distance UDF
             @udf(DoubleType())
             def mahalanobis_udf(pca_vec):
                 z = np.array(pca_vec.toArray(), dtype=float)
@@ -913,13 +929,16 @@ class FeaturesEngineering:
                 diff = z - P["mean"]
                 return float(diff.T @ P["inv_cov"] @ diff)
 
+            # ===================================
+            # 5) Compute anomaly scores
+            # ===================================
             train_fit_md = train_pca_normal_fit.withColumn("anomaly_score_md", mahalanobis_udf(col("pca_features")))
             train_hold_md = train_pca_normal_hold.withColumn("anomaly_score_md", mahalanobis_udf(col("pca_features")))
             unlab_md = train_unlabeled_pca.withColumn("anomaly_score_md", mahalanobis_udf(col("pca_features")))
 
-            # ===========================
-            # 5) FPR-controlled threshold
-            # ===========================
+            # ===================================
+            # 6) Threshold for FPR-controlled labeling
+            # ===================================
             TARGET_FPR = 0.01
 
             def approx_quantile(df, c, q, rel=1e-3):
@@ -939,15 +958,15 @@ class FeaturesEngineering:
             fpr_md = fpr_on_holdout(train_hold_md, "anomaly_score_md", thr_md)
             print(f"[MAHALANOBIS] Threshold={thr_md:.6f}, holdout FPR={fpr_md:.6f}")
 
-            # ===========================
-            # 6) Label the unlabeled train
-            # ===========================
+            # ===================================
+            # 7) Label the unlabeled train
+            # ===================================
             unlab_md = unlab_md.withColumn("Final_Label",
                 when(col("anomaly_score_md") > lit(thr_md), 1).otherwise(0).cast("int"))
 
-            # ===========================
-            # 7) Build full labeled train dataset
-            # ===========================
+            # ===================================
+            # 8) Build full labeled train dataset
+            # ===================================
             df_unlabeled_labeled_features = unlab_md.select(col(id_col), col(feature_col).alias("features_vec_final"),
                 col("Final_Label"))
 
@@ -956,9 +975,9 @@ class FeaturesEngineering:
 
             df_full_train_labeled_features = df_normal_labeled_features.unionByName(df_unlabeled_labeled_features)
 
-            # ===========================
-            # 8) Classification report on FULL TRAIN
-            # ===========================
+            # ===================================
+            # 9) Classification report on FULL TRAIN
+            # ===================================
             try:
                 from sklearn.metrics import classification_report
 
@@ -988,7 +1007,7 @@ class FeaturesEngineering:
 
 
 
-           # exit()
+            exit()
 
 
 
