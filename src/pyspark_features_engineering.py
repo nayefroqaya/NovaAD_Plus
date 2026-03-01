@@ -1041,7 +1041,6 @@ class FeaturesEngineering:
             n1 = counts.get(1, 1)
             total = n0 + n1
 
-            # Weighted LR: more weight to rare class
             weight_0 = total / (2.0 * n0)
             weight_1 = total / (2.0 * n1)
             print("Class weights -> 0:", weight_0, "| 1:", weight_1)
@@ -1052,7 +1051,6 @@ class FeaturesEngineering:
             # =============================================
             # 2) Assemble features
             # =============================================
-            # Include PCA & GMM anomaly scores as extra features
             feature_cols = ["features_vec_final"]
             if "anomaly_score_pca" in train_df.columns:
                 feature_cols.append("anomaly_score_pca")
@@ -1065,35 +1063,34 @@ class FeaturesEngineering:
             features_col = "features_augmented"
 
             # =============================================
-            # 3) Train weighted Logistic Regression
+            # 3) Train Weighted GBT Classifier
             # =============================================
-            lr = LogisticRegression(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeightCol",
-                maxIter=100, regParam=0.05, elasticNetParam=0.1)
-            lr_model = lr.fit(train_df)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=80, maxDepth=6,
+                minInstancesPerNode=10, stepSize=0.1, seed=123)
+            gbt_model = gbt.fit(train_df)
 
             # =============================================
             # 4) Predict on test set
             # =============================================
-            test_pred_raw = lr_model.transform(df_test_labeled_features)
+            test_pred_raw = gbt_model.transform(df_test_labeled_features)
 
             test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
                 vector_to_array(F.col("probability")).getItem(1).alias("prob_1"), F.col("pca_flag"),
                 F.col("gmm_flag")).dropna().toPandas())
 
             # =============================================
-            # 5) Determine threshold heuristically
+            # 5) Determine heuristic threshold
             # =============================================
-            # Use anomaly ratio in training to set a threshold
             train_anom_ratio = train_df.filter(F.col("Final_Label") == 1).count() / train_df.count()
-            heuristic_threshold = max(0.5, 1 - train_anom_ratio)  # adjust based on data imbalance
+            heuristic_threshold = max(0.5, 1 - train_anom_ratio)
             print("Heuristic threshold for anomalies:", heuristic_threshold)
 
-            # Compute predicted label
-            test_preds_lr = (test_pdf["prob_1"].values >= heuristic_threshold).astype(int)
+            # Classifier predictions
+            test_preds_gbt = (test_pdf["prob_1"].values >= heuristic_threshold).astype(int)
 
-            # Optional: OR-ensemble with GMM/PCA flags to boost recall
+            # OR-ensemble with PCA/GMM flags
             test_preds_final = (
-                    (test_preds_lr == 1) | (test_pdf["pca_flag"] == 1) | (test_pdf["gmm_flag"] == 1)).astype(int)
+                    (test_preds_gbt == 1) | (test_pdf["pca_flag"] == 1) | (test_pdf["gmm_flag"] == 1)).astype(int)
 
             # =============================================
             # 6) Classification report
@@ -1107,7 +1104,6 @@ class FeaturesEngineering:
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
             print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
-
 
 
 
