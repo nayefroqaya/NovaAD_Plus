@@ -1007,9 +1007,9 @@ class FeaturesEngineering:
 
             # ------- classification stage.
 
-            # ============================================================
+            # =============================================
             # 0) Prepare train and test sets
-            # ============================================================
+            # =============================================
 
             # df_full_train_labeled_features: pseudo-labeled train (GMM OR)
             # sequences_df: original dataset with Temp_label & y_true
@@ -1023,21 +1023,25 @@ class FeaturesEngineering:
 
             # Test set (Temp_label = 888)
             df_test_labeled_features = sequences_df.filter(F.col("Temp_label") == 888).select(F.col("Node_block_id"),
-                F.col("features_vec_final"), F.col("y_true").alias("Final_Label")).withColumn("Final_Label",
-                                                                                              F.col("Final_Label").cast(
-                                                                                                  "int"))
+                F.col("features_vec_final"), F.col("y_true").alias("Final_Label"), # Include PCA/GMM scores if available
+                F.col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else F.lit(0.0).alias(
+                    "anomaly_score_pca"),
+                F.col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else F.lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                F.col("pca_flag") if "pca_flag" in sequences_df.columns else F.lit(0).alias("pca_flag"),
+                F.col("gmm_flag") if "gmm_flag" in sequences_df.columns else F.lit(0).alias("gmm_flag")).withColumn(
+                "Final_Label", F.col("Final_Label").cast("int"))
 
-            print("[INFO] Training count:", train_df.count())
-            print("[INFO] Test count:", df_test_labeled_features.count())
-
-            # ============================================================
+            # =============================================
             # 1) Compute class weights
-            # ============================================================
+            # =============================================
             label_counts = train_df.groupBy("Final_Label").count().collect()
             counts = {int(r["Final_Label"]): int(r["count"]) for r in label_counts}
             n0 = counts.get(0, 1)
             n1 = counts.get(1, 1)
             total = n0 + n1
+
+            # Weighted LR: more weight to rare class
             weight_0 = total / (2.0 * n0)
             weight_1 = total / (2.0 * n1)
             print("Class weights -> 0:", weight_0, "| 1:", weight_1)
@@ -1045,52 +1049,61 @@ class FeaturesEngineering:
             train_df = train_df.withColumn("classWeightCol",
                 F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
 
-            # ============================================================
-            # 2) (Optional) Add PCA reconstruction error as extra feature
-            # ============================================================
-            # This helps LR see anomalies more clearly
-            # Assumes train_df already has "anomaly_score_pca" column from PCA step
+            # =============================================
+            # 2) Assemble features
+            # =============================================
+            # Include PCA & GMM anomaly scores as extra features
+            feature_cols = ["features_vec_final"]
             if "anomaly_score_pca" in train_df.columns:
-                assembler = VectorAssembler(inputCols=["features_vec_final", "anomaly_score_pca"],
-                    outputCol="features_vec_final_aug")
-                train_df = assembler.transform(train_df)
-                df_test_labeled_features = assembler.transform(df_test_labeled_features)
-                features_col = "features_vec_final_aug"
-            else:
-                features_col = "features_vec_final"
+                feature_cols.append("anomaly_score_pca")
+            if "anomaly_score_gmm" in train_df.columns:
+                feature_cols.append("anomaly_score_gmm")
 
-            # ============================================================
+            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+            train_df = assembler.transform(train_df)
+            df_test_labeled_features = assembler.transform(df_test_labeled_features)
+            features_col = "features_augmented"
+
+            # =============================================
             # 3) Train weighted Logistic Regression
-            # ============================================================
+            # =============================================
             lr = LogisticRegression(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeightCol",
                 maxIter=100, regParam=0.05, elasticNetParam=0.1)
             lr_model = lr.fit(train_df)
 
-            # ============================================================
+            # =============================================
             # 4) Predict on test set
-            # ============================================================
+            # =============================================
             test_pred_raw = lr_model.transform(df_test_labeled_features)
 
             test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
-                vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
+                vector_to_array(F.col("probability")).getItem(1).alias("prob_1"), F.col("pca_flag"),
+                F.col("gmm_flag")).dropna().toPandas())
 
-            # ============================================================
-            # 5) Choose threshold
-            # ============================================================
-            # Since validation is removed, we choose a heuristic threshold
-            # Default 0.5 or slightly lower to increase anomaly recall
-            best_threshold = 0.55  # adjust based on anomaly ratio if needed
-            test_preds = (test_pdf["prob_1"].values >= best_threshold).astype(int)
+            # =============================================
+            # 5) Determine threshold heuristically
+            # =============================================
+            # Use anomaly ratio in training to set a threshold
+            train_anom_ratio = train_df.filter(F.col("Final_Label") == 1).count() / train_df.count()
+            heuristic_threshold = max(0.5, 1 - train_anom_ratio)  # adjust based on data imbalance
+            print("Heuristic threshold for anomalies:", heuristic_threshold)
 
-            # ============================================================
+            # Compute predicted label
+            test_preds_lr = (test_pdf["prob_1"].values >= heuristic_threshold).astype(int)
+
+            # Optional: OR-ensemble with GMM/PCA flags to boost recall
+            test_preds_final = (
+                    (test_preds_lr == 1) | (test_pdf["pca_flag"] == 1) | (test_pdf["gmm_flag"] == 1)).astype(int)
+
+            # =============================================
             # 6) Classification report
-            # ============================================================
+            # =============================================
             print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(test_pdf["y"].values.astype(int), test_preds, digits=4))
+            print(classification_report(test_pdf["y"].values.astype(int), test_preds_final, digits=4))
 
-            # ============================================================
+            # =============================================
             # 7) Optional: PR-AUC on test
-            # ============================================================
+            # =============================================
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
             print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
