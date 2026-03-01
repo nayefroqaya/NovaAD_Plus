@@ -821,6 +821,12 @@ class FeaturesEngineering:
             from pyspark.ml.stat import Summarizer
             import numpy as np
             from sklearn.metrics import classification_report
+            from pyspark.sql import functions as F
+            from pyspark.ml.classification import LogisticRegression
+            from pyspark.ml.evaluation import BinaryClassificationEvaluator
+            from pyspark.ml.functions import vector_to_array
+            from sklearn.metrics import classification_report, f1_score
+            import numpy as np
 
             spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
@@ -997,6 +1003,102 @@ class FeaturesEngineering:
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
+
+
+
+            # ======================================
+            # 0) Safety: ensure Final_Label is int
+            # ======================================
+
+            df_val_labeled_features = sequences_df.filter(col("Temp_label") == 777).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label")).withColumn("Final_Label",
+                                                                                          col("Final_Label").cast(
+                                                                                              "int"))
+
+            df_test_labeled_features = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label")).withColumn("Final_Label",
+                                                                                          col("Final_Label").cast(
+                                                                                              "int"))
+
+            print("[INFO] Validation count:", df_val_labeled_features.count())
+            print("[INFO] Test count:", df_test_labeled_features.count())
+
+
+            train_base = df_full_train_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+            val_base = df_val_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+            test_base = df_test_labeled_features.withColumn("Final_Label", F.col("Final_Label").cast("int"))
+
+            # ======================================
+            # 1) Compute class weights
+            # ======================================
+            label_counts = train_base.groupBy("Final_Label").count().collect()
+            counts = {int(r["Final_Label"]): int(r["count"]) for r in label_counts}
+
+            n0 = counts.get(0, 1)
+            n1 = counts.get(1, 1)
+            total = n0 + n1
+
+            weight_0 = total / (2.0 * n0)
+            weight_1 = total / (2.0 * n1)
+
+            print("Class weights -> 0:", weight_0, "| 1:", weight_1)
+
+            train_df = train_base.withColumn("classWeightCol",
+                F.when(F.col("Final_Label") == 1, F.lit(weight_1)).otherwise(F.lit(weight_0)))
+
+            # ======================================
+            # 2) Train weighted Logistic Regression
+            # ======================================
+            lr = LogisticRegression(featuresCol="features_vec_final", labelCol="Final_Label",
+                weightCol="classWeightCol", maxIter=80, regParam=0.05, elasticNetParam=0.0)
+
+            lr_model = lr.fit(train_df)
+
+            # ======================================
+            # 3) Validation predictions + threshold tuning
+            # ======================================
+            val_pred_raw = lr_model.transform(val_base)
+
+            val_pdf = (val_pred_raw.select(F.col("Final_Label").alias("y"),
+                vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
+
+            if len(val_pdf) == 0:
+                raise ValueError("❌ Validation set is empty after dropna(). Check your df_val_labeled_features.")
+
+            best_threshold = 0.5
+            best_f1 = -1.0
+
+            for t in np.arange(0.05, 0.96, 0.01):
+                preds = (val_pdf["prob_1"].values >= t).astype(int)
+                f1 = f1_score(val_pdf["y"].values.astype(int), preds, pos_label=1)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = float(t)
+
+            print("\nBest threshold from VAL:", best_threshold)
+            print("Best VAL F1 (class 1):", best_f1)
+
+            # ======================================
+            # 4) Test evaluation
+            # ======================================
+            test_pred_raw = lr_model.transform(test_base)
+
+            test_pdf = (test_pred_raw.select(F.col("Final_Label").alias("y"),
+                vector_to_array(F.col("probability")).getItem(1).alias("prob_1")).dropna().toPandas())
+
+            if len(test_pdf) == 0:
+                raise ValueError("❌ Test set is empty after dropna(). Check your df_test_labeled_features.")
+
+            test_preds = (test_pdf["prob_1"].values >= best_threshold).astype(int)
+
+            print("\n================ TEST CLASSIFICATION REPORT ================")
+            print(classification_report(test_pdf["y"].values.astype(int), test_preds, digits=4))
+
+            # Optional: PR-AUC on test
+            evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
+                metricName="areaUnderPR")
+            print("Test PR-AUC:", evaluator.evaluate(test_pred_raw))
 
 
 
