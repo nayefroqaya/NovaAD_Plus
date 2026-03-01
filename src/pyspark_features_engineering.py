@@ -939,7 +939,7 @@ class FeaturesEngineering:
             # ===================================
             # 6) Threshold for FPR-controlled labeling
             # ===================================
-            TARGET_FPR = 0.05
+            TARGET_FPR = 0.08
 
             def approx_quantile(df, c, q, rel=1e-3):
                 return float(df.approxQuantile(c, [q], rel)[0])
