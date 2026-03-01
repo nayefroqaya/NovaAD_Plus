@@ -816,12 +816,13 @@ class FeaturesEngineering:
             from pyspark.sql import functions as F
             from pyspark.sql.functions import col, when, lit, lower, trim, udf
             from pyspark.sql.types import DoubleType
-            from pyspark.ml.feature import PCA as SparkPCA
+            from pyspark.ml.feature import PCA as SparkPCA, StandardScaler
             from pyspark.ml.clustering import GaussianMixture
+            from pyspark.ml.stat import Summarizer
             import numpy as np
             from sklearn.metrics import classification_report
 
-            spark = SparkSession.builder.appName("GMM_NoveltyDetection").getOrCreate()
+            spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
             # ======================================
             # 1) Prepare y_true and Label
@@ -846,15 +847,23 @@ class FeaturesEngineering:
             id_col = "Node_block_id"
 
             # ======================================
-            # 3) PCA for dimensionality reduction
+            # 3) StandardScaler
+            # ======================================
+            scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
+            scaler_model = scaler.fit(train_normal_df)
+            train_normal_scaled = scaler_model.transform(train_normal_df)
+            train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
+
+            # ======================================
+            # 4) PCA for dimensionality reduction
             # ======================================
             candidate_ks = [10, 20, 40, 50, 60]
             target_variance = 0.999
             best_k = None
 
             for k in candidate_ks:
-                pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
-                pca_tmp_model = pca_tmp.fit(train_normal_df)
+                pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_scaled)
                 explained_variance = float(sum(pca_tmp_model.explainedVariance))
                 if explained_variance >= target_variance:
                     best_k = k
@@ -862,21 +871,43 @@ class FeaturesEngineering:
             if best_k is None:
                 best_k = candidate_ks[-1]
 
-            pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
-            pca_model = pca.fit(train_normal_df)
+            pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
+            pca_model = pca.fit(train_normal_scaled)
 
-            train_normal_pca = pca_model.transform(train_normal_df)
-            train_unlabeled_pca = pca_model.transform(train_unlabeled_df)
+            train_normal_pca = pca_model.transform(train_normal_scaled)
+            train_unlabeled_pca = pca_model.transform(train_unlabeled_scaled)
 
             # ======================================
-            # 4) Fit GMM on normal PCA space
+            # 5) PCA reconstruction error (optional hybrid score)
             # ======================================
-            gmm_candidates = [2, 4, 6, 8, 10]
+            pc = pca_model.pc.toArray()
+            d = len(train_normal_scaled.select("features_scaled").head()[0])
+            pc_b = spark.sparkContext.broadcast(pc)
+            use_pc_dk_b = spark.sparkContext.broadcast(pc.shape[0] == d)
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                pc_local = pc_b.value
+                x_hat = (pc_local @ z) if use_pc_dk_b.value else (z @ pc_local)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_normal_pca = train_normal_pca.withColumn("anomaly_score_pca",
+                                                           reconstruction_error(col("features_scaled"),
+                                                                                col("pca_features")))
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
+                                                                 reconstruction_error(col("features_scaled"),
+                                                                                      col("pca_features")))
+
+            # ======================================
+            # 6) Fit GMM on normal PCA space
+            # ======================================
+            gmm_candidates = [2, 4, 6, 8, 10, 12]
             best_gmm_model = None
             best_bic = float("inf")
             best_k_gmm = None
 
-            # Helper: BIC computation
             def bic(model, df, k, d):
                 try:
                     ll = float(model.summary.logLikelihood)
@@ -901,7 +932,7 @@ class FeaturesEngineering:
             print(f"[GMM] Selected k={best_k_gmm} by BIC")
 
             # ======================================
-            # 5) Compute negative log-likelihood (NLL)
+            # 7) Compute NLL
             # ======================================
             weights = np.array(best_gmm_model.weights)
             means = np.stack([np.array(g.mean.toArray()) for g in best_gmm_model.gaussians], axis=0)
@@ -934,28 +965,28 @@ class FeaturesEngineering:
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
 
             # ======================================
-            # 6) Threshold by FPR on normal
+            # 8) Thresholds for hybrid labeling
             # ======================================
-            TARGET_FPR = 0.01
+            TARGET_FPR = 0.05  # higher FPR to improve anomaly recall
             thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
-            print(f"[GMM] FPR-controlled threshold = {thr_gmm:.6f}")
+            thr_pca = train_normal_pca.approxQuantile("anomaly_score_pca", [1 - TARGET_FPR], 1e-6)[0]
 
             train_unlabeled_pca = train_unlabeled_pca.withColumn("Final_Label",
-                when(col("anomaly_score_gmm") > lit(thr_gmm), 1).otherwise(0).cast("int"))
+                when((col("anomaly_score_gmm") > lit(thr_gmm)) | (col("anomaly_score_pca") > lit(thr_pca)),
+                     1).otherwise(0))
 
             # ======================================
-            # 7) Build full labeled train dataset
+            # 9) Build full labeled train dataset
             # ======================================
             df_normal_labeled_features = train_normal_df.select(col(id_col), col(feature_col).alias(
                 "features_vec_final")).withColumn("Final_Label", lit(0).cast("int"))
             df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
                                                                        col(feature_col).alias("features_vec_final"),
                                                                        col("Final_Label"))
-
             df_full_train_labeled_features = df_normal_labeled_features.unionByName(df_unlabeled_labeled_features)
 
             # ======================================
-            # 8) Classification report on full training
+            # 10) Classification report on full training
             # ======================================
             df_full_eval = df_full_train_labeled_features.join(
                 sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
@@ -966,6 +997,8 @@ class FeaturesEngineering:
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
+
 
 
 
