@@ -1003,6 +1003,7 @@ class FeaturesEngineering:
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+            exit()
 
 
 
