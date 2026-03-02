@@ -828,7 +828,14 @@ class FeaturesEngineering:
             from sklearn.metrics import classification_report, f1_score
             import numpy as np
 
-            spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
+            from pyspark.sql.functions import col, when, lit
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.evaluation import BinaryClassificationEvaluator
+            from sklearn.metrics import classification_report
+            import pandas as pd
+
+
+            #spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
             # ======================================
             # 1) Prepare y_true and Label
@@ -1003,6 +1010,84 @@ class FeaturesEngineering:
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
+            # ------- classification stage. GBTClassifier-----New ----------
+
+            # ============================================================
+            # 1) PREPARE DATASET
+            # ============================================================
+
+            feature_col = "features_vec_final"
+            label_col = "Final_Label"
+
+            train_supervised_df = df_full_train_labeled_features.select(col(feature_col).alias("features"),
+                col(label_col).alias("label")).filter(col("label").isNotNull())
+
+            # Cache to avoid recomputation
+            train_supervised_df.cache()
+            train_supervised_df.count()
+
+            # ============================================================
+            # 2) HANDLE CLASS IMBALANCE
+            # ============================================================
+
+            counts = train_supervised_df.groupBy("label").count().collect()
+            count_dict = {row["label"]: row["count"] for row in counts}
+
+            normal_count = count_dict.get(0, 1)
+            anomaly_count = count_dict.get(1, 1)
+
+            print(f"Normal count: {normal_count}")
+            print(f"Anomaly count: {anomaly_count}")
+
+            weight_for_0 = 1.0
+            weight_for_1 = normal_count / anomaly_count
+
+            train_supervised_df = train_supervised_df.withColumn("classWeightCol",
+                when(col("label") == 1, lit(weight_for_1)).otherwise(lit(weight_for_0)))
+
+            # ============================================================
+            # 3) TRAIN GBT CLASSIFIER
+            # ============================================================
+
+            gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="classWeightCol", maxDepth=7,
+                maxIter=150, stepSize=0.05, subsamplingRate=0.8, seed=42)
+
+            gbt_model = gbt.fit(train_supervised_df)
+
+            # ============================================================
+            # 4) PREDICT
+            # ============================================================
+
+            predictions = gbt_model.transform(train_supervised_df)
+
+            # ============================================================
+            # 5) EVALUATION (Spark AUC)
+            # ============================================================
+
+            evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction",
+                metricName="areaUnderROC")
+
+            auc = evaluator.evaluate(predictions)
+            print(f"\nAUC: {auc:.4f}")
+
+            # ============================================================
+            # 6) CLASSIFICATION REPORT (Sklearn)
+            # ============================================================
+
+            eval_df = predictions.select("label", "prediction")
+            pdf_eval = eval_df.toPandas()
+
+            pdf_eval["label"] = pdf_eval["label"].astype(int)
+            pdf_eval["prediction"] = pdf_eval["prediction"].astype(int)
+
+            print("\n=== GBT CLASSIFICATION REPORT ===")
+            print(classification_report(pdf_eval["label"], pdf_eval["prediction"], digits=4))
+
+
+
+
+
             exit()
 
 
