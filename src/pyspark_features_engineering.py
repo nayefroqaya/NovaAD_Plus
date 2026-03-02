@@ -838,6 +838,7 @@ class FeaturesEngineering:
             from pyspark.ml.classification import GBTClassifier
             from pyspark.ml.evaluation import BinaryClassificationEvaluator
             from sklearn.metrics import classification_report, precision_score, recall_score, f1_score, accuracy_score
+            from pyspark.sql.functions import when
 
             #spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
@@ -1107,10 +1108,9 @@ class FeaturesEngineering:
             # 7) APPLY BEST THRESHOLD TO TEST
             # ============================================================
 
-            from pyspark.sql.functions import when
 
-            test_pred = test_pred.withColumn("final_prediction", when(col("prob_1") >= lit(float(best_threshold))),
-                1).otherwise(0)
+            test_pred = test_pred.withColumn("final_prediction",
+                when(col("prob_1") >= float(best_threshold), 1).otherwise(0))
 
             # ============================================================
             # 8) EVALUATION ON TEST
