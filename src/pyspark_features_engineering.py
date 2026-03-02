@@ -1019,115 +1019,104 @@ class FeaturesEngineering:
 
             #exit()
 
-            # ------- classification stage. GBTClassifier-----New ----------------------------------------------------
-            feature_col = "features_vec_final"
-            label_col = "Final_Label"
-            id_col = "Node_block_id"
+            # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
+            # ======================================
+            # 0) Prepare training and test sets
+            # ======================================
+            df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                col("features_vec_final"), lit(0).alias("Final_Label"))
 
-            # ============================================================
-            # 1) BUILD TRAIN DATA (Temp_label 0 and 999)
-            # ============================================================
+            # Pseudo-labeled anomalies from novelty detection
+            df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1)
 
-            train_df = df_full_train_labeled_features.join(train_seq_df.select(id_col, "Temp_label"), on=id_col,
-                how="inner").filter(col("Temp_label").isin([0, 999])).select(col(feature_col).alias("features"),
-                col(label_col).alias("label")).filter(col("label").isNotNull())
+            # Merge normal + pseudo-labeled anomalies
+            train_df = df_train_normal.unionByName(df_pseudo_anomalies)
 
-            # ============================================================
-            # 2) BUILD TEST DATA (Temp_label 888)
-            # ============================================================
+            # Optional oversample anomalies
+            n0 = train_df.filter(col("Final_Label") == 0).count()
+            n1 = train_df.filter(col("Final_Label") == 1).count()
+            k = int(np.ceil(n0 / max(n1, 1)))
+            oversampled_anom = df_pseudo_anomalies
+            for _ in range(k - 1):
+                oversampled_anom = oversampled_anom.unionByName(df_pseudo_anomalies)
+            train_df = train_df.unionByName(oversampled_anom)
 
-            test_df = sequences_df.filter(col("Temp_label") == 888).select(col(feature_col).alias("features"),
-                col("y_true").alias("label")).filter(col("label").isNotNull())
+            # Small validation split for threshold tuning (10% of train)
+            train_base_df = train_df.sample(False, 0.9, seed=42)
+            val_df = train_df.subtract(train_base_df)
 
-            train_df.cache()
-            test_df.cache()
+            # Test set
+            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                "Final_Label", col("Final_Label").cast("int"))
 
-            print("Train size:", train_df.count())
-            print("Test size:", test_df.count())
+            # ======================================
+            # 1) Assemble features
+            # ======================================
+            feature_cols = ["features_vec_final"]
+            if "anomaly_score_pca" in train_df.columns:
+                feature_cols.append("anomaly_score_pca")
+            if "anomaly_score_gmm" in train_df.columns:
+                feature_cols.append("anomaly_score_gmm")
 
-            # ============================================================
-            # 3) HANDLE CLASS IMBALANCE (TRAIN ONLY)
-            # ============================================================
+            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+            train_base_df = assembler.transform(train_base_df)
+            val_df = assembler.transform(val_df)
+            test_df = assembler.transform(test_df)
+            features_col = "features_augmented"
 
-            counts = train_df.groupBy("label").count().collect()
-            count_dict = {row["label"]: row["count"] for row in counts}
+            # ======================================
+            # 2) Train GBT Classifier
+            # ======================================
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=100, maxDepth=6,
+                stepSize=0.05, seed=123)
+            model = gbt.fit(train_base_df)
 
-            normal_count = count_dict.get(0, 1)
-            anomaly_count = count_dict.get(1, 1)
-
-            weight_for_1 = normal_count / anomaly_count
-
-            train_df = train_df.withColumn("classWeightCol",
-                when(col("label") == 1, lit(weight_for_1)).otherwise(lit(1.0)))
-
-            # ============================================================
-            # 4) TRAIN GBT
-            # ============================================================
-
-            gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="classWeightCol", maxDepth=7,
-                maxIter=150, stepSize=0.05, subsamplingRate=0.8, seed=42)
-
-            model = gbt.fit(train_df)
-
-            # ============================================================
-            # 5) GET PROBABILITIES
-            # ============================================================
-
-            train_pred = model.transform(train_df)
-            test_pred = model.transform(test_df)
-
-            @udf(DoubleType())
-            def get_prob_1(v):
-                return float(v[1])
-
-            train_pred = train_pred.withColumn("prob_1", get_prob_1(col("probability")))
-            test_pred = test_pred.withColumn("prob_1", get_prob_1(col("probability")))
-
-            # ============================================================
-            # 6) AUTOMATIC THRESHOLD TUNING (MAX F1 ON TRAIN)
-            # ============================================================
-
-            train_pdf = train_pred.select("label", "prob_1").toPandas()
-
-            y_train = train_pdf["label"].astype(int)
-            probs_train = train_pdf["prob_1"].values
+            # ======================================
+            # 3) Validation predictions and threshold tuning
+            # ======================================
+            val_pred = model.transform(val_df)
+            val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                F.array(*[col("probability")[1]]).alias("prob_1")).toPandas()
+            val_pdf["prob_1"] = val_pdf["prob_1"].apply(lambda x: float(x))
 
             best_threshold = 0.5
-            best_f1 = 0
-
-            for t in np.linspace(0.1, 0.9, 81):
-                preds = (probs_train >= t).astype(int)
-                f1 = f1_score(y_train, preds)
+            best_f1 = -1.0
+            for t in np.arange(0.05, 0.96, 0.01):
+                preds = (val_pdf["prob_1"].values >= t).astype(int)
+                f1 = f1_score(val_pdf["y"].values.astype(int), preds, average="weighted")
                 if f1 > best_f1:
                     best_f1 = f1
-                    best_threshold = t
+                    best_threshold = float(t)
 
-            print(f"\nBest threshold from train (max F1): {best_threshold:.3f}")
+            print("Best threshold from VAL:", best_threshold)
+            print("Best VAL weighted F1:", best_f1)
 
-            # ============================================================
-            # 7) APPLY BEST THRESHOLD TO TEST
-            # ============================================================
+            # ======================================
+            # 4) Predict on test set
+            # ======================================
+            test_pred = model.transform(test_df)
+            test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                F.array(*[col("probability")[1]]).alias("prob_1"), col("pca_flag"), col("gmm_flag")).toPandas()
+            test_pdf["prob_1"] = test_pdf["prob_1"].apply(lambda x: float(x))
 
+            # Classifier predictions with tuned threshold
+            test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
+            # Optional ensemble: predict anomaly if >=1 signal
+            test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(
+                int)
 
-            test_pred = test_pred.withColumn("final_prediction",
-                when(col("prob_1") >= float(best_threshold), 1).otherwise(0))
-
-            # ============================================================
-            # 8) EVALUATION ON TEST
-            # ============================================================
-
-            test_pdf = test_pred.select("label", "final_prediction").toPandas()
-
-            y_true = test_pdf["label"].astype(int)
-            y_pred = test_pdf["final_prediction"].astype(int)
-
+            # ======================================
+            # 5) Classification report
+            # ======================================
             print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(y_true, y_pred, digits=4))
-
-
-
-
-
+            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
 
             exit()
 
