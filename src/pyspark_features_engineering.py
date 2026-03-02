@@ -1015,17 +1015,17 @@ class FeaturesEngineering:
             # 0) Prepare train set
             # =============================================
 
-            df_train_normal = sequences_df.filter(F.col("Temp_label") == 0).select("Node_block_id",
-                "features_vec_final").withColumn("Final_Label", F.lit(0))
+            #df_train_normal = sequences_df.filter(F.col("Temp_label") == 0).select("Node_block_id",
+            #    "features_vec_final").withColumn("Final_Label", F.lit(0))
 
-            train_df = df_full_train_labeled_features.unionByName(df_train_normal)
+            #train_df = df_full_train_labeled_features.unionByName(df_train_normal)
 
             # ---------------------------------------------
             # FAST oversampling (NO union loop)
             # ---------------------------------------------
 
-            normal_df = train_df.filter(F.col("Final_Label") == 0)
-            anom_df = train_df.filter(F.col("Final_Label") == 1)
+            normal_df = df_full_train_labeled_features.filter(F.col("Final_Label") == 0)
+            anom_df = df_full_train_labeled_features.filter(F.col("Final_Label") == 1)
 
             n0 = normal_df.count()
             n1 = anom_df.count()
