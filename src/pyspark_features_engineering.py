@@ -1005,36 +1005,40 @@ class FeaturesEngineering:
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
 
-            # ------- classification stage. RF
+
+
+
+
+            # ------- classification stage.GBT faster
 
             # =============================================
-            # 0) Prepare train and test sets
+            # 0) Prepare train set
             # =============================================
 
-            # True normals
             df_train_normal = sequences_df.filter(F.col("Temp_label") == 0).select("Node_block_id",
                 "features_vec_final").withColumn("Final_Label", F.lit(0))
 
-            # Merge pseudo anomalies + normals
             train_df = df_full_train_labeled_features.unionByName(df_train_normal)
 
-            # Oversample anomalies (balanced training)
-            pseudo_anom_df = train_df.filter(F.col("Final_Label") == 1)
+            # ---------------------------------------------
+            # FAST oversampling (NO union loop)
+            # ---------------------------------------------
+
             normal_df = train_df.filter(F.col("Final_Label") == 0)
+            anom_df = train_df.filter(F.col("Final_Label") == 1)
 
             n0 = normal_df.count()
-            n1 = pseudo_anom_df.count()
+            n1 = anom_df.count()
 
-            k = int(np.ceil(n0 / max(n1, 1)))
-
-            oversampled_anom = pseudo_anom_df
-            for _ in range(k - 1):
-                oversampled_anom = oversampled_anom.unionByName(pseudo_anom_df)
-
-            train_df = normal_df.unionByName(oversampled_anom)
+            if n1 > 0:
+                ratio = n0 / n1
+                anom_oversampled = anom_df.sample(withReplacement=True, fraction=ratio, seed=42)
+                train_df = normal_df.unionByName(anom_oversampled)
+            else:
+                train_df = normal_df
 
             # =============================================
-            # 1) Train / Validation split (FASTER than subtract)
+            # 1) Train / Validation split (FAST)
             # =============================================
 
             train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
@@ -1043,7 +1047,7 @@ class FeaturesEngineering:
             val_df.cache()
 
             # =============================================
-            # 2) Class weights
+            # 2) Class weights (keep same logic)
             # =============================================
 
             label_counts = train_base_df.groupBy("Final_Label").count().collect()
@@ -1060,7 +1064,7 @@ class FeaturesEngineering:
                 F.when(F.col("Final_Label") == 1, weight_1).otherwise(weight_0))
 
             # =============================================
-            # 3) Assemble features
+            # 3) Feature assembly
             # =============================================
 
             feature_cols = ["features_vec_final"]
@@ -1079,23 +1083,24 @@ class FeaturesEngineering:
             features_col = "features_augmented"
 
             # =============================================
-            # 4) FAST Random Forest Training
+            # 4) GBT Training (UNCHANGED PERFORMANCE)
             # =============================================
 
-            rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeightCol",
-                numTrees=80,  # good balance speed/performance
-                maxDepth=10, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=123)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeightCol",
+                # IMPORTANT
+                maxIter=100, maxDepth=6, minInstancesPerNode=10, stepSize=0.05, seed=123)
 
-            rf_model = rf.fit(train_base_df)
+            gbt_model = gbt.fit(train_base_df)
 
             # =============================================
-            # 5) Threshold tuning (Validation)
+            # 5) Threshold tuning (same logic)
             # =============================================
 
-            val_pred = rf_model.transform(val_df)
+            val_pred = gbt_model.transform(val_df)
 
             val_pdf = (val_pred.select(F.col("Final_Label").alias("y"),
-                vector_to_array("probability").getItem(1).alias("prob_1")).dropna().toPandas())
+                vector_to_array("probability").getItem(1).alias("prob_1")).limit(200000)  # safety limit if huge
+                               .toPandas())
 
             best_threshold = 0.5
             best_f1 = -1.0
@@ -1108,43 +1113,33 @@ class FeaturesEngineering:
                     best_threshold = float(t)
 
             print("Best threshold:", best_threshold)
-            print("Best validation weighted F1:", best_f1)
+            print("Best VAL weighted F1:", best_f1)
 
             # =============================================
             # 6) Test evaluation
             # =============================================
 
             test_df = sequences_df.filter(F.col("Temp_label") == 888).select("Node_block_id", "features_vec_final",
-                F.col("y_true").alias("Final_Label"),
-                F.col("pca_flag") if "pca_flag" in sequences_df.columns else F.lit(0).alias("pca_flag"),
-                F.col("gmm_flag") if "gmm_flag" in sequences_df.columns else F.lit(0).alias("gmm_flag")).withColumn(
-                "Final_Label", F.col("Final_Label").cast("int"))
+                F.col("y_true").alias("Final_Label"), F.col("pca_flag"), F.col("gmm_flag")).withColumn("Final_Label",
+                                                                                                       F.col(
+                                                                                                           "Final_Label").cast(
+                                                                                                           "int"))
 
             test_df = assembler.transform(test_df)
 
-            test_pred = rf_model.transform(test_df)
+            test_pred = gbt_model.transform(test_df)
 
             test_pdf = (test_pred.select(F.col("Final_Label").alias("y"),
-                vector_to_array("probability").getItem(1).alias("prob_1"), "pca_flag", "gmm_flag").dropna().toPandas())
+                vector_to_array("probability").getItem(1).alias("prob_1"), "pca_flag", "gmm_flag").toPandas())
 
-            # RF predictions
-            test_preds_rf = (test_pdf["prob_1"].values >= best_threshold).astype(int)
+            test_preds_gbt = (test_pdf["prob_1"].values >= best_threshold).astype(int)
 
-            # Relaxed voting ensemble (>=1 signal)
             test_preds_final = (
-                    (test_preds_rf + test_pdf["pca_flag"].astype(int) + test_pdf["gmm_flag"].astype(int)) >= 1).astype(
+                    (test_preds_gbt + test_pdf["pca_flag"].astype(int) + test_pdf["gmm_flag"].astype(int)) >= 1).astype(
                 int)
-
-            # =============================================
-            # 7) Final Report
-            # =============================================
 
             print("\n================ TEST CLASSIFICATION REPORT ================")
             print(classification_report(test_pdf["y"].values.astype(int), test_preds_final, digits=4))
-
-            # =============================================
-            # 8) PR-AUC
-            # =============================================
 
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
@@ -1152,7 +1147,11 @@ class FeaturesEngineering:
             print("Test PR-AUC:", evaluator.evaluate(test_pred))
 
 
-            '''
+            exit()
+
+
+
+
             # classification  ----GBT 
             # =============================================
             # 0) Prepare train and test sets
@@ -1275,7 +1274,6 @@ class FeaturesEngineering:
             evaluator = BinaryClassificationEvaluator(labelCol="Final_Label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderPR")
             print("Test PR-AUC:", evaluator.evaluate(test_pred))
-            '''
 
 
 
