@@ -1019,13 +1019,12 @@ class FeaturesEngineering:
             #exit()
 
             # ------- classification stage. GBTClassifier-----New ----------------------------------------------------
-
             feature_col = "features_vec_final"
             label_col = "Final_Label"
             id_col = "Node_block_id"
 
             # ============================================================
-            # 1) BUILD TRAIN DATA (0 and 999)
+            # 1) BUILD TRAIN DATA (Temp_label 0 and 999)
             # ============================================================
 
             train_df = df_full_train_labeled_features.join(train_seq_df.select(id_col, "Temp_label"), on=id_col,
@@ -1033,7 +1032,7 @@ class FeaturesEngineering:
                 col(label_col).alias("label")).filter(col("label").isNotNull())
 
             # ============================================================
-            # 2) BUILD TEST DATA (888)
+            # 2) BUILD TEST DATA (Temp_label 888)
             # ============================================================
 
             test_df = sequences_df.filter(col("Temp_label") == 888).select(col(feature_col).alias("features"),
@@ -1070,55 +1069,61 @@ class FeaturesEngineering:
             model = gbt.fit(train_df)
 
             # ============================================================
-            # 5) PREDICT ON TEST SET
+            # 5) GET PROBABILITIES
             # ============================================================
 
-            predictions = model.transform(test_df)
+            train_pred = model.transform(train_df)
+            test_pred = model.transform(test_df)
+
+            @udf(DoubleType())
+            def get_prob_1(v):
+                return float(v[1])
+
+            train_pred = train_pred.withColumn("prob_1", get_prob_1(col("probability")))
+            test_pred = test_pred.withColumn("prob_1", get_prob_1(col("probability")))
 
             # ============================================================
-            # 6) AUC
+            # 6) AUTOMATIC THRESHOLD TUNING (MAX F1 ON TRAIN)
             # ============================================================
 
-            evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction",
-                metricName="areaUnderROC")
+            train_pdf = train_pred.select("label", "prob_1").toPandas()
 
-            auc = evaluator.evaluate(predictions)
+            y_train = train_pdf["label"].astype(int)
+            probs_train = train_pdf["prob_1"].values
+
+            best_threshold = 0.5
+            best_f1 = 0
+
+            for t in np.linspace(0.1, 0.9, 81):
+                preds = (probs_train >= t).astype(int)
+                f1 = f1_score(y_train, preds)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = t
+
+            print(f"\nBest threshold from train (max F1): {best_threshold:.3f}")
 
             # ============================================================
-            # 7) DETAILED METRICS
+            # 7) APPLY BEST THRESHOLD TO TEST
             # ============================================================
 
-            pdf = predictions.select("label", "prediction").toPandas()
+            from pyspark.sql.functions import when
 
-            y_true = pdf["label"].astype(int)
-            y_pred = pdf["prediction"].astype(int)
+            test_pred = test_pred.withColumn("final_prediction", when(col("prob_1") >= lit(float(best_threshold))),
+                1).otherwise(0)
+
+            # ============================================================
+            # 8) EVALUATION ON TEST
+            # ============================================================
+
+            test_pdf = test_pred.select("label", "final_prediction").toPandas()
+
+            y_true = test_pdf["label"].astype(int)
+            y_pred = test_pdf["final_prediction"].astype(int)
 
             print("\n================ TEST CLASSIFICATION REPORT ================")
             print(classification_report(y_true, y_pred, digits=4))
 
-            precision_0 = precision_score(y_true, y_pred, pos_label=0)
-            recall_0 = recall_score(y_true, y_pred, pos_label=0)
-            f1_0 = f1_score(y_true, y_pred, pos_label=0)
-
-            precision_1 = precision_score(y_true, y_pred, pos_label=1)
-            recall_1 = recall_score(y_true, y_pred, pos_label=1)
-            f1_1 = f1_score(y_true, y_pred, pos_label=1)
-
-            accuracy = accuracy_score(y_true, y_pred)
-
-            print("\n================ DETAILED TEST METRICS ================")
-            print(f"Class 0 (Normal):")
-            print(f"  Precision: {precision_0:.4f}")
-            print(f"  Recall:    {recall_0:.4f}")
-            print(f"  F1-score:  {f1_0:.4f}")
-
-            print(f"\nClass 1 (Anomaly):")
-            print(f"  Precision: {precision_1:.4f}")
-            print(f"  Recall:    {recall_1:.4f}")
-            print(f"  F1-score:  {f1_1:.4f}")
-
-            print(f"\nAccuracy: {accuracy:.4f}")
-            print(f"AUC: {auc:.4f}")
 
 
 
