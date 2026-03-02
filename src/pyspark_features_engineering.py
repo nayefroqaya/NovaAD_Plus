@@ -1081,11 +1081,18 @@ class FeaturesEngineering:
             # ======================================
             # 3) Validation predictions and threshold tuning
             # ======================================
-            val_pred = model.transform(val_df)
-            val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                F.array(*[col("probability")[1]]).alias("prob_1")).toPandas()
-            val_pdf["prob_1"] = val_pdf["prob_1"].apply(lambda x: float(x))
 
+            # ================================
+            # Validation predictions
+            # ================================
+            val_pred = model.transform(val_df)
+
+            # Convert probability vector to array
+            val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1")  # class 1 probability
+            ).toPandas()
+
+            # Threshold tuning
             best_threshold = 0.5
             best_f1 = -1.0
             for t in np.arange(0.05, 0.96, 0.01):
@@ -1098,16 +1105,17 @@ class FeaturesEngineering:
             print("Best threshold from VAL:", best_threshold)
             print("Best VAL weighted F1:", best_f1)
 
-            # ======================================
-            # 4) Predict on test set
-            # ======================================
+            # ================================
+            # Test predictions
+            # ================================
             test_pred = model.transform(test_df)
             test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                F.array(*[col("probability")[1]]).alias("prob_1"), col("pca_flag"), col("gmm_flag")).toPandas()
-            test_pdf["prob_1"] = test_pdf["prob_1"].apply(lambda x: float(x))
+                vector_to_array(col("probability")).getItem(1).alias("prob_1"),  # class 1 probability
+                col("pca_flag"), col("gmm_flag")).toPandas()
 
-            # Classifier predictions with tuned threshold
+            # Classifier predictions
             test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
+
             # Optional ensemble: predict anomaly if >=1 signal
             test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(
                 int)
