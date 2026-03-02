@@ -1,0 +1,109 @@
+=== System Info ===
+Total RAM:     251.54 GB
+Available RAM: 241.28 GB
+Used RAM:      10.26 GB (4.1%)
+CPU cores (physical/logical): 32 / 64
+Disk Total: 254.74 GB, Disk Free: 146.12 GB
+OS: Linux-5.15.0-153-generic-x86_64-with-glibc2.35
+Python version: 3.10.19
+PySpark version: 4.0.1
+Setting Spark driver & executor memory to 193 GB
+Aggregating and transforming features...
+---- Starting feature aggregation and transformation ----
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+
+Columns: ['processed_EventTemplate', 'Node_block_id', 'Timestamp', 'Label', 'Temp_label', 'sentiment_label', 'Dominant_Topic', 'year', 'month', 'day', 'hour', 'minute', 'second', 'Character_Count', 'num_words', 'entropy', 'reduced_embedding']
+root
+ |-- sentiment_label: string (nullable = true)
+
+ preparing the numeric array ----
+preparing  full vector by concating 
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- sentiment_label_indexed: integer (nullable = false)
+ |-- numeric_array: array (nullable = false)
+ |    |-- element: double (containsNull = true)
+ |-- features_array: array (nullable = true)
+ |    |-- element: double (containsNull = true)
+ |-- features: vector (nullable = true)
+
+xxxx-------------------
++----------+-------+
+|Temp_label|  count|
++----------+-------+
+|         0| 685186|
+|       888| 914979|
+|       777| 183496|
+|       999|2856152|
++----------+-------+
+
++-------+-------+
+|  Label|  count|
++-------+-------+
+| Normal|2062908|
+|Anomaly|2576905|
++-------+-------+
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: string (nullable = false)
+ |-- Temp_label: integer (nullable = false)
+
+Feature aggregation completed successfully
+# 3️⃣ Apply RobustScaler-------
+✅ StandardScaler fit on TRAIN only, applied to train/test/val (no leakage)
+scaling done finally -------
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+Shuffle Spill during aggregation: 0.00 GB
+aggregation and transform completed in 0.57 minutes
+Preparing training and evaluation datasets...
+Performing novelty detection and establishing labels...
+[GMM] Selected k=10 by BIC
+
+=== Classification_report on FULL TRAIN ===
+              precision    recall  f1-score   support
+
+           0      0.982     0.979     0.980     32606
+           1      0.976     0.980     0.978     29218
+
+    accuracy                          0.979     61824
+   macro avg      0.979     0.979     0.979     61824
+weighted avg      0.979     0.979     0.979     61824
+
