@@ -834,6 +834,10 @@ class FeaturesEngineering:
             from sklearn.metrics import classification_report
             import pandas as pd
 
+            from pyspark.sql.functions import col, when, lit
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.evaluation import BinaryClassificationEvaluator
+            from sklearn.metrics import classification_report, precision_score, recall_score, f1_score, accuracy_score
 
             #spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
@@ -855,6 +859,7 @@ class FeaturesEngineering:
             train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
             train_normal_df = train_seq_df.filter(col("Label") == 0)
             train_unlabeled_df = train_seq_df.filter(col("Temp_label") == 999)
+            test_df = train_seq_df.filter(col("Temp_label") == 888)
 
             feature_col = "features_vec_final"
             id_col = "Node_block_id"
@@ -1011,78 +1016,107 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
-            # ------- classification stage. GBTClassifier-----New ----------
-
-            # ============================================================
-            # 1) PREPARE DATASET
-            # ============================================================
+            # ------- classification stage. GBTClassifier-----New ----------------------------------------------------
 
             feature_col = "features_vec_final"
             label_col = "Final_Label"
+            id_col = "Node_block_id"
 
-            train_supervised_df = df_full_train_labeled_features.select(col(feature_col).alias("features"),
+            # ============================================================
+            # 1) BUILD TRAIN DATA (0 and 999)
+            # ============================================================
+
+            train_df = df_full_train_labeled_features.join(train_seq_df.select(id_col, "Temp_label"), on=id_col,
+                how="inner").filter(col("Temp_label").isin([0, 999])).select(col(feature_col).alias("features"),
                 col(label_col).alias("label")).filter(col("label").isNotNull())
 
-            # Cache to avoid recomputation
-            train_supervised_df.cache()
-            train_supervised_df.count()
-
             # ============================================================
-            # 2) HANDLE CLASS IMBALANCE
+            # 2) BUILD TEST DATA (888)
             # ============================================================
 
-            counts = train_supervised_df.groupBy("label").count().collect()
+            test_df = sequences_df.filter(col("Temp_label") == 888).select(col(feature_col).alias("features"),
+                col("y_true").alias("label")).filter(col("label").isNotNull())
+
+            train_df.cache()
+            test_df.cache()
+
+            print("Train size:", train_df.count())
+            print("Test size:", test_df.count())
+
+            # ============================================================
+            # 3) HANDLE CLASS IMBALANCE (TRAIN ONLY)
+            # ============================================================
+
+            counts = train_df.groupBy("label").count().collect()
             count_dict = {row["label"]: row["count"] for row in counts}
 
             normal_count = count_dict.get(0, 1)
             anomaly_count = count_dict.get(1, 1)
 
-            print(f"Normal count: {normal_count}")
-            print(f"Anomaly count: {anomaly_count}")
-
-            weight_for_0 = 1.0
             weight_for_1 = normal_count / anomaly_count
 
-            train_supervised_df = train_supervised_df.withColumn("classWeightCol",
-                when(col("label") == 1, lit(weight_for_1)).otherwise(lit(weight_for_0)))
+            train_df = train_df.withColumn("classWeightCol",
+                when(col("label") == 1, lit(weight_for_1)).otherwise(lit(1.0)))
 
             # ============================================================
-            # 3) TRAIN GBT CLASSIFIER
+            # 4) TRAIN GBT
             # ============================================================
 
             gbt = GBTClassifier(featuresCol="features", labelCol="label", weightCol="classWeightCol", maxDepth=7,
                 maxIter=150, stepSize=0.05, subsamplingRate=0.8, seed=42)
 
-            gbt_model = gbt.fit(train_supervised_df)
+            model = gbt.fit(train_df)
 
             # ============================================================
-            # 4) PREDICT
+            # 5) PREDICT ON TEST SET
             # ============================================================
 
-            predictions = gbt_model.transform(train_supervised_df)
+            predictions = model.transform(test_df)
 
             # ============================================================
-            # 5) EVALUATION (Spark AUC)
+            # 6) AUC
             # ============================================================
 
             evaluator = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="rawPrediction",
                 metricName="areaUnderROC")
 
             auc = evaluator.evaluate(predictions)
-            print(f"\nAUC: {auc:.4f}")
 
             # ============================================================
-            # 6) CLASSIFICATION REPORT (Sklearn)
+            # 7) DETAILED METRICS
             # ============================================================
 
-            eval_df = predictions.select("label", "prediction")
-            pdf_eval = eval_df.toPandas()
+            pdf = predictions.select("label", "prediction").toPandas()
 
-            pdf_eval["label"] = pdf_eval["label"].astype(int)
-            pdf_eval["prediction"] = pdf_eval["prediction"].astype(int)
+            y_true = pdf["label"].astype(int)
+            y_pred = pdf["prediction"].astype(int)
 
-            print("\n=== GBT CLASSIFICATION REPORT ===")
-            print(classification_report(pdf_eval["label"], pdf_eval["prediction"], digits=4))
+            print("\n================ TEST CLASSIFICATION REPORT ================")
+            print(classification_report(y_true, y_pred, digits=4))
+
+            precision_0 = precision_score(y_true, y_pred, pos_label=0)
+            recall_0 = recall_score(y_true, y_pred, pos_label=0)
+            f1_0 = f1_score(y_true, y_pred, pos_label=0)
+
+            precision_1 = precision_score(y_true, y_pred, pos_label=1)
+            recall_1 = recall_score(y_true, y_pred, pos_label=1)
+            f1_1 = f1_score(y_true, y_pred, pos_label=1)
+
+            accuracy = accuracy_score(y_true, y_pred)
+
+            print("\n================ DETAILED TEST METRICS ================")
+            print(f"Class 0 (Normal):")
+            print(f"  Precision: {precision_0:.4f}")
+            print(f"  Recall:    {recall_0:.4f}")
+            print(f"  F1-score:  {f1_0:.4f}")
+
+            print(f"\nClass 1 (Anomaly):")
+            print(f"  Precision: {precision_1:.4f}")
+            print(f"  Recall:    {recall_1:.4f}")
+            print(f"  F1-score:  {f1_1:.4f}")
+
+            print(f"\nAccuracy: {accuracy:.4f}")
+            print(f"AUC: {auc:.4f}")
 
 
 
