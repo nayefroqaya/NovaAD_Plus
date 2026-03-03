@@ -850,51 +850,49 @@ class FeaturesEngineering:
 
             from pyspark.sql import SparkSession
             from pyspark.sql.functions import col, lit, when, lower, trim, udf
+            from pyspark.sql.types import DoubleType
             from pyspark.ml.feature import StandardScaler, PCA as SparkPCA, VectorAssembler
             from pyspark.ml.clustering import GaussianMixture
             from pyspark.ml.classification import GBTClassifier
-            from pyspark.ml.functions import vector_to_array
-            from pyspark.sql.types import DoubleType
             from sklearn.metrics import classification_report, f1_score
             import numpy as np
             import time
 
-            spark = SparkSession.builder.appName("ND_AD_Classification").getOrCreate()
-
             # ======================================
-            # 0) Initial preparation
+            # 1) Prepare y_true and Label
             # ======================================
             GT_COL = "Label"
-            feature_col = "features_vec_final"
-            id_col = "Node_block_id"
-
-            # Convert string labels to 0/1
             sequences_df = sequences_df.withColumn("y_true",
                                                    when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"),
                                                         lit(1)).when(
                                                        lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"),
                                                        lit(0)).otherwise(col(GT_COL).cast("int")))
-
             sequences_df = sequences_df.withColumn("Label",
                                                    when(col("Label") == "normal", 0).when(col("Label") == "anomaly",
                                                                                           1).otherwise(None))
 
-            # Split TRAIN (Temp_label 0 or 999) and TEST (888)
+            # ======================================
+            # 2) Split train/test
+            # ======================================
             train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
             train_normal_df = train_seq_df.filter(col("Label") == 0)
             train_unlabeled_df = train_seq_df.filter(col("Temp_label") == 999)
             test_df = sequences_df.filter(col("Temp_label") == 888)
 
+            feature_col = "features_vec_final"
+            id_col = "Node_block_id"
+
             # ======================================
-            # 1) StandardScaler
+            # 3) StandardScaler
             # ======================================
             scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
             scaler_model = scaler.fit(train_normal_df)
             train_normal_scaled = scaler_model.transform(train_normal_df)
             train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
+            test_scaled = scaler_model.transform(test_df)
 
             # ======================================
-            # 2) PCA for dimensionality reduction
+            # 4) PCA for dimensionality reduction
             # ======================================
             candidate_ks = [10, 20, 40, 50, 60]
             target_variance = 0.999
@@ -911,11 +909,13 @@ class FeaturesEngineering:
 
             pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
             pca_model = pca.fit(train_normal_scaled)
+
             train_normal_pca = pca_model.transform(train_normal_scaled)
             train_unlabeled_pca = pca_model.transform(train_unlabeled_scaled)
+            test_pca = pca_model.transform(test_scaled)
 
             # ======================================
-            # 3) PCA reconstruction error
+            # 5) PCA reconstruction error
             # ======================================
             pc = pca_model.pc.toArray()
             d = len(train_normal_scaled.select("features_scaled").head()[0])
@@ -936,15 +936,15 @@ class FeaturesEngineering:
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
                                                                  reconstruction_error(col("features_scaled"),
                                                                                       col("pca_features")))
+            test_pca = test_pca.withColumn("anomaly_score_pca",
+                                           reconstruction_error(col("features_scaled"), col("pca_features")))
 
             # ======================================
-            # 4) Fit GMM on PCA space
+            # 6) Fit GMM on normal PCA space
             # ======================================
             gmm_candidates = [2, 4, 6, 8, 10, 12]
             best_gmm_model = None
             best_bic = float("inf")
-            best_k_gmm = None
-
             d_pca = best_k
             feat_df = train_normal_pca.select("pca_features")
 
@@ -959,16 +959,14 @@ class FeaturesEngineering:
 
             for k in gmm_candidates:
                 gmm = GaussianMixture(k=k, seed=123, featuresCol="pca_features", predictionCol="cluster")
-                model = gmm.fit(feat_df)
-                score = bic(model, feat_df, k, d_pca)
+                model_tmp = gmm.fit(feat_df)
+                score = bic(model_tmp, feat_df, k, d_pca)
                 if score < best_bic:
                     best_bic = score
-                    best_gmm_model = model
-                    best_k_gmm = k
-            print(f"[GMM] Selected k={best_k_gmm} by BIC")
+                    best_gmm_model = model_tmp
 
             # ======================================
-            # 5) Compute NLL
+            # 7) Compute NLL
             # ======================================
             weights = np.array(best_gmm_model.weights)
             means = np.stack([np.array(g.mean.toArray()) for g in best_gmm_model.gaussians], axis=0)
@@ -978,7 +976,6 @@ class FeaturesEngineering:
             inv_covs = np.linalg.inv(covs)
             sign, logdets = np.linalg.slogdet(covs)
             const = d_pca * np.log(2 * np.pi)
-
             bc_params = spark.sparkContext.broadcast(
                 {"weights": weights, "means": means, "inv_covs": inv_covs, "logdets": logdets, "const": const})
 
@@ -999,9 +996,10 @@ class FeaturesEngineering:
 
             train_normal_pca = train_normal_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
             train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+            test_pca = test_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
 
             # ======================================
-            # 6) Threshold for pseudo-labeling
+            # 8) Thresholds for hybrid labeling
             # ======================================
             TARGET_FPR = 0.05
             thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
@@ -1011,41 +1009,39 @@ class FeaturesEngineering:
                 (col("anomaly_score_gmm") > lit(thr_gmm)) | (col("anomaly_score_pca") > lit(thr_pca)), 1).otherwise(0))
 
             # ======================================
-            # 7) Full labeled train dataset (ND + original normal)
+            # 9) Build full labeled train dataset
             # ======================================
-            df_normal_labeled_features = train_normal_pca.select(col(id_col),
-                col(feature_col).alias("features_vec_final"), col("anomaly_score_pca"),
-                col("anomaly_score_gmm")).withColumn("Final_Label", lit(0).cast("int"))
+            df_normal_labeled_features = train_normal_df.select(col(id_col), col(feature_col).alias(
+                "features_vec_final")).withColumn("Final_Label", lit(0).cast("int")).withColumn("anomaly_score_pca"
+                                                                                                , lit(0.0)).withColumn("anomaly_score_gmm", lit(0.0))
 
-            df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
-                col(feature_col).alias("features_vec_final"), col("anomaly_score_pca"), col("anomaly_score_gmm"),
-                col("Final_Label"))
+            df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col
+                                                                       ), col(feature_col).alias("features_vec_final"),
+                                                                       col("Final_Label"), col("anomaly_score_pca"),
+                                                                       col("anomaly_score_gmm"))
 
             df_full_train_labeled_features = df_normal_labeled_features.unionByName(df_unlabeled_labeled_features)
 
-            # ======================================-------------------------------------------------------------------
-            # 8) Classification Stage (GBT)
             # ======================================
+            # 10) Classification stage
+            # ======================================
+            # Prepare training and test sets
+            train_base_df = df_full_train_labeled_features.repartition(200).cache()
+            test_df = test_pca.repartition(200).cache()
 
-            # Merge normal + pseudo-labeled
-            train_df = df_full_train_labeled_features.repartition(200).cache()
-            test_df = sequences_df.filter(col("Temp_label") == 888).select(col(id_col),
-                col(feature_col).alias("features_vec_final"), col("y_true").alias("Final_Label")).withColumn(
-                "Final_Label", col("Final_Label").cast("int")).repartition(200).cache()
-
-            # Assemble features (include ND scores)
+            # Feature assembler
             feature_cols = ["features_vec_final", "anomaly_score_pca", "anomaly_score_gmm"]
             assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
-            train_df = assembler.transform(train_df)
+            train_base_df = assembler.transform(train_base_df)
             test_df = assembler.transform(test_df)
             features_col = "features_augmented"
 
-            # Train GBT classifier
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=75, maxDepth=5, stepSize=0.1,
-                                seed=123)
+            # Weighted GBT classifier
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=75, maxDepth=5, stepSize=
+                                0.1, seed=123)
 
             start_fit = time.time()
-            model = gbt.fit(train_df)
+            model = gbt.fit(train_base_df)
             end_fit = time.time()
             print(f"GBT training completed in {(end_fit - start_fit) / 60:.2f} minutes")
 
@@ -1056,16 +1052,16 @@ class FeaturesEngineering:
             print(f"GBT prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
 
             # Convert probability to array for class 1
+            from pyspark.ml.functions import vector_to_array
             test_pdf = test_pred.select(col("Final_Label").alias("y"),
                                         vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
 
             # Fixed threshold
             test_pdf["final_pred"] = (test_pdf["prob_1"] >= 0.5).astype(int)
 
-            # Report
+            # Classification report
             print("\n================ TEST CLASSIFICATION REPORT ================")
             print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-
             exit()
 
 
