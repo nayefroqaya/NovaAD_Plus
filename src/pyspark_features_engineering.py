@@ -1084,9 +1084,9 @@ class FeaturesEngineering:
             # 2) Train GBT Classifier
             # ======================================
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-                                maxIter=60,  # 100
-                                maxDepth=5, #6
-                stepSize=0.1, # 0.05
+                                maxIter=50,  # 100
+                                maxDepth=4, #6
+                stepSize=0.2, # 0.05
                                 seed=123)
 
             start_fit_classification = time.time()
