@@ -1,5 +1,5 @@
 import warnings
-
+import time
 import colorama
 import numpy as np
 import numpy as np
@@ -1017,7 +1017,7 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
-            exit()
+            #exit()
 
             # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
             # ======================================
@@ -1076,7 +1076,12 @@ class FeaturesEngineering:
             # ======================================
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=100, maxDepth=6,
                 stepSize=0.05, seed=123)
+
+            start_fit_classification = time.time()
             model = gbt.fit(train_base_df)
+            end_fit_classification = time.time()
+            Classification_time = (end_fit_classification - start_fit_classification) / 60
+            print(f"final Model classification  completed in {Classification_time:.2f} minutes")
 
             # ======================================
             # 3) Validation predictions and threshold tuning
@@ -1108,7 +1113,14 @@ class FeaturesEngineering:
             # ================================
             # Test predictions
             # ================================
+
+            start_predict_classification = time.time()
+
             test_pred = model.transform(test_df)
+            end_predict_classification = time.time()
+            Classification_pred_time = (end_predict_classification - start_predict_classification) / 60
+            print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
+
             test_pdf = test_pred.select(col("Final_Label").alias("y"),
                 vector_to_array(col("probability")).getItem(1).alias("prob_1"),  # class 1 probability
                 col("pca_flag"), col("gmm_flag")).toPandas()
@@ -1125,6 +1137,8 @@ class FeaturesEngineering:
             # ======================================
             print("\n================ TEST CLASSIFICATION REPORT ================")
             print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+            print(f"final Model classification  completed in {Classification_time:.2f} minutes")
+            print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
             exit()
 
