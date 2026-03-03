@@ -1026,6 +1026,98 @@ class FeaturesEngineering:
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
             #exit()
+            # ------- classification stage. GBTClassifier-----New / updated --------------------------------------------
+            # ============================================================
+            # 1) Prepare Training Data
+            # ============================================================
+
+            # Clean normal subset (trusted class 0)
+            df_true_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                col("features_vec_final"), lit(0).alias("Final_Label"), lit(1.0).alias("sample_weight")  # fully trusted
+            )
+
+            # Pseudo-labeled data from ND
+            # Must contain: Final_Label (0/1) + anomaly_score
+            df_pseudo = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
+                col("Final_Label"), col("anomaly_score")  # <-- ND score
+            )
+
+            # Confidence-based weighting
+            df_pseudo = df_pseudo.withColumn("sample_weight",
+                when(col("Final_Label") == 1, col("anomaly_score"))  # anomaly weight
+                .otherwise(1 - col("anomaly_score"))  # normal weight
+            )
+
+            # Merge true normal + pseudo data
+            train_df = df_true_normal.unionByName(
+                df_pseudo.select("Node_block_id", "features_vec_final", "Final_Label", "sample_weight"))
+
+            train_df = train_df.repartition(200).cache()
+            train_df.count()
+
+            # ============================================================
+            # 2) Prepare Test Set
+            # ============================================================
+
+            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label")).withColumn("Final_Label",
+                                                                                          col("Final_Label").cast(
+                                                                                              "int"))
+
+            test_df = test_df.repartition(200).cache()
+            test_df.count()
+
+            # ============================================================
+            # 3) Feature Assembler
+            # ============================================================
+
+            assembler = VectorAssembler(inputCols=["features_vec_final"], outputCol="features_augmented")
+
+            train_df = assembler.transform(train_df)
+            test_df = assembler.transform(test_df)
+
+            # ============================================================
+            # 4) Train Weighted GBT
+            # ============================================================
+
+            gbt = GBTClassifier(featuresCol="features_augmented", labelCol="Final_Label", weightCol="sample_weight",
+                # KEY PART
+                maxIter=60, maxDepth=5, stepSize=0.1, seed=123)
+
+            start_fit = time.time()
+            model = gbt.fit(train_df)
+            end_fit = time.time()
+
+            print(f"Model training completed in {(end_fit - start_fit) / 60:.2f} minutes")
+
+            # ============================================================
+            # 5) Predict on Test (Fixed Threshold = 0.5)
+            # ============================================================
+
+            start_pred = time.time()
+            test_pred = model.transform(test_df)
+            end_pred = time.time()
+
+            print(f"Prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
+
+            test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
+
+            # Fixed threshold (no ground truth tuning)
+            test_pdf["final_pred"] = (test_pdf["prob_1"] >= 0.5).astype(int)
+
+            # ============================================================
+            # 6) Classification Report
+            # ============================================================
+
+            print("\n================ TEST CLASSIFICATION REPORT ================")
+            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+            print(f"Model training completed in {(end_fit - start_fit) / 60:.2f} minutes")
+            print(f"Prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
+
+            exit()
+
+
 
 
             # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
