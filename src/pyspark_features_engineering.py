@@ -1027,140 +1027,6 @@ class FeaturesEngineering:
 
             #exit()
 
-            # ------- classification stage. GBTClassifier-----New / Faster ---------------------------------------------
-            # ============================================================
-            # 0) Prepare Training Data (Normal + Pseudo Anomalies)
-            # ============================================================
-
-            df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                col("features_vec_final"), lit(0).alias("Final_Label"))
-
-            df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1).select("Node_block_id",
-                                                                                                        "features_vec_final",
-                                                                                                        "Final_Label")
-
-            # -------------------------
-            # Oversample anomalies FAST
-            # -------------------------
-            n0 = df_train_normal.count()
-            n1 = df_pseudo_anomalies.count()
-
-            k = int(np.ceil(n0 / max(n1, 1)))
-
-            df_pseudo_anomalies = df_pseudo_anomalies.withColumn("repeat_col", explode(array_repeat(lit(1), k))).drop(
-                "repeat_col")
-
-            train_df = df_train_normal.unionByName(df_pseudo_anomalies)
-
-            # Repartition + Cache (important for speed)
-            train_df = train_df.repartition(200).cache()
-            train_df.count()  # materialize cache
-
-            # ============================================================
-            # 1) Fast Train/Validation Split
-            # ============================================================
-
-            train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
-
-            train_base_df.cache().count()
-            val_df.cache().count()
-
-            # ============================================================
-            # 2) Prepare Test Set
-            # ============================================================
-
-            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
-                col("features_vec_final"), col("y_true").alias("Final_Label"),
-                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
-                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
-                "Final_Label", col("Final_Label").cast("int"))
-
-            test_df = test_df.repartition(200).cache()
-            test_df.count()
-
-            # ============================================================
-            # 3) Feature Assembler
-            # ============================================================
-
-            assembler = VectorAssembler(inputCols=["features_vec_final"], outputCol="features_augmented")
-
-            train_base_df = assembler.transform(train_base_df)
-            val_df = assembler.transform(val_df)
-            test_df = assembler.transform(test_df)
-
-            features_col = "features_augmented"
-
-            # ============================================================
-            # 4) Train GBT (Balanced Speed + Performance)
-            # ============================================================
-
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=60,
-                # reduced from 100 (faster)
-                maxDepth=5,  # reduced from 6 (faster)
-                stepSize=0.1, seed=123)
-
-            start_fit = time.time()
-            model = gbt.fit(train_base_df)
-            end_fit = time.time()
-
-            print(f"Model training completed in {(end_fit - start_fit) / 60:.2f} minutes")
-
-            # ============================================================
-            # 5) Threshold Tuning on Validation
-            # ============================================================
-
-            val_pred = model.transform(val_df)
-
-            val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
-
-            best_threshold = 0.5
-            best_f1 = -1.0
-
-            # Smaller grid → faster
-            for t in np.arange(0.1, 0.9, 0.02):
-                preds = (val_pdf["prob_1"].values >= t).astype(int)
-                f1 = f1_score(val_pdf["y"].values.astype(int), preds, average="weighted")
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_threshold = float(t)
-
-            print("Best threshold from VAL:", best_threshold)
-            print("Best VAL weighted F1:", best_f1)
-
-            # ============================================================
-            # 6) Predict on TEST
-            # ============================================================
-
-            start_pred = time.time()
-            test_pred = model.transform(test_df)
-            end_pred = time.time()
-
-            print(f"Prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
-
-            test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
-                col("gmm_flag")).toPandas()
-
-            # Apply tuned threshold
-            test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
-
-            # Optional ensemble rule
-            test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(
-                int)
-
-            # ============================================================
-            # 7) Final Classification Report
-            # ============================================================
-
-            print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-            exit()
-
-
-
-
-
 
             # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
             # ======================================
@@ -1217,8 +1083,11 @@ class FeaturesEngineering:
             # ======================================
             # 2) Train GBT Classifier
             # ======================================
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=100, maxDepth=6,
-                stepSize=0.05, seed=123)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
+                                maxIter=60,  # 100
+                                maxDepth=5, #6
+                stepSize=0.1, # 0.05
+                                seed=123)
 
             start_fit_classification = time.time()
             model = gbt.fit(train_base_df)
