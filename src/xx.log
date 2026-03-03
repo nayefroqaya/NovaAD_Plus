@@ -1,7 +1,7 @@
 === System Info ===
 Total RAM:     251.54 GB
-Available RAM: 241.25 GB
-Used RAM:      10.29 GB (4.1%)
+Available RAM: 241.33 GB
+Used RAM:      10.21 GB (4.1%)
 CPU cores (physical/logical): 32 / 64
 Disk Total: 254.74 GB, Disk Free: 146.11 GB
 OS: Linux-5.15.0-153-generic-x86_64-with-glibc2.35
@@ -63,21 +63,21 @@ root
  |-- features: vector (nullable = true)
 
 xxxx-------------------
-+----------+------+
-|Temp_label| count|
-+----------+------+
-|         0|140462|
-|       888|243090|
-|       777| 79993|
-|       999|345991|
-+----------+------+
++----------+-------+
+|Temp_label|  count|
++----------+-------+
+|         0| 685186|
+|       888| 914979|
+|       777| 183496|
+|       999|2856152|
++----------+-------+
 
-+-------+------+
-|  Label| count|
-+-------+------+
-| Normal|458641|
-|Anomaly|350895|
-+-------+------+
++-------+-------+
+|  Label|  count|
++-------+-------+
+| Normal|2062908|
+|Anomaly|2576905|
++-------+-------+
 
 root
  |-- Node_block_id: string (nullable = true)
@@ -92,8 +92,18 @@ Feature aggregation completed successfully
 scaling done finally -------
 ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 Shuffle Spill during aggregation: 0.00 GB
-aggregation and transform completed in 0.29 minutes
+aggregation and transform completed in 0.51 minutes
 Preparing training and evaluation datasets...
 Performing novelty detection and establishing labels...
-GBT training completed in 1.21 minutes
-GBT prediction completed in 0.00 minutes
+[GMM] Selected k=10 by BIC
+
+=== Classification_report on FULL TRAIN ===
+              precision    recall  f1-score   support
+
+           0      0.982     0.979     0.980     32606
+           1      0.976     0.980     0.978     29218
+
+    accuracy                          0.979     61824
+   macro avg      0.979     0.979     0.979     61824
+weighted avg      0.979     0.979     0.979     61824
+
