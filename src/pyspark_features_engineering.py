@@ -543,17 +543,11 @@ class FeaturesEngineering:
             # ======================================
             # 9) Build full labeled train dataset
             # ======================================
-            #*df_normal_labeled_features = train_normal_df.select(col(id_col), col(feature_col).alias(
-            #*    "features_vec_final")).withColumn("Final_Label", lit(0).cast("int"))
-            df_normal_labeled_features = train_normal_df.withColumn("Final_Label", lit(0).cast("int"))
-
-            #*df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
-            #*                                                           col(feature_col).alias("features_vec_final"),
-            #*                                                           col("Final_Label"))
-
-            df_unlabeled_labeled_features = train_unlabeled_pca.withColumn("Final_Label",
-                                                                           col("Final_Label").cast("int"))
-
+            df_normal_labeled_features = train_normal_df.select(col(id_col), col(feature_col).alias(
+                "features_vec_final")).withColumn("Final_Label", lit(0).cast("int"))
+            df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
+                                                                       col(feature_col).alias("features_vec_final"),
+                                                                       col("Final_Label"))
             df_full_train_labeled_features = df_normal_labeled_features.unionByName(df_unlabeled_labeled_features)
 
             # ======================================
@@ -569,9 +563,9 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
-            df_full_train_labeled_features.printSchema()
 
-            exit()
+
+            #exit()
             # ------- classification stage. GBTClassifier-----New / updated --------------------------------------------
             # ======================================
             # 0) Prepare training set
