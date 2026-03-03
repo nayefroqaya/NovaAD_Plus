@@ -571,7 +571,7 @@ class FeaturesEngineering:
 
             df_full_train_labeled_features.printSchema()
 
-            #exit()
+            exit()
             # ------- classification stage. GBTClassifier-----New / updated --------------------------------------------
             # ======================================
             # 0) Prepare training set
