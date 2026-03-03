@@ -1166,7 +1166,7 @@ class FeaturesEngineering:
 
             # ---- BEST PRACTICE ENSEMBLE (precision-up) ----
             # gate_t slightly ABOVE best_threshold to reduce false positives from PCA/GMM
-            gate_t = min(best_threshold + 0.12, 0.999)
+            gate_t = min(best_threshold + 0.18, 0.99)
 
             test_pdf["final_pred"] = ((test_pdf["prob_1"] >= best_threshold) | (
                         (test_pdf["prob_1"] >= gate_t) & ((test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1))).astype(
