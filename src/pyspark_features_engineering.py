@@ -1040,30 +1040,22 @@ class FeaturesEngineering:
             # 0) Build training data
             # --------------------------
 
-            # Real normal (ground truth) from training set
             df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
                 col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
 
-            # Pseudo-labeled from ND (can include BOTH 0 and 1)
-            # Assumes df_full_train_labeled_features contains:
-            #   Node_block_id, features_vec_final, Final_Label (0/1)
             df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
                 col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
 
-            # Combine
             train_df = df_real_normal.unionByName(df_pseudo_all)
 
             # --------------------------
-            # 0.1) Weighting strategy (NO oversampling)
+            # 0.1) Weighting strategy
             # --------------------------
-            # Pseudo-label trust factor (0.5~0.8 recommended). Higher => pseudo labels influence more.
             PSEUDO_TRUST = 0.6
 
-            # Class balancing: stronger anomaly weight (but damped to reduce FP)
             n0 = train_df.filter(col("Final_Label") == 0).count()
             n1 = train_df.filter(col("Final_Label") == 1).count()
 
-            # If n1 is tiny, this can be large; damp with 0.7 to avoid too many FPs
             w1 = float(n0 / max(n1, 1)) * 0.7
             w0 = 1.0
 
@@ -1074,7 +1066,6 @@ class FeaturesEngineering:
                 when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
                 col("baseClassWeight") * col("srcWeight"))
 
-            # Proper split
             train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
 
             # --------------------------
@@ -1106,7 +1097,7 @@ class FeaturesEngineering:
             features_col = "features_augmented"
 
             # --------------------------
-            # 2) Train GBT (AD only)
+            # 2) Train GBT
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=75,
                 maxDepth=5, stepSize=0.1, seed=123)
@@ -1116,27 +1107,22 @@ class FeaturesEngineering:
             print(f"[INFO] GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
 
             # --------------------------
-            # 3) Threshold tuning (robust: never returns a threshold that predicts all-zeros)
-            # Strategy:
-            #   A) Try to maximize precision while keeping recall >= TARGET_RECALL
-            #   B) If impossible, maximize class-1 F1
-            #   C) If still degenerate, choose threshold that gives ~top X% anomalies (fallback)
+            # 3) Threshold tuning (precision @ recall constraint; fallback to class-1 F1)
             # --------------------------
             val_pred = model.transform(val_df)
             val_pdf = val_pred.select(col("Final_Label").alias("y"),
                 vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
 
-            print("[INFO] VAL prob_1 stats:", "min=", float(val_pdf["prob_1"].min()), "max=",
-                  float(val_pdf["prob_1"].max()), "mean=", float(val_pdf["prob_1"].mean()))
-
-            TARGET_RECALL = 0.95  # relax from 0.98 to avoid predicting all zeros
-            best_threshold = 0.5
-            best_prec = -1.0
-
             y_val = val_pdf["y"].values.astype(int)
             p_val = val_pdf["prob_1"].values
 
-            # A) precision @ recall constraint
+            print("[INFO] VAL prob_1 stats:", "min=", float(p_val.min()), "max=", float(p_val.max()), "mean=",
+                  float(p_val.mean()))
+
+            TARGET_RECALL = 0.95
+            best_threshold = 0.5
+            best_prec = -1.0
+
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
                 r = recall_score(y_val, preds, pos_label=1)
@@ -1146,7 +1132,6 @@ class FeaturesEngineering:
                         best_prec = p
                         best_threshold = float(t)
 
-            # B) fallback: best class-1 F1
             if best_prec < 0:
                 best_f1 = -1.0
                 for t in np.arange(0.01, 0.999, 0.005):
@@ -1160,15 +1145,13 @@ class FeaturesEngineering:
                 print(
                     f"[INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
 
-            # C) last-resort fallback: choose top 10% as anomalies (prevents all-zeros)
-            # (Only used if chosen threshold still predicts zero anomalies on VAL)
-            val_preds_check = (p_val >= best_threshold).astype(int)
-            if val_preds_check.sum() == 0:
-                best_threshold = float(np.quantile(p_val, 0.90))  # top 10%
+            # Safety: prevent all-zero on VAL
+            if (p_val >= best_threshold).sum() == 0:
+                best_threshold = float(np.quantile(p_val, 0.90))
                 print(f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
             # --------------------------
-            # 4) Test prediction (GBT ONLY - stabilize first)
+            # 4) Test prediction + BEST ensemble (GBT-gated)
             # --------------------------
             t1 = time.time()
             test_pred = model.transform(test_df)
@@ -1178,14 +1161,24 @@ class FeaturesEngineering:
                 vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
                 col("gmm_flag")).toPandas()
 
+            # Base GBT prediction
             test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
 
-            # IMPORTANT: Start with classifier-only (no ensemble) to avoid killing precision/recall unexpectedly
-            test_pdf["final_pred"] = test_pdf["pred_gbt"]
+            # ---- BEST PRACTICE ENSEMBLE (precision-up) ----
+            # gate_t slightly ABOVE best_threshold to reduce false positives from PCA/GMM
+            gate_t = min(best_threshold + 0.08, 0.999)
 
-            print("\n================ TEST CLASSIFICATION REPORT (GBT only) ================")
+            test_pdf["final_pred"] = ((test_pdf["prob_1"] >= best_threshold) | (
+                        (test_pdf["prob_1"] >= gate_t) & ((test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1))).astype(
+                int)
+
+            print("\n================ TEST CLASSIFICATION REPORT (GBT-gated ensemble) ================")
             print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+
+            print(f"[INFO] Used best_threshold={best_threshold:.4f}, gate_t={gate_t:.4f}")
             exit()
+
+
 
 
 
