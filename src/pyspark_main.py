@@ -262,9 +262,9 @@ def main():
     PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_pre_final_global_features.pkl'
 
     # ---------------- Spark session ----------------
-    spark = SparkSession.builder \
-        .appName("LogAnomalyPipeline") \
-        .getOrCreate()
+    #spark = SparkSession.builder \
+    #    .appName("LogAnomalyPipeline") \
+    #    .getOrCreate()
 
     # ---------------- Initialize classes ----------------
     logdata_read_obj = LogdataRead()
