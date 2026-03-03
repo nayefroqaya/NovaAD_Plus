@@ -840,6 +840,14 @@ class FeaturesEngineering:
             from sklearn.metrics import classification_report, precision_score, recall_score, f1_score, accuracy_score
             from pyspark.sql.functions import when
 
+            from pyspark.sql.functions import col, lit, explode, array_repeat
+            from pyspark.ml.feature import VectorAssembler
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.functions import vector_to_array
+            from sklearn.metrics import f1_score, classification_report
+            import numpy as np
+            import time
+
             #spark = SparkSession.builder.appName("GMM_NoveltyDetection_Improved").getOrCreate()
 
             # ======================================
