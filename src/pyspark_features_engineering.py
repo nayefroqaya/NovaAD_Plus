@@ -1027,93 +1027,87 @@ class FeaturesEngineering:
 
             #exit()
             # ------- classification stage. GBTClassifier-----New / updated --------------------------------------------
-            # ============================================================
-            # 1) Prepare Training Data
-            # ============================================================
+            # ======================================
+            # 0) Prepare training set
+            # ======================================
 
-            # Clean normal subset (trusted class 0)
-            df_true_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+            # Ground-truth normal subset
+            df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
                 col("features_vec_final"), lit(0).alias("Final_Label"), lit(1.0).alias("sample_weight")  # fully trusted
             )
 
-            # Pseudo-labeled data from ND
-            # Must contain: Final_Label (0/1) + anomaly_score
+            # Pseudo-labeled from ND (from your previous step)
             df_pseudo = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
-                col("Final_Label"), col("anomaly_score")  # <-- ND score
+                col("Final_Label"), col("anomaly_score_pca")  # you can combine PCA+GMM score if desired
             )
 
-            # Confidence-based weighting
+            # Confidence weighting: higher anomaly_score → higher weight for anomaly
             df_pseudo = df_pseudo.withColumn("sample_weight",
-                when(col("Final_Label") == 1, col("anomaly_score"))  # anomaly weight
-                .otherwise(1 - col("anomaly_score"))  # normal weight
-            )
+                when(col("Final_Label") == 1, col("anomaly_score_pca")).otherwise(1 - col("anomaly_score_pca")))
 
-            # Merge true normal + pseudo data
-            train_df = df_true_normal.unionByName(
-                df_pseudo.select("Node_block_id", "features_vec_final", "Final_Label", "sample_weight"))
+            # Merge normal + pseudo-labeled
+            train_df = df_train_normal.unionByName(
+                df_pseudo.select("Node_block_id", "features_vec_final", "Final_Label", "sample_weight")).repartition(
+                200).cache()
 
-            train_df = train_df.repartition(200).cache()
             train_df.count()
 
-            # ============================================================
-            # 2) Prepare Test Set
-            # ============================================================
+            # ======================================
+            # 1) Prepare test set
+            # ======================================
 
             test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
                 col("features_vec_final"), col("y_true").alias("Final_Label")).withColumn("Final_Label",
                                                                                           col("Final_Label").cast(
-                                                                                              "int"))
+                                                                                              "int")).repartition(
+                200).cache()
 
-            test_df = test_df.repartition(200).cache()
             test_df.count()
 
-            # ============================================================
-            # 3) Feature Assembler
-            # ============================================================
+            # ======================================
+            # 2) Feature assembler
+            # ======================================
 
             assembler = VectorAssembler(inputCols=["features_vec_final"], outputCol="features_augmented")
 
             train_df = assembler.transform(train_df)
             test_df = assembler.transform(test_df)
+            features_col = "features_augmented"
 
-            # ============================================================
-            # 4) Train Weighted GBT
-            # ============================================================
+            # ======================================
+            # 3) Train weighted GBT classifier
+            # ======================================
 
-            gbt = GBTClassifier(featuresCol="features_augmented", labelCol="Final_Label", weightCol="sample_weight",
-                # KEY PART
-                maxIter=60, maxDepth=5, stepSize=0.1, seed=123)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="sample_weight", maxIter=60,
+                maxDepth=5, stepSize=0.1, seed=123)
 
             start_fit = time.time()
             model = gbt.fit(train_df)
             end_fit = time.time()
+            print(f"GBT training completed in {(end_fit - start_fit) / 60:.2f} minutes")
 
-            print(f"Model training completed in {(end_fit - start_fit) / 60:.2f} minutes")
-
-            # ============================================================
-            # 5) Predict on Test (Fixed Threshold = 0.5)
-            # ============================================================
+            # ======================================
+            # 4) Predict on test
+            # ======================================
 
             start_pred = time.time()
             test_pred = model.transform(test_df)
             end_pred = time.time()
+            print(f"GBT prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
 
-            print(f"Prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
-
+            # Convert probability to array for class 1
             test_pdf = test_pred.select(col("Final_Label").alias("y"),
                 vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
 
-            # Fixed threshold (no ground truth tuning)
+            # Fixed threshold = 0.5 (no tuning)
             test_pdf["final_pred"] = (test_pdf["prob_1"] >= 0.5).astype(int)
 
-            # ============================================================
-            # 6) Classification Report
-            # ============================================================
+            # ======================================
+            # 5) Classification report
+            # ======================================
 
             print("\n================ TEST CLASSIFICATION REPORT ================")
             print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-            print(f"Model training completed in {(end_fit - start_fit) / 60:.2f} minutes")
-            print(f"Prediction completed in {(end_pred - start_pred) / 60:.2f} minutes")
 
             exit()
 
