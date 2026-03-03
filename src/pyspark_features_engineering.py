@@ -1034,6 +1034,143 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
+            # ------- classification stage. GBTClassifier-----New / Try ------------------------------------------------
+            # --------------------------
+            # 0) Build training data
+            # --------------------------
+
+            # Real normal (ground truth) from training set
+            df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+
+            # Pseudo-labeled from ND (can include BOTH 0 and 1)
+            # Assumes df_full_train_labeled_features has Final_Label in {0,1}
+            df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
+                col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
+
+            # Combine
+            train_df = df_real_normal.unionByName(df_pseudo_all)
+
+            # --------------------------
+            # 0.1) Weighting strategy (NO oversampling)
+            # --------------------------
+            # Trust factor for pseudo labels (tune 0.2~0.7 depending on noise)
+            PSEUDO_TRUST = 0.4
+
+            # Class balancing (less aggressive to avoid false positives)
+            n0 = train_df.filter(col("Final_Label") == 0).count()
+            n1 = train_df.filter(col("Final_Label") == 1).count()
+            w1 = float(np.sqrt(n0 / max(n1, 1)))  # safer than n0/n1
+            w0 = 1.0
+
+            train_df = train_df.withColumn("baseClassWeight",
+                when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
+                when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
+                col("baseClassWeight") * col("srcWeight"))
+
+            # Proper split
+            train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
+
+            # --------------------------
+            # 0.2) Test set
+            # --------------------------
+            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                "Final_Label", col("Final_Label").cast("int"))
+
+            # --------------------------
+            # 1) Assemble features
+            # --------------------------
+            feature_cols = ["features_vec_final"]
+            if "anomaly_score_pca" in train_df.columns:
+                feature_cols.append("anomaly_score_pca")
+            if "anomaly_score_gmm" in train_df.columns:
+                feature_cols.append("anomaly_score_gmm")
+
+            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+            train_base_df = assembler.transform(train_base_df)
+            val_df = assembler.transform(val_df)
+            test_df = assembler.transform(test_df)
+            features_col = "features_augmented"
+
+            # --------------------------
+            # 2) Train GBT
+            # --------------------------
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=75,
+                maxDepth=5, stepSize=0.1, seed=123)
+
+            t0 = time.time()
+            model = gbt.fit(train_base_df)
+            print(f"GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
+
+            # --------------------------
+            # 3) Threshold tuning (precision @ high recall)
+            # --------------------------
+            val_pred = model.transform(val_df)
+            val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
+
+            TARGET_RECALL = 0.98  # change to 0.95-0.97 if you want more precision
+            best_threshold = 0.5
+            best_prec = -1.0
+
+            for t in np.arange(0.05, 0.999, 0.005):
+                preds = (val_pdf["prob_1"].values >= t).astype(int)
+                r = recall_score(val_pdf["y"].values.astype(int), preds, pos_label=1)
+                if r >= TARGET_RECALL:
+                    p = precision_score(val_pdf["y"].values.astype(int), preds, pos_label=1, zero_division=0)
+                    if p > best_prec:
+                        best_prec = p
+                        best_threshold = float(t)
+
+            # Fallback: best class-1 F1
+            if best_prec < 0:
+                best_f1 = -1.0
+                for t in np.arange(0.05, 0.96, 0.01):
+                    preds = (val_pdf["prob_1"].values >= t).astype(int)
+                    f1 = f1_score(val_pdf["y"].values.astype(int), preds, pos_label=1)
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_threshold = float(t)
+                print("Fallback threshold (best class-1 F1):", best_threshold, "F1:", best_f1)
+            else:
+                print(
+                    f"Best threshold (maximize precision with recall >= {TARGET_RECALL}): {best_threshold} | VAL precision: {best_prec:.4f}")
+
+            # --------------------------
+            # 4) Test prediction + precision-friendly ensemble
+            # --------------------------
+            t1 = time.time()
+            test_pred = model.transform(test_df)
+            print(f"GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
+
+            test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
+                col("gmm_flag")).toPandas()
+
+            test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
+
+            # 2-of-3 voting (better precision than OR)
+            test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 2).astype(
+                int)
+
+            print("\n================ TEST CLASSIFICATION REPORT ================")
+            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+
+            exit()
+
+
+
+
+
+
+
             # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
             # ======================================
             # 0) Prepare training and test sets
@@ -1159,6 +1296,21 @@ class FeaturesEngineering:
             print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
             exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
