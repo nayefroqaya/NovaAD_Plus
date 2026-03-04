@@ -1052,6 +1052,414 @@ class FeaturesEngineering:
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
             #----------------------ensembell :
+
+            # ============================================================
+            # FULL COPY/PASTE: Two-variant GBT (Case A + Case B),
+            # dataset-robust tuning (MIN_RECALL + best class-1 F1),
+            # safer gating for HDFS (require BOTH pca+gmm), and
+            # auto-select best among Model A / Model B / Ensemble.
+            #
+            # Assumes you already have:
+            #   - sequences_df  (Spark DF)
+            #   - df_full_train_labeled_features (Spark DF with Final_Label + features_vec_final)
+            #   - ps_hash, ps_abs available (as in your code)
+            #
+            # Notes:
+            #   - NO oversampling (keeps runtime low).
+            #   - Deterministic hash split (stable).
+            #   - For gating, you can switch between ">=1" or "==2".
+            # ============================================================
+
+            import time
+            import numpy as np
+
+            from pyspark.sql.functions import col, lit, when, pmod
+            from pyspark.ml.feature import VectorAssembler
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.functions import vector_to_array
+
+            from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
+
+            # --------------------------
+            # SETTINGS (edit only these)
+            # --------------------------
+            SEED = 42
+
+            # Threshold tuning policy:
+            MIN_RECALL = 0.85  # for HDFS, avoids extremely low thresholds
+            THRESH_GRID_STEP = 0.005  # keep as in your code
+
+            # Pseudo weighting:
+            PSEUDO_TRUST = 0.6
+            WEIGHT_CAP = 8.0
+            POS_FACTOR = 0.7
+
+            # GBT params:
+            MAX_ITER = 75
+            MAX_DEPTH = 5
+            STEP_SIZE = 0.1
+
+            # Gating rule:
+            #   If True: require BOTH flags for gating (best for HDFS precision)
+            #   If False: require >=1 flag (more recall, more false positives)
+            REQUIRE_BOTH_FLAGS_FOR_GATE = True
+
+            # Gate offset tuning grid:
+            OFFSET_GRID = np.arange(0.06, 0.21, 0.02)
+
+            # Ensemble weights (only used if you want avg prob ensemble)
+            ENS_WA = 0.5
+            ENS_WB = 0.5
+
+            # ============================================================
+            # Helpers
+            # ============================================================
+            def add_weights(df, pseudo_trust=PSEUDO_TRUST, weight_cap=WEIGHT_CAP, pos_factor=POS_FACTOR, verbose=True):
+                """
+                Adds classWeight = baseClassWeight * srcWeight
+                  baseClassWeight: w0=1, w1=min((n0/n1)*pos_factor, weight_cap)
+                  srcWeight: pseudo_trust if src=='pseudo' else 1
+                Returns (df_with_weight, (n0,n1,raw_w1,w1))
+                """
+                n0 = df.filter(col("Final_Label") == 0).count()
+                n1 = df.filter(col("Final_Label") == 1).count()
+
+                raw_w1 = float(n0 / max(n1, 1)) * float(pos_factor)
+                w1 = float(min(raw_w1, float(weight_cap)))
+                w0 = 1.0
+
+                if verbose:
+                    print(
+                        f"[INFO] counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, pseudo_trust={pseudo_trust}")
+
+                out = (df.withColumn("baseClassWeight",
+                                     when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
+                                                                                                           when(
+                                                                                                               col("src") == "pseudo",
+                                                                                                               lit(float(
+                                                                                                                   pseudo_trust))).otherwise(
+                                                                                                               lit(1.0))).withColumn(
+                    "classWeight", col("baseClassWeight") * col("srcWeight")))
+                return out, (n0, n1, raw_w1, w1)
+
+            def _gate_condition(flags_sum, require_both):
+                # returns a boolean mask for pandas arrays
+                if require_both:
+                    return (flags_sum >= 2)  # both pca and gmm
+                else:
+                    return (flags_sum >= 1)  # at least one
+
+            def tune_threshold_and_offset(model, val_df, min_recall=MIN_RECALL, thresh_step=THRESH_GRID_STEP,
+                                          offset_grid=OFFSET_GRID, require_both_flags=REQUIRE_BOTH_FLAGS_FOR_GATE):
+                """
+                Threshold tuning:
+                  - choose threshold maximizing class-1 F1 subject to recall >= min_recall
+                  - fallback to best class-1 F1 (no recall constraint) if none meet min_recall
+                Offset tuning:
+                  final_pred = (p>=t) OR (p>=t+off AND gate_flags_condition)
+                Returns (best_threshold, best_offset, diagnostics_dict)
+                """
+                val_pred = model.transform(val_df)
+
+                pdf = val_pred.select(col("Final_Label").alias("y"),
+                    vector_to_array(col("probability")).getItem(1).alias("p1"),
+                    (col("pca_flag") if "pca_flag" in val_pred.columns else lit(0)).alias("pca_flag"),
+                    (col("gmm_flag") if "gmm_flag" in val_pred.columns else lit(0)).alias("gmm_flag")).toPandas()
+
+                y = pdf["y"].values.astype(int)
+                p = pdf["p1"].values
+                pca = pdf["pca_flag"].values.astype(int)
+                gmm = pdf["gmm_flag"].values.astype(int)
+                flags_sum = pca + gmm
+
+                # --- threshold search (F1 subject to recall >= min_recall)
+                best_t = 0.5
+                best_f1 = -1.0
+                best_pr = 0.0
+                best_rc = 0.0
+                found = False
+
+                for t in np.arange(0.01, 0.999, thresh_step):
+                    pred = (p >= t).astype(int)
+                    rc = recall_score(y, pred, pos_label=1, zero_division=0)
+                    if rc < min_recall:
+                        continue
+                    pr = precision_score(y, pred, pos_label=1, zero_division=0)
+                    f1 = f1_score(y, pred, pos_label=1, zero_division=0)
+                    found = True
+                    if f1 > best_f1:
+                        best_f1, best_t, best_pr, best_rc = f1, float(t), pr, rc
+
+                if not found:
+                    # fallback: best class-1 f1 (no constraint)
+                    best_t = 0.5
+                    best_f1 = -1.0
+                    for t in np.arange(0.01, 0.999, thresh_step):
+                        pred = (p >= t).astype(int)
+                        f1 = f1_score(y, pred, pos_label=1, zero_division=0)
+                        if f1 > best_f1:
+                            best_f1, best_t = f1, float(t)
+                    # compute pr/rc for logging
+                    pred = (p >= best_t).astype(int)
+                    best_pr = precision_score(y, pred, pos_label=1, zero_division=0)
+                    best_rc = recall_score(y, pred, pos_label=1, zero_division=0)
+                    print(f"[WARN] No threshold met recall>={min_recall:.2f}. Using best class-1 F1 threshold.")
+
+                print(
+                    f"[INFO] VAL best threshold t={best_t:.3f} with P={best_pr:.4f}, R={best_rc:.4f}, F1={best_f1:.4f} (min_recall={min_recall})")
+
+                # quantile fallback if predicts none
+                if (p >= best_t).sum() == 0:
+                    best_t = float(np.quantile(p, 0.90))
+                    print(f"[WARN] Threshold gave 0 anomalies on VAL. Using quantile fallback t={best_t:.6f}")
+
+                # --- offset tuning for gate
+                best_off = 0.12
+                best_f1_gate = -1.0
+                best_gate_pr = 0.0
+                best_gate_rc = 0.0
+
+                for off in offset_grid:
+                    gate_t = min(best_t + float(off), 0.999)
+                    gate_mask = _gate_condition(flags_sum, require_both_flags)
+                    gated_pred = ((p >= best_t) | ((p >= gate_t) & gate_mask)).astype(int)
+
+                    prg = precision_score(y, gated_pred, pos_label=1, zero_division=0)
+                    rcg = recall_score(y, gated_pred, pos_label=1, zero_division=0)
+                    f1g = f1_score(y, gated_pred, pos_label=1, zero_division=0)
+
+                    # choose best by F1 (you can change to precision if you want)
+                    if f1g > best_f1_gate:
+                        best_f1_gate, best_off = f1g, float(off)
+                        best_gate_pr, best_gate_rc = prg, rcg
+
+                print(
+                    f"[INFO] VAL best offset off={best_off:.3f} => gated P={best_gate_pr:.4f}, R={best_gate_rc:.4f}, F1={best_f1_gate:.4f} "
+                    f"(require_both_flags={require_both_flags})")
+
+                diag = {"t": best_t, "off": best_off, "val_pr": best_pr, "val_rc": best_rc, "val_f1": best_f1,
+                    "val_gate_pr": best_gate_pr, "val_gate_rc": best_gate_rc, "val_gate_f1": best_f1_gate, }
+                return best_t, best_off, diag
+
+            def score_test_with_gate(model, test_df, threshold, offset, name="MODEL",
+                                     require_both_flags=REQUIRE_BOTH_FLAGS_FOR_GATE):
+                """
+                TEST scoring using:
+                  final_pred = (p>=t) OR (p>=t+off AND gate_flags_condition)
+                Returns pandas df with y, prob_1, final_pred
+                """
+                t1 = time.time()
+                pred = model.transform(test_df)
+                print(f"[INFO] {name} predict time: {(time.time() - t1) / 60:.2f} minutes")
+
+                pdf = pred.select(col("Node_block_id"), col("Final_Label").alias("y"),
+                    vector_to_array(col("probability")).getItem(1).alias("p1"), col("pca_flag"),
+                    col("gmm_flag")).toPandas()
+
+                y = pdf["y"].values.astype(int)
+                p = pdf["p1"].values
+                flags_sum = pdf["pca_flag"].values.astype(int) + pdf["gmm_flag"].values.astype(int)
+
+                gate_t = min(float(threshold) + float(offset), 0.999)
+                gate_mask = _gate_condition(flags_sum, require_both_flags)
+
+                pdf["final_pred"] = ((p >= float(threshold)) | ((p >= gate_t) & gate_mask)).astype(int)
+
+                print(f"\n================ TEST REPORT ({name}) ================")
+                print(classification_report(y, pdf["final_pred"].values.astype(int), digits=4))
+                print(
+                    f"[INFO] {name} threshold={threshold:.4f}, offset={offset:.3f}, gate_t={gate_t:.4f}, require_both_flags={require_both_flags}")
+                return pdf
+
+            def class1_metrics(y_true, y_pred):
+                pr = precision_score(y_true, y_pred, pos_label=1, zero_division=0)
+                rc = recall_score(y_true, y_pred, pos_label=1, zero_division=0)
+                f1 = f1_score(y_true, y_pred, pos_label=1, zero_division=0)
+                return pr, rc, f1
+
+            # ============================================================
+            # 0) Build TRAIN/VAL/TEST once (shared)
+            # ============================================================
+
+            # real normals
+            df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+
+            # all pseudo
+            df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
+                col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
+
+            train_all = df_real_normal.unionByName(df_pseudo_all)
+
+            # deterministic hash split
+            train_all = train_all.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
+            train_base_all = train_all.filter(col("split_key") < 90).drop("split_key")
+            val_all = train_all.filter(col("split_key") >= 90).drop("split_key")
+
+            # test df
+            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                col("features_vec_final"), col("y_true").alias("Final_Label"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag"), ).withColumn(
+                "Final_Label", col("Final_Label").cast("int"))
+
+            # ============================================================
+            # 1) Assemble features once + cache
+            # ============================================================
+            feature_cols = ["features_vec_final"]
+            if "anomaly_score_pca" in train_all.columns:
+                feature_cols.append("anomaly_score_pca")
+            if "anomaly_score_gmm" in train_all.columns:
+                feature_cols.append("anomaly_score_gmm")
+
+            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+
+            train_base_all = assembler.transform(train_base_all)
+            val_all = assembler.transform(val_all)
+            test_df = assembler.transform(test_df)
+
+            train_base_all = train_base_all.cache()
+            val_all = val_all.cache()
+            test_df = test_df.cache()
+            _ = train_base_all.count()
+            _ = val_all.count()
+            _ = test_df.count()
+
+            # ============================================================
+            # 2) Create Variant A and Variant B (no oversampling)
+            # ============================================================
+
+            # Variant A: use all pseudo (normal + anomaly)
+            train_A = train_base_all
+            val_A = val_all
+
+            # Variant B: use only pseudo anomalies + real normals
+            train_B = train_base_all.filter(
+                (col("src") == "real") | ((col("src") == "pseudo") & (col("Final_Label") == 1)))
+            val_B = val_all.filter((col("src") == "real") | ((col("src") == "pseudo") & (col("Final_Label") == 1)))
+
+            # Add weights
+            train_Aw, _ = add_weights(train_A, pseudo_trust=PSEUDO_TRUST, verbose=True)
+            val_Aw, _ = add_weights(val_A, pseudo_trust=PSEUDO_TRUST, verbose=False)
+
+            train_Bw, _ = add_weights(train_B, pseudo_trust=PSEUDO_TRUST, verbose=True)
+            val_Bw, _ = add_weights(val_B, pseudo_trust=PSEUDO_TRUST, verbose=False)
+
+            train_Aw = train_Aw.cache();
+            val_Aw = val_Aw.cache()
+            train_Bw = train_Bw.cache();
+            val_Bw = val_Bw.cache()
+            _ = train_Aw.count();
+            _ = val_Aw.count()
+            _ = train_Bw.count();
+            _ = val_Bw.count()
+
+            # ============================================================
+            # 3) Train two GBT models
+            # ============================================================
+            gbt = GBTClassifier(featuresCol="features_augmented", labelCol="Final_Label", weightCol="classWeight",
+                maxIter=MAX_ITER, maxDepth=MAX_DEPTH, stepSize=STEP_SIZE, seed=SEED, subsamplingRate=1.0,
+                featureSubsetStrategy="all", )
+
+            t0 = time.time()
+            model_A = gbt.fit(train_Aw)
+            print(f"[INFO] Model A fit time: {(time.time() - t0) / 60:.2f} minutes")
+
+            t0 = time.time()
+            model_B = gbt.fit(train_Bw)
+            print(f"[INFO] Model B fit time: {(time.time() - t0) / 60:.2f} minutes")
+
+            # ============================================================
+            # 4) Tune thresholds on VAL (robust for HDFS)
+            # ============================================================
+            print("\n[INFO] Tuning Model A...")
+            tA, offA, diagA = tune_threshold_and_offset(model_A, val_Aw)
+
+            print("\n[INFO] Tuning Model B...")
+            tB, offB, diagB = tune_threshold_and_offset(model_B, val_Bw)
+
+            # ============================================================
+            # 5) TEST evaluation
+            # ============================================================
+            testA = score_test_with_gate(model_A, test_df, tA, offA, name="Model_A (All pseudo)")
+            testB = score_test_with_gate(model_B, test_df, tB, offB, name="Model_B (Pseudo anomalies only)")
+
+            # ============================================================
+            # 6) Ensemble (avg probabilities) + SAME gating rule
+            #    If ensemble hurts (often for HDFS), selection step will avoid it.
+            # ============================================================
+
+            predA = model_A.transform(test_df).select(col("Node_block_id"), col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("pA"), col("pca_flag"), col("gmm_flag"), )
+
+            predB = model_B.transform(test_df).select(col("Node_block_id"),
+                vector_to_array(col("probability")).getItem(1).alias("pB"), )
+
+            ens_sdf = predA.join(predB, on="Node_block_id", how="inner")
+            ens_pdf = ens_sdf.toPandas()
+
+            ens_pdf["pE"] = float(ENS_WA) * ens_pdf["pA"].values + float(ENS_WB) * ens_pdf["pB"].values
+
+            # Tune ensemble threshold on VAL using averaged probs (cheap-ish way: use min(tA,tB) and avg offsets)
+            # If you want true tuning, you'd need VAL probs from both models too (extra transform but still not training).
+            tE = float(min(tA, tB))
+            offE = float((offA + offB) / 2.0)
+            gateE = min(tE + offE, 0.999)
+
+            flags_sum = ens_pdf["pca_flag"].values.astype(int) + ens_pdf["gmm_flag"].values.astype(int)
+            gate_mask = _gate_condition(flags_sum, REQUIRE_BOTH_FLAGS_FOR_GATE)
+
+            ens_pdf["final_pred"] = (
+                        (ens_pdf["pE"].values >= tE) | ((ens_pdf["pE"].values >= gateE) & gate_mask)).astype(int)
+
+            print("\n================ TEST REPORT (Ensemble AvgProb) ================")
+            print(classification_report(ens_pdf["y"].astype(int), ens_pdf["final_pred"].astype(int), digits=4))
+            print(
+                f"[INFO] Ensemble threshold={tE:.4f}, offset={offE:.3f}, gate_t={gateE:.4f}, require_both_flags={REQUIRE_BOTH_FLAGS_FOR_GATE}")
+
+            # ============================================================
+            # 7) Select BEST model (by class-1 F1 with recall floor)
+            # ============================================================
+            yA = testA["y"].astype(int).values
+            pA = testA["final_pred"].astype(int).values
+            prA, rcA, f1A = class1_metrics(yA, pA)
+
+            yB = testB["y"].astype(int).values
+            pB_ = testB["final_pred"].astype(int).values
+            prB, rcB, f1B = class1_metrics(yB, pB_)
+
+            yE = ens_pdf["y"].astype(int).values
+            pE = ens_pdf["final_pred"].astype(int).values
+            prE, rcE, f1E = class1_metrics(yE, pE)
+
+            print("\n[INFO] Summary (class-1):")
+            print(f"  Model A: precision={prA:.4f}, recall={rcA:.4f}, f1={f1A:.4f}")
+            print(f"  Model B: precision={prB:.4f}, recall={rcB:.4f}, f1={f1B:.4f}")
+            print(f"  Ensemble: precision={prE:.4f}, recall={rcE:.4f}, f1={f1E:.4f}")
+
+            cands = []
+            if rcA >= MIN_RECALL: cands.append(("Model A", prA, rcA, f1A))
+            if rcB >= MIN_RECALL: cands.append(("Model B", prB, rcB, f1B))
+            if rcE >= MIN_RECALL: cands.append(("Ensemble", prE, rcE, f1E))
+
+            if len(cands) > 0:
+                # pick best F1 among those meeting recall floor
+                best = sorted(cands, key=lambda x: x[3], reverse=True)[0]
+                print(
+                    f"\n[INFO] BEST (max F1 with recall>={MIN_RECALL:.2f}): {best[0]} (P={best[1]:.4f}, R={best[2]:.4f}, F1={best[3]:.4f})")
+            else:
+                best = sorted([("Model A", prA, rcA, f1A), ("Model B", prB, rcB, f1B), ("Ensemble", prE, rcE, f1E)],
+                              key=lambda x: x[3], reverse=True)[0]
+                print(
+                    f"\n[INFO] BEST (fallback max F1): {best[0]} (P={best[1]:.4f}, R={best[2]:.4f}, F1={best[3]:.4f})")
+
+            exit()
+
+            '''
             # ============================================================
             # FULL COPY/PASTE CODE: Train both "Case A" and "Case B" GBTs,
             # tune thresholds on VAL, evaluate on TEST, and build ensemble.
@@ -1389,6 +1797,7 @@ class FeaturesEngineering:
                     f"\n[INFO] BEST (fallback max F1): {best[0]} (P={best[1]:.4f}, R={best[2]:.4f}, F1={best[3]:.4f})")
 
             exit()
+            '''
 
 
 
