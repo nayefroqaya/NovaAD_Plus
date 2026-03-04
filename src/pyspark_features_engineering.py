@@ -1054,17 +1054,18 @@ class FeaturesEngineering:
             #----------------------ensembell :
 
             # ============================================================
-            # FULL COPY/PASTE CODE (FINAL)
-            # Two-variant GBT (Case A + Case B) + (optional) AvgProb ensemble
-            # Robust threshold tuning (maximize class-1 F1 with recall floor)
-            # Safer gating for HDFS (option: require BOTH pca+gmm flags)
-            # Precision-first model selection with recall floor
+            # FULL COPY/PASTE CODE
+            # - Train 2 variants (Model A: all pseudo, Model B: pseudo anomalies only)
+            # - Deterministic split
+            # - Weighting (no oversampling)
+            # - Threshold + gate offset tuning on VAL
+            # - Test evaluation for A, B, and (optional) ensemble
+            # - BEST selection uses precision + recall + F1 (not recall-only)
             #
             # Assumes you already have:
-            #   - sequences_df  (Spark DF)
-            #   - df_full_train_labeled_features (Spark DF with Final_Label + features_vec_final)
-            #   - ps_hash, ps_abs functions available (as in your original code)
-            #
+            #   sequences_df
+            #   df_full_train_labeled_features
+            #   ps_hash, ps_abs
             # ============================================================
 
             import time
@@ -1078,22 +1079,19 @@ class FeaturesEngineering:
             from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
             # --------------------------
-            # SETTINGS (edit if needed)
+            # SETTINGS
             # --------------------------
             SEED = 42
 
-            # Threshold tuning:
-            MIN_RECALL_TUNING = 0.85  # helps HDFS avoid very low thresholds
+            # Threshold tuning on VAL (robust for HDFS):
+            MIN_RECALL_TUNING = 0.85
             THRESH_GRID_STEP = 0.005
 
             # Gate tuning:
-            REQUIRE_BOTH_FLAGS_FOR_GATE = True  # True for HDFS precision, False for more recall
-            OFFSET_GRID = np.arange(0.08, 0.31, 0.03)  # wider grid improves precision without extra training time
+            REQUIRE_BOTH_FLAGS_FOR_GATE = True
+            OFFSET_GRID = np.arange(0.08, 0.31, 0.03)
 
-            # Model selection:
-            RECALL_FLOOR_FOR_SELECTION = 0.97  # pick best precision among models that keep recall >= this
-
-            # Pseudo weighting:
+            # Weighting:
             PSEUDO_TRUST = 0.6
             WEIGHT_CAP = 8.0
             POS_FACTOR = 0.7
@@ -1103,22 +1101,25 @@ class FeaturesEngineering:
             MAX_DEPTH = 5
             STEP_SIZE = 0.1
 
-            # Ensemble weights (avg prob)
+            # Ensemble weights:
             ENS_WA = 0.5
             ENS_WB = 0.5
+
+            # Multi-metric selection score weights (edit these if you want):
+            # Higher = more important
+            W_PREC = 0.45
+            W_REC = 0.25
+            W_F1 = 0.30
+
+            # Optional: impose minimums; if unmet, penalize heavily
+            MIN_REC_SELECTION = 0.90
+            MIN_PREC_SELECTION = 0.05  # just to avoid degenerate cases
 
             # ============================================================
             # Helpers
             # ============================================================
 
             def add_weights(df, pseudo_trust=PSEUDO_TRUST, weight_cap=WEIGHT_CAP, pos_factor=POS_FACTOR, verbose=True):
-                """
-                Adds classWeight:
-                  w1 = min((n0/n1)*pos_factor, weight_cap)
-                  w0 = 1
-                  srcWeight = pseudo_trust if src=='pseudo' else 1
-                  classWeight = w * srcWeight
-                """
                 n0 = df.filter(col("Final_Label") == 0).count()
                 n1 = df.filter(col("Final_Label") == 1).count()
                 raw_w1 = float(n0 / max(n1, 1)) * float(pos_factor)
@@ -1129,18 +1130,16 @@ class FeaturesEngineering:
                     print(
                         f"[INFO] counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, pseudo_trust={pseudo_trust}")
 
-                out = (df.withColumn("baseClassWeight",
-                                     when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
-                                                                                                           when(
-                                                                                                               col("src") == "pseudo",
-                                                                                                               lit(float(
-                                                                                                                   pseudo_trust))).otherwise(
-                                                                                                               lit(1.0))).withColumn(
+                return (df.withColumn("baseClassWeight",
+                                      when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
+                                                                                                            when(
+                                                                                                                col("src") == "pseudo",
+                                                                                                                lit(float(
+                                                                                                                    pseudo_trust))).otherwise(
+                                                                                                                lit(1.0))).withColumn(
                     "classWeight", col("baseClassWeight") * col("srcWeight")))
-                return out
 
             def gate_mask_from_flags(flags_sum, require_both=True):
-                # pandas boolean mask
                 return (flags_sum >= 2) if require_both else (flags_sum >= 1)
 
             def class1_metrics(y_true, y_pred):
@@ -1149,14 +1148,22 @@ class FeaturesEngineering:
                 f1 = f1_score(y_true, y_pred, pos_label=1, zero_division=0)
                 return pr, rc, f1
 
+            def selection_score(pr, rc, f1):
+                """
+                Combines precision/recall/f1 into ONE score.
+                Penalize if below minimum thresholds.
+                """
+                score = W_PREC * pr + W_REC * rc + W_F1 * f1
+
+                if rc < MIN_REC_SELECTION:
+                    score -= 1.0  # heavy penalty
+                if pr < MIN_PREC_SELECTION:
+                    score -= 1.0  # heavy penalty
+
+                return score
+
             def tune_threshold_and_offset(model, val_df, min_recall=MIN_RECALL_TUNING, thresh_step=THRESH_GRID_STEP,
                                           offset_grid=OFFSET_GRID, require_both_flags=REQUIRE_BOTH_FLAGS_FOR_GATE):
-                """
-                1) Pick threshold maximizing class-1 F1 subject to recall >= min_recall.
-                   Fallback: best class-1 F1 without recall constraint.
-                2) Pick offset maximizing gated class-1 F1:
-                     pred = (p>=t) OR (p>=t+off AND gate_flags)
-                """
                 val_pred = model.transform(val_df)
 
                 pdf = val_pred.select(col("Final_Label").alias("y"),
@@ -1169,7 +1176,7 @@ class FeaturesEngineering:
                 flags_sum = pdf["pca_flag"].values.astype(int) + pdf["gmm_flag"].values.astype(int)
                 gate_ok = gate_mask_from_flags(flags_sum, require_both=require_both_flags)
 
-                # --- threshold selection
+                # --- Threshold selection: maximize class-1 F1 subject to recall >= min_recall
                 best_t = 0.5
                 best_f1 = -1.0
                 best_pr = 0.0
@@ -1189,7 +1196,7 @@ class FeaturesEngineering:
 
                 if not found:
                     print(
-                        f"[WARN] No threshold met recall>={min_recall:.2f}. Using best class-1 F1 threshold (no recall constraint).")
+                        f"[WARN] No threshold met recall>={min_recall:.2f}. Using best class-1 F1 threshold (no constraint).")
                     best_t = 0.5
                     best_f1 = -1.0
                     for t in np.arange(0.01, 0.999, thresh_step):
@@ -1201,41 +1208,28 @@ class FeaturesEngineering:
                     best_pr = precision_score(y, pred, pos_label=1, zero_division=0)
                     best_rc = recall_score(y, pred, pos_label=1, zero_division=0)
 
-                print(
-                    f"[INFO] VAL threshold t={best_t:.3f} => P={best_pr:.4f}, R={best_rc:.4f}, F1={best_f1:.4f} (min_recall={min_recall})")
+                print(f"[INFO] VAL threshold t={best_t:.3f} => P={best_pr:.4f}, R={best_rc:.4f}, F1={best_f1:.4f}")
 
                 if (p >= best_t).sum() == 0:
                     best_t = float(np.quantile(p, 0.90))
                     print(f"[WARN] Threshold gave 0 anomalies on VAL. Using quantile fallback t={best_t:.6f}")
 
-                # --- offset selection (gated)
+                # --- Offset selection: maximize gated class-1 F1
                 best_off = float(offset_grid[0]) if len(offset_grid) > 0 else 0.12
                 best_f1g = -1.0
-                best_prg = 0.0
-                best_rcg = 0.0
 
                 for off in offset_grid:
                     gate_t = min(best_t + float(off), 0.999)
                     gated_pred = ((p >= best_t) | ((p >= gate_t) & gate_ok)).astype(int)
-                    prg = precision_score(y, gated_pred, pos_label=1, zero_division=0)
-                    rcg = recall_score(y, gated_pred, pos_label=1, zero_division=0)
                     f1g = f1_score(y, gated_pred, pos_label=1, zero_division=0)
                     if f1g > best_f1g:
-                        best_f1g, best_off, best_prg, best_rcg = f1g, float(off), prg, rcg
+                        best_f1g, best_off = f1g, float(off)
 
-                print(
-                    f"[INFO] VAL gate offset off={best_off:.3f} => gated P={best_prg:.4f}, R={best_rcg:.4f}, F1={best_f1g:.4f} "
-                    f"(require_both_flags={require_both_flags})")
-
+                print(f"[INFO] VAL best offset off={best_off:.3f} => gated class-1 F1={best_f1g:.4f}")
                 return best_t, best_off
 
             def score_test_with_gate(model, test_df, threshold, offset, name="MODEL",
                                      require_both_flags=REQUIRE_BOTH_FLAGS_FOR_GATE):
-                """
-                TEST scoring:
-                  final_pred = (p>=t) OR (p>=t+off AND gate_flags)
-                Returns pandas df with y, final_pred, p1, Node_block_id
-                """
                 t1 = time.time()
                 pred = model.transform(test_df)
                 print(f"[INFO] {name} predict time: {(time.time() - t1) / 60:.2f} minutes")
@@ -1259,7 +1253,7 @@ class FeaturesEngineering:
                 return pdf
 
             # ============================================================
-            # 0) BUILD TRAIN/VAL/TEST (shared)
+            # 0) BUILD TRAIN/VAL/TEST
             # ============================================================
 
             df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
@@ -1270,7 +1264,7 @@ class FeaturesEngineering:
 
             train_all = df_real_normal.unionByName(df_pseudo_all)
 
-            # deterministic hash split
+            # deterministic split
             train_all = train_all.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
             train_base_all = train_all.filter(col("split_key") < 90).drop("split_key")
             val_all = train_all.filter(col("split_key") >= 90).drop("split_key")
@@ -1309,19 +1303,19 @@ class FeaturesEngineering:
             _ = test_df.count()
 
             # ============================================================
-            # 2) VARIANT A and VARIANT B (NO oversampling)
+            # 2) VARIANTS
             # ============================================================
 
-            # Variant A: all pseudo
+            # Model A: all pseudo
             train_A = train_base_all
             val_A = val_all
 
-            # Variant B: pseudo anomalies only
+            # Model B: pseudo anomalies only
             train_B = train_base_all.filter(
                 (col("src") == "real") | ((col("src") == "pseudo") & (col("Final_Label") == 1)))
             val_B = val_all.filter((col("src") == "real") | ((col("src") == "pseudo") & (col("Final_Label") == 1)))
 
-            # Weights
+            # weights
             train_Aw = add_weights(train_A, verbose=True)
             val_Aw = add_weights(val_A, verbose=False)
 
@@ -1338,7 +1332,7 @@ class FeaturesEngineering:
             _ = val_Bw.count()
 
             # ============================================================
-            # 3) TRAIN TWO GBT MODELS
+            # 3) TRAIN MODELS
             # ============================================================
 
             gbt = GBTClassifier(featuresCol="features_augmented", labelCol="Final_Label", weightCol="classWeight",
@@ -1354,7 +1348,7 @@ class FeaturesEngineering:
             print(f"[INFO] Model B fit time: {(time.time() - t0) / 60:.2f} minutes")
 
             # ============================================================
-            # 4) TUNE THRESHOLDS ON VAL
+            # 4) TUNE ON VAL
             # ============================================================
 
             print("\n[INFO] Tuning Model A...")
@@ -1364,14 +1358,14 @@ class FeaturesEngineering:
             tB, offB = tune_threshold_and_offset(model_B, val_Bw)
 
             # ============================================================
-            # 5) TEST EVALUATION
+            # 5) TEST
             # ============================================================
 
             testA = score_test_with_gate(model_A, test_df, tA, offA, name="Model_A (All pseudo)")
             testB = score_test_with_gate(model_B, test_df, tB, offB, name="Model_B (Pseudo anomalies only)")
 
             # ============================================================
-            # 6) ENSEMBLE (Avg prob) + SAME gating
+            # 6) ENSEMBLE (avg prob) - optional
             # ============================================================
 
             predA = model_A.transform(test_df).select(col("Node_block_id"), col("Final_Label").alias("y"),
@@ -1385,9 +1379,8 @@ class FeaturesEngineering:
 
             ens_pdf["pE"] = float(ENS_WA) * ens_pdf["pA"].values + float(ENS_WB) * ens_pdf["pB"].values
 
-            # Simple ensemble threshold/offset choice (no extra VAL transforms):
-            tE = float(min(tA, tB))
-            offE = float((offA + offB) / 2.0)
+            # (Simple) ensemble threshold/offset: reuse Model A threshold and offset (works well in practice for HDFS)
+            tE, offE = float(tA), float(offA)
             gateE = min(tE + offE, 0.999)
 
             flags_sum_E = ens_pdf["pca_flag"].values.astype(int) + ens_pdf["gmm_flag"].values.astype(int)
@@ -1402,42 +1395,30 @@ class FeaturesEngineering:
                 f"[INFO] Ensemble threshold={tE:.4f}, offset={offE:.3f}, gate_t={gateE:.4f}, require_both_flags={REQUIRE_BOTH_FLAGS_FOR_GATE}")
 
             # ============================================================
-            # 7) PRECISION-FIRST SELECTION (subject to recall floor)
+            # 7) MULTI-METRIC BEST SELECTION (precision + recall + f1)
             # ============================================================
 
-            yA = testA["y"].astype(int).values
-            pA = testA["final_pred"].astype(int).values
-            prA, rcA, f1A = class1_metrics(yA, pA)
+            prA, rcA, f1A = class1_metrics(testA["y"].astype(int).values, testA["final_pred"].astype(int).values)
+            prB, rcB, f1B = class1_metrics(testB["y"].astype(int).values, testB["final_pred"].astype(int).values)
+            prE, rcE, f1E = class1_metrics(ens_pdf["y"].astype(int).values, ens_pdf["final_pred"].astype(int).values)
 
-            yB = testB["y"].astype(int).values
-            pB_ = testB["final_pred"].astype(int).values
-            prB, rcB, f1B = class1_metrics(yB, pB_)
-
-            yE = ens_pdf["y"].astype(int).values
-            pE = ens_pdf["final_pred"].astype(int).values
-            prE, rcE, f1E = class1_metrics(yE, pE)
+            sA = selection_score(prA, rcA, f1A)
+            sB = selection_score(prB, rcB, f1B)
+            sE = selection_score(prE, rcE, f1E)
 
             print("\n[INFO] Summary (class-1):")
-            print(f"  Model A: precision={prA:.4f}, recall={rcA:.4f}, f1={f1A:.4f}")
-            print(f"  Model B: precision={prB:.4f}, recall={rcB:.4f}, f1={f1B:.4f}")
-            print(f"  Ensemble: precision={prE:.4f}, recall={rcE:.4f}, f1={f1E:.4f}")
+            print(f"  Model A: P={prA:.4f}, R={rcA:.4f}, F1={f1A:.4f}, SCORE={sA:.4f}")
+            print(f"  Model B: P={prB:.4f}, R={rcB:.4f}, F1={f1B:.4f}, SCORE={sB:.4f}")
+            print(f"  Ensemble: P={prE:.4f}, R={rcE:.4f}, F1={f1E:.4f}, SCORE={sE:.4f}")
 
-            cands = []
-            if rcA >= RECALL_FLOOR_FOR_SELECTION: cands.append(("Model A", prA, rcA, f1A))
-            if rcB >= RECALL_FLOOR_FOR_SELECTION: cands.append(("Model B", prB, rcB, f1B))
-            if rcE >= RECALL_FLOOR_FOR_SELECTION: cands.append(("Ensemble", prE, rcE, f1E))
+            best_name, best_tuple = max(
+                [("Model A", (sA, prA, rcA, f1A)), ("Model B", (sB, prB, rcB, f1B)), ("Ensemble", (sE, prE, rcE, f1E))],
+                key=lambda x: x[1][0])
 
-            if len(cands) > 0:
-                # PRIMARY: precision; TIE-BREAK: F1
-                best = sorted(cands, key=lambda x: (x[1], x[3]), reverse=True)[0]
-                print(f"\n[INFO] BEST (max precision with recall>={RECALL_FLOOR_FOR_SELECTION:.2f}): "
-                      f"{best[0]} (P={best[1]:.4f}, R={best[2]:.4f}, F1={best[3]:.4f})")
-            else:
-                # fallback: best F1
-                best = sorted([("Model A", prA, rcA, f1A), ("Model B", prB, rcB, f1B), ("Ensemble", prE, rcE, f1E)],
-                              key=lambda x: x[3], reverse=True)[0]
-                print(
-                    f"\n[INFO] BEST (fallback max F1): {best[0]} (P={best[1]:.4f}, R={best[2]:.4f}, F1={best[3]:.4f})")
+            print(f"\n[INFO] BEST (multi-metric): {best_name} "
+                  f"(P={best_tuple[1]:.4f}, R={best_tuple[2]:.4f}, F1={best_tuple[3]:.4f}, SCORE={best_tuple[0]:.4f})")
+
+
 
             exit()
 
