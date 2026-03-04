@@ -857,7 +857,14 @@ class FeaturesEngineering:
             from sklearn.metrics import classification_report, f1_score
             import numpy as np
             import time
-            from pyspark.sql.functions import col, lit, when, rand
+            from pyspark.sql.functions import col, lit, when, abs as ps_abs, hash as ps_hash, pmod
+            from pyspark.ml.feature import VectorAssembler
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.functions import vector_to_array
+
+            import numpy as np
+            import time
+            from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
             # ======================================Good ND and classification AD
             # 1) Prepare y_true and Label
@@ -1045,7 +1052,7 @@ class FeaturesEngineering:
                 SEED = 42
 
                 # --------------------------
-                # 0) Train data
+                # 0) Train data (real normal + ALL pseudo)
                 # --------------------------
                 df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
                     col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
@@ -1053,37 +1060,42 @@ class FeaturesEngineering:
                 df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
                     col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
 
-                # IMPORTANT: enforce deterministic order before split (helps stability)
-                train_df = df_real_normal.unionByName(df_pseudo_all).orderBy(col("Node_block_id"))
+                train_df = df_real_normal.unionByName(df_pseudo_all)
 
                 # --------------------------
-                # 0.1) Weighting (stable + capped)
+                # 0.1) Deterministic split (NO rand, NO randomSplit)
+                # split_key in [0..99] is stable for each Node_block_id every run
+                # --------------------------
+                train_df = train_df.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
+
+                train_base_df = train_df.filter(col("split_key") < 90).drop("split_key")
+                val_df = train_df.filter(col("split_key") >= 90).drop("split_key")
+
+                # --------------------------
+                # 0.2) Weighting (cap weights to reduce swings)
                 # --------------------------
                 PSEUDO_TRUST = 0.6
-                WEIGHT_CAP = 10.0  # prevents extreme weights causing unstable swings
+                WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
 
                 n0 = train_df.filter(col("Final_Label") == 0).count()
                 n1 = train_df.filter(col("Final_Label") == 1).count()
 
                 raw_w1 = float(n0 / max(n1, 1)) * 0.7
-                w1 = float(min(raw_w1, WEIGHT_CAP))  # cap anomaly weight
+                w1 = float(min(raw_w1, WEIGHT_CAP))
                 w0 = 1.0
 
                 print(
-                    f"[INFO] Train counts: n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
+                    f"[INFO] Train counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
 
-                train_df = train_df.withColumn("baseClassWeight",
+                train_base_df = train_base_df.withColumn("baseClassWeight",
                     when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
                     when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
                     col("baseClassWeight") * col("srcWeight"))
 
-                # --------------------------
-                # 0.2) Deterministic split
-                # Avoid randomSplit instability by using a stable random column with fixed seed
-                # --------------------------
-                train_df = train_df.withColumn("r", rand(SEED))
-                train_base_df = train_df.filter(col("r") <= 0.9).drop("r")
-                val_df = train_df.filter(col("r") > 0.9).drop("r")
+                val_df = val_df.withColumn("baseClassWeight",
+                    when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
+                    when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
+                    col("baseClassWeight") * col("srcWeight"))
 
                 # --------------------------
                 # 0.3) Test set
@@ -1108,25 +1120,36 @@ class FeaturesEngineering:
                     feature_cols.append("anomaly_score_gmm")
 
                 assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+
                 train_base_df = assembler.transform(train_base_df)
                 val_df = assembler.transform(val_df)
                 test_df = assembler.transform(test_df)
+
                 features_col = "features_augmented"
 
                 # --------------------------
-                # 2) Train GBT (make model deterministic)
+                # 1.1) CACHE + MATERIALIZE (critical for stability)
+                # --------------------------
+                train_base_df = train_base_df.cache()
+                val_df = val_df.cache()
+                test_df = test_df.cache()
+
+                _ = train_base_df.count()
+                _ = val_df.count()
+                _ = test_df.count()
+
+                # --------------------------
+                # 2) Train deterministic GBT (reduce internal randomness)
                 # --------------------------
                 gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0,  # reduce randomness
-                    featureSubsetStrategy="all"  # reduce randomness
-                )
+                    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
 
                 t0 = time.time()
                 model = gbt.fit(train_base_df)
                 print(f"[INFO] GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
 
                 # --------------------------
-                # 3) Validation predictions
+                # 3) VAL: tune threshold
                 # --------------------------
                 val_pred = model.transform(val_df)
                 val_pdf = val_pred.select(col("Final_Label").alias("y"),
@@ -1141,13 +1164,6 @@ class FeaturesEngineering:
                 gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(
                     y_val)
 
-                print("[INFO] VAL prob_1 stats:", "min=", float(p_val.min()), "max=", float(p_val.max()), "mean=",
-                      float(p_val.mean()))
-
-                # --------------------------
-                # 3.1) Choose best_threshold deterministically
-                # Maximize precision with recall >= TARGET_RECALL; fallback best F1(positive)
-                # --------------------------
                 TARGET_RECALL = 0.95
                 best_threshold, best_prec = 0.5, -1.0
 
@@ -1171,31 +1187,28 @@ class FeaturesEngineering:
                     print(
                         f"[INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
 
-                # Safety
                 if (p_val >= best_threshold).sum() == 0:
                     best_threshold = float(np.quantile(p_val, 0.90))
                     print(
                         f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
                 # --------------------------
-                # 3.2) AUTO-TUNE gate offset on VAL (this is what makes runs stable + best)
-                # We tune OFFSET to maximize class-1 F1 for the final gated rule.
+                # 3.1) VAL: auto-tune gate offset (deterministic)
                 # --------------------------
-                offset_grid = np.arange(0.04, 0.21, 0.02)  # try 0.04..0.20
+                offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
                 best_offset, best_f1_gate = 0.12, -1.0
 
                 for off in offset_grid:
                     gate_t = min(best_threshold + float(off), 0.999)
                     gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
-
                     f1g = f1_score(y_val, gated_preds, pos_label=1, zero_division=0)
                     if f1g > best_f1_gate:
                         best_f1_gate, best_offset = f1g, float(off)
 
-                print(f"[INFO] Best gate OFFSET on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
+                print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
 
                 # --------------------------
-                # 4) Test prediction (GBT + tuned gated ensemble)
+                # 4) TEST: gated ensemble using tuned offset
                 # --------------------------
                 t1 = time.time()
                 test_pred = model.transform(test_df)
@@ -1206,16 +1219,16 @@ class FeaturesEngineering:
                     col("gmm_flag")).toPandas()
 
                 p_test = test_pdf["prob_1"].values
-                test_pdf["pred_gbt"] = (p_test >= best_threshold).astype(int)
-
                 gate_t = min(best_threshold + best_offset, 0.999)
+
                 test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
                             (test_pdf["pca_flag"].values + test_pdf["gmm_flag"].values) >= 1))).astype(int)
 
-                print("\n================ TEST CLASSIFICATION REPORT (Stable tuned gated ensemble) ================")
+                print("\n================ TEST CLASSIFICATION REPORT (HASH-split stable) ================")
                 print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-                print(
-                    f"[INFO] Used best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
+                print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
+
+
 
 
 
