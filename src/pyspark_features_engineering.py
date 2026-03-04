@@ -1049,7 +1049,7 @@ class FeaturesEngineering:
 
             if DATASET=='BGL' or DATASET=='TH_1G' :
 
-                SEED = 42
+                SEED = 123 # 42
 
                 # --------------------------
                 # 0) Train data (real normal + ALL pseudo)
