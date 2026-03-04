@@ -785,7 +785,7 @@ class FeaturesEngineering:
         return df_final_train_cls, df_test_cls, df_val_cls
 
     @staticmethod
-    def novelty_detection_label_establishment(sequences_df: DataFrame, spark: SparkSession, method: str = "gmm"
+    def novelty_detection_label_establishment(DATASET, sequences_df: DataFrame, spark: SparkSession, method: str = "gmm"
                                               ):
 
         # --------------------------------------------------------------------------------
@@ -1040,276 +1040,277 @@ class FeaturesEngineering:
             # 0) Build training data
             # --------------------------
 
-            df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+            if DATASET=='BGL' or DATASET=='TH_1G' :
 
-            df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
-                col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
+                    df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                        col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
 
-            train_df = df_real_normal.unionByName(df_pseudo_all)
+                    df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
+                        col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
 
-            # --------------------------
-            # 0.1) Weighting strategy
-            # --------------------------
-            PSEUDO_TRUST = 0.6
+                    train_df = df_real_normal.unionByName(df_pseudo_all)
 
-            n0 = train_df.filter(col("Final_Label") == 0).count()
-            n1 = train_df.filter(col("Final_Label") == 1).count()
+                    # --------------------------
+                    # 0.1) Weighting strategy
+                    # --------------------------
+                    PSEUDO_TRUST = 0.6
 
-            w1 = float(n0 / max(n1, 1)) * 0.7
-            w0 = 1.0
+                    n0 = train_df.filter(col("Final_Label") == 0).count()
+                    n1 = train_df.filter(col("Final_Label") == 1).count()
 
-            print(f"[INFO] Train counts: n0={n0}, n1={n1}, w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
+                    w1 = float(n0 / max(n1, 1)) * 0.7
+                    w0 = 1.0
 
-            train_df = train_df.withColumn("baseClassWeight",
-                when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
-                when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
-                col("baseClassWeight") * col("srcWeight"))
+                    print(f"[INFO] Train counts: n0={n0}, n1={n1}, w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
 
-            train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
+                    train_df = train_df.withColumn("baseClassWeight",
+                        when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
+                        when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
+                        col("baseClassWeight") * col("srcWeight"))
 
-            # --------------------------
-            # 0.2) Test set
-            # --------------------------
-            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
-                col("features_vec_final"), col("y_true").alias("Final_Label"),
-                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
-                    "anomaly_score_pca"),
-                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
-                    "anomaly_score_gmm"),
-                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
-                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
-                "Final_Label", col("Final_Label").cast("int"))
+                    train_base_df, val_df = train_df.randomSplit([0.9, 0.1], seed=42)
 
-            # --------------------------
-            # 1) Assemble features
-            # --------------------------
-            feature_cols = ["features_vec_final"]
-            if "anomaly_score_pca" in train_df.columns:
-                feature_cols.append("anomaly_score_pca")
-            if "anomaly_score_gmm" in train_df.columns:
-                feature_cols.append("anomaly_score_gmm")
+                    # --------------------------
+                    # 0.2) Test set
+                    # --------------------------
+                    test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                        col("features_vec_final"), col("y_true").alias("Final_Label"),
+                        col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                            "anomaly_score_pca"),
+                        col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                            "anomaly_score_gmm"),
+                        col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                        col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                        "Final_Label", col("Final_Label").cast("int"))
 
-            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
-            train_base_df = assembler.transform(train_base_df)
-            val_df = assembler.transform(val_df)
-            test_df = assembler.transform(test_df)
-            features_col = "features_augmented"
+                    # --------------------------
+                    # 1) Assemble features
+                    # --------------------------
+                    feature_cols = ["features_vec_final"]
+                    if "anomaly_score_pca" in train_df.columns:
+                        feature_cols.append("anomaly_score_pca")
+                    if "anomaly_score_gmm" in train_df.columns:
+                        feature_cols.append("anomaly_score_gmm")
 
-            # --------------------------
-            # 2) Train GBT
-            # --------------------------
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=75,
-                maxDepth=5, stepSize=0.1, seed=123)
+                    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+                    train_base_df = assembler.transform(train_base_df)
+                    val_df = assembler.transform(val_df)
+                    test_df = assembler.transform(test_df)
+                    features_col = "features_augmented"
 
-            t0 = time.time()
-            model = gbt.fit(train_base_df)
-            print(f"[INFO] GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
+                    # --------------------------
+                    # 2) Train GBT
+                    # --------------------------
+                    gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=75,
+                        maxDepth=5, stepSize=0.1, seed=123)
 
-            # --------------------------
-            # 3) Threshold tuning (precision @ recall constraint; fallback to class-1 F1)
-            # --------------------------
-            val_pred = model.transform(val_df)
-            val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
+                    t0 = time.time()
+                    model = gbt.fit(train_base_df)
+                    print(f"[INFO] GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
 
-            y_val = val_pdf["y"].values.astype(int)
-            p_val = val_pdf["prob_1"].values
+                    # --------------------------
+                    # 3) Threshold tuning (precision @ recall constraint; fallback to class-1 F1)
+                    # --------------------------
+                    val_pred = model.transform(val_df)
+                    val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                        vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
 
-            print("[INFO] VAL prob_1 stats:", "min=", float(p_val.min()), "max=", float(p_val.max()), "mean=",
-                  float(p_val.mean()))
+                    y_val = val_pdf["y"].values.astype(int)
+                    p_val = val_pdf["prob_1"].values
 
-            TARGET_RECALL = 0.95
-            best_threshold = 0.5
-            best_prec = -1.0
+                    print("[INFO] VAL prob_1 stats:", "min=", float(p_val.min()), "max=", float(p_val.max()), "mean=",
+                          float(p_val.mean()))
 
-            for t in np.arange(0.01, 0.999, 0.005):
-                preds = (p_val >= t).astype(int)
-                r = recall_score(y_val, preds, pos_label=1)
-                if r >= TARGET_RECALL:
-                    p = precision_score(y_val, preds, pos_label=1, zero_division=0)
-                    if p > best_prec:
-                        best_prec = p
-                        best_threshold = float(t)
+                    TARGET_RECALL = 0.95
+                    best_threshold = 0.5
+                    best_prec = -1.0
 
-            if best_prec < 0:
-                best_f1 = -1.0
-                for t in np.arange(0.01, 0.999, 0.005):
-                    preds = (p_val >= t).astype(int)
-                    f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
-                    if f1 > best_f1:
-                        best_f1 = f1
-                        best_threshold = float(t)
-                print(f"[INFO] Threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
+                    for t in np.arange(0.01, 0.999, 0.005):
+                        preds = (p_val >= t).astype(int)
+                        r = recall_score(y_val, preds, pos_label=1)
+                        if r >= TARGET_RECALL:
+                            p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+                            if p > best_prec:
+                                best_prec = p
+                                best_threshold = float(t)
+
+                    if best_prec < 0:
+                        best_f1 = -1.0
+                        for t in np.arange(0.01, 0.999, 0.005):
+                            preds = (p_val >= t).astype(int)
+                            f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
+                            if f1 > best_f1:
+                                best_f1 = f1
+                                best_threshold = float(t)
+                        print(f"[INFO] Threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
+                    else:
+                        print(
+                            f"[INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
+
+                    # Safety: prevent all-zero on VAL
+                    if (p_val >= best_threshold).sum() == 0:
+                        best_threshold = float(np.quantile(p_val, 0.90))
+                        print(f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
+
+                    # --------------------------
+                    # 4) Test prediction + BEST ensemble (GBT-gated)
+                    # --------------------------
+                    t1 = time.time()
+                    test_pred = model.transform(test_df)
+                    print(f"[INFO] GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
+
+                    test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                        vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
+                        col("gmm_flag")).toPandas()
+
+                    # Base GBT prediction
+                    test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
+
+                    # ---- BEST PRACTICE ENSEMBLE (precision-up) ----
+                    # gate_t slightly ABOVE best_threshold to reduce false positives from PCA/GMM
+                    gate_t = min(best_threshold + 0.08, 0.999)
+
+                    test_pdf["final_pred"] = ((test_pdf["prob_1"] >= best_threshold) | (
+                                (test_pdf["prob_1"] >= gate_t) & ((test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1))).astype(
+                        int)
+
+                    print("\n================ TEST CLASSIFICATION REPORT (GBT-gated ensemble) ================")
+                    print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+
+                    print(f"[INFO] Used best_threshold={best_threshold:.4f}, gate_t={gate_t:.4f}")
+
+
+
+
+
             else:
-                print(
-                    f"[INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
-
-            # Safety: prevent all-zero on VAL
-            if (p_val >= best_threshold).sum() == 0:
-                best_threshold = float(np.quantile(p_val, 0.90))
-                print(f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
-
-            # --------------------------
-            # 4) Test prediction + BEST ensemble (GBT-gated)
-            # --------------------------
-            t1 = time.time()
-            test_pred = model.transform(test_df)
-            print(f"[INFO] GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
-
-            test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
-                col("gmm_flag")).toPandas()
-
-            # Base GBT prediction
-            test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
-
-            # ---- BEST PRACTICE ENSEMBLE (precision-up) ----
-            # gate_t slightly ABOVE best_threshold to reduce false positives from PCA/GMM
-            gate_t = min(best_threshold + 0.08, 0.999)
-
-            test_pdf["final_pred"] = ((test_pdf["prob_1"] >= best_threshold) | (
-                        (test_pdf["prob_1"] >= gate_t) & ((test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1))).astype(
-                int)
-
-            print("\n================ TEST CLASSIFICATION REPORT (GBT-gated ensemble) ================")
-            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-
-            print(f"[INFO] Used best_threshold={best_threshold:.4f}, gate_t={gate_t:.4f}")
-            exit()
 
 
+                    # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
+                    # ======================================
+                    # 0) Prepare training and test sets
+                    # ======================================
+                    df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
+                        col("features_vec_final"), lit(0).alias("Final_Label"))
 
+                    # Pseudo-labeled anomalies from novelty detection
+                    df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1)
 
+                    # Merge normal + pseudo-labeled anomalies
+                    train_df = df_train_normal.unionByName(df_pseudo_anomalies)
 
+                    # Optional oversample anomalies
+                    n0 = train_df.filter(col("Final_Label") == 0).count()
+                    n1 = train_df.filter(col("Final_Label") == 1).count()
+                    k = int(np.ceil(n0 / max(n1, 1)))
+                    oversampled_anom = df_pseudo_anomalies
+                    for _ in range(k - 1):
+                        oversampled_anom = oversampled_anom.unionByName(df_pseudo_anomalies)
+                    train_df = train_df.unionByName(oversampled_anom)
 
+                    # Small validation split for threshold tuning (10% of train)
+                    train_base_df = train_df.sample(False, 0.9, seed=42)
+                    val_df = train_df.subtract(train_base_df)
 
+                    # Test set
+                    test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
+                        col("features_vec_final"), col("y_true").alias("Final_Label"),
+                        col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                            "anomaly_score_pca"),
+                        col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                            "anomaly_score_gmm"),
+                        col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                        col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                        "Final_Label", col("Final_Label").cast("int"))
 
-            # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
-            # ======================================
-            # 0) Prepare training and test sets
-            # ======================================
-            df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                col("features_vec_final"), lit(0).alias("Final_Label"))
+                    # ======================================
+                    # 1) Assemble features
+                    # ======================================
+                    feature_cols = ["features_vec_final"]
+                    if "anomaly_score_pca" in train_df.columns:
+                        feature_cols.append("anomaly_score_pca")
+                    if "anomaly_score_gmm" in train_df.columns:
+                        feature_cols.append("anomaly_score_gmm")
 
-            # Pseudo-labeled anomalies from novelty detection
-            df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1)
+                    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+                    train_base_df = assembler.transform(train_base_df)
+                    val_df = assembler.transform(val_df)
+                    test_df = assembler.transform(test_df)
+                    features_col = "features_augmented"
 
-            # Merge normal + pseudo-labeled anomalies
-            train_df = df_train_normal.unionByName(df_pseudo_anomalies)
+                    # ======================================
+                    # 2) Train GBT Classifier
+                    # ======================================
+                    gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
+                                        maxIter=75,  # 100
+                                        maxDepth=5, #6
+                        stepSize=0.1, # 0.05
+                                        seed=123)
 
-            # Optional oversample anomalies
-            n0 = train_df.filter(col("Final_Label") == 0).count()
-            n1 = train_df.filter(col("Final_Label") == 1).count()
-            k = int(np.ceil(n0 / max(n1, 1)))
-            oversampled_anom = df_pseudo_anomalies
-            for _ in range(k - 1):
-                oversampled_anom = oversampled_anom.unionByName(df_pseudo_anomalies)
-            train_df = train_df.unionByName(oversampled_anom)
+                    start_fit_classification = time.time()
+                    model = gbt.fit(train_base_df)
+                    end_fit_classification = time.time()
+                    Classification_time = (end_fit_classification - start_fit_classification) / 60
+                    print(f"final Model classification  completed in {Classification_time:.2f} minutes")
 
-            # Small validation split for threshold tuning (10% of train)
-            train_base_df = train_df.sample(False, 0.9, seed=42)
-            val_df = train_df.subtract(train_base_df)
+                    # ======================================
+                    # 3) Validation predictions and threshold tuning
+                    # ======================================
 
-            # Test set
-            test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
-                col("features_vec_final"), col("y_true").alias("Final_Label"),
-                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
-                    "anomaly_score_pca"),
-                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
-                    "anomaly_score_gmm"),
-                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
-                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
-                "Final_Label", col("Final_Label").cast("int"))
+                    # ================================
+                    # Validation predictions
+                    # ================================
+                    val_pred = model.transform(val_df)
 
-            # ======================================
-            # 1) Assemble features
-            # ======================================
-            feature_cols = ["features_vec_final"]
-            if "anomaly_score_pca" in train_df.columns:
-                feature_cols.append("anomaly_score_pca")
-            if "anomaly_score_gmm" in train_df.columns:
-                feature_cols.append("anomaly_score_gmm")
+                    # Convert probability vector to array
+                    val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                        vector_to_array(col("probability")).getItem(1).alias("prob_1")  # class 1 probability
+                    ).toPandas()
 
-            assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
-            train_base_df = assembler.transform(train_base_df)
-            val_df = assembler.transform(val_df)
-            test_df = assembler.transform(test_df)
-            features_col = "features_augmented"
+                    # Threshold tuning
+                    best_threshold = 0.5
+                    best_f1 = -1.0
+                    for t in np.arange(0.05, 0.96, 0.01):
+                        preds = (val_pdf["prob_1"].values >= t).astype(int)
+                        f1 = f1_score(val_pdf["y"].values.astype(int), preds, average="weighted")
+                        if f1 > best_f1:
+                            best_f1 = f1
+                            best_threshold = float(t)
 
-            # ======================================
-            # 2) Train GBT Classifier
-            # ======================================
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-                                maxIter=75,  # 100
-                                maxDepth=5, #6
-                stepSize=0.1, # 0.05
-                                seed=123)
+                    print("Best threshold from VAL:", best_threshold)
+                    print("Best VAL weighted F1:", best_f1)
 
-            start_fit_classification = time.time()
-            model = gbt.fit(train_base_df)
-            end_fit_classification = time.time()
-            Classification_time = (end_fit_classification - start_fit_classification) / 60
-            print(f"final Model classification  completed in {Classification_time:.2f} minutes")
+                    # ================================
+                    # Test predictions
+                    # ================================
 
-            # ======================================
-            # 3) Validation predictions and threshold tuning
-            # ======================================
+                    start_predict_classification = time.time()
 
-            # ================================
-            # Validation predictions
-            # ================================
-            val_pred = model.transform(val_df)
+                    test_pred = model.transform(test_df)
+                    end_predict_classification = time.time()
+                    Classification_pred_time = (end_predict_classification - start_predict_classification) / 60
+                    print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
-            # Convert probability vector to array
-            val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1")  # class 1 probability
-            ).toPandas()
+                    test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                        vector_to_array(col("probability")).getItem(1).alias("prob_1"),  # class 1 probability
+                        col("pca_flag"), col("gmm_flag")).toPandas()
 
-            # Threshold tuning
-            best_threshold = 0.5
-            best_f1 = -1.0
-            for t in np.arange(0.05, 0.96, 0.01):
-                preds = (val_pdf["prob_1"].values >= t).astype(int)
-                f1 = f1_score(val_pdf["y"].values.astype(int), preds, average="weighted")
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_threshold = float(t)
+                    # Classifier predictions
+                    test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
 
-            print("Best threshold from VAL:", best_threshold)
-            print("Best VAL weighted F1:", best_f1)
+                    # Optional ensemble: predict anomaly if >=1 signal
+                    test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(
+                        int)
 
-            # ================================
-            # Test predictions
-            # ================================
+                    # ======================================
+                    # 5) Classification report
+                    # ======================================
+                    print("\n================ TEST CLASSIFICATION REPORT ================")
+                    print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+                    print(f"final Model classification  completed in {Classification_time:.2f} minutes")
+                    print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
-            start_predict_classification = time.time()
-
-            test_pred = model.transform(test_df)
-            end_predict_classification = time.time()
-            Classification_pred_time = (end_predict_classification - start_predict_classification) / 60
-            print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
-
-            test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1"),  # class 1 probability
-                col("pca_flag"), col("gmm_flag")).toPandas()
-
-            # Classifier predictions
-            test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
-
-            # Optional ensemble: predict anomaly if >=1 signal
-            test_pdf["final_pred"] = ((test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(
-                int)
-
-            # ======================================
-            # 5) Classification report
-            # ======================================
-            print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-            print(f"final Model classification  completed in {Classification_time:.2f} minutes")
-            print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
-
-            exit()
+                    exit()
 
 
 

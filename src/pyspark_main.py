@@ -248,7 +248,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_2G'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -402,7 +402,7 @@ def main():
 
     start_Novelty= time.time()
     df_final_train_cls, df_test_cls, df_val_cls = (
-        features_engineering_obj.novelty_detection_label_establishment(sequences_df=sequences_df, spark=spark,
+        features_engineering_obj.novelty_detection_label_establishment(DATASET, sequences_df=sequences_df, spark=spark,
             method="gmm"))
 
     Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
