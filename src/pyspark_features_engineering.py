@@ -1165,7 +1165,7 @@ class FeaturesEngineering:
                     y_val)
 
                 TARGET_RECALL =  0.93 # 0.95
-                best_threshold, best_prec = 0.7, -1.0   # 0.5
+                best_threshold, best_prec = 0.9, -1.0   # 0.5
 
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
