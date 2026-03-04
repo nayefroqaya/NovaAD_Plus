@@ -1151,7 +1151,7 @@ class FeaturesEngineering:
             val_pred = model.transform(val_df)
 
             # robust selection of gate flags (val may not have these columns if you didn't include them in train_df)
-            val_pdf = val_pred.select(col("Final_Label").alias("y"), col("probability").getItem(1).alias("prob_1"),
+            val_pdf = val_pred.select(col("Final_Label").alias("y"), vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                 (col("pca_flag") if "pca_flag" in val_pred.columns else lit(0)).alias("pca_flag"),
                 (col("gmm_flag") if "gmm_flag" in val_pred.columns else lit(0)).alias("gmm_flag"), ).toPandas()
 
@@ -1212,7 +1212,7 @@ class FeaturesEngineering:
             test_pred = model.transform(test_df)
             print(f"[INFO] GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
 
-            test_pdf = test_pred.select(col("Final_Label").alias("y"), col("probability").getItem(1).alias("prob_1"),
+            test_pdf = test_pred.select(col("Final_Label").alias("y"), vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                 col("pca_flag"), col("gmm_flag")).toPandas()
 
             p_test = test_pdf["prob_1"].values.astype(float)
