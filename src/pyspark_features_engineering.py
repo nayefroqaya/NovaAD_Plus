@@ -801,6 +801,16 @@ class FeaturesEngineering:
             from sklearn.metrics import precision_recall_curve
             from pyspark.sql.functions import when, lower, trim, col
 
+            import time
+            import numpy as np
+            from pyspark.sql.functions import col, lit, when, pmod
+            from pyspark.ml.feature import VectorAssembler
+            from pyspark.ml.classification import GBTClassifier
+            from pyspark.ml.functions import vector_to_array
+            from sklearn.metrics import classification_report, recall_score, precision_score, f1_score
+
+            from pyspark.sql.functions import hash as ps_hash, abs as ps_abs
+
 
 
             import numpy as np
@@ -1043,31 +1053,29 @@ class FeaturesEngineering:
 
             #---------Merge --------------------------------------------------------------------------------------------
 
+
             SEED = 42
 
             # --------------------------
             # 0) Build TRAIN data
-            #    real normal + all pseudo (both 0 and 1) if available
             # --------------------------
             df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
                 col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
 
-            # Pseudo-labeled data (assumes df_full_train_labeled_features exists and has Final_Label)
             df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
                 col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
 
             train_df = df_real_normal.unionByName(df_pseudo_all, allowMissingColumns=True)
 
             # --------------------------
-            # 0.1) Deterministic split (NO rand, NO randomSplit, NO sample/subtract)
-            # split_key in [0..99] stable for each Node_block_id every run
+            # 0.1) Deterministic split
             # --------------------------
             train_df = train_df.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
             train_base_df = train_df.filter(col("split_key") < 90).drop("split_key")
             val_df = train_df.filter(col("split_key") >= 90).drop("split_key")
 
             # --------------------------
-            # 0.2) Weighting (cap weights to reduce swings) + down-weight pseudo
+            # 0.2) Weighting (cap weights) + pseudo trust
             # --------------------------
             PSEUDO_TRUST = 0.6
             WEIGHT_CAP = 8.0
@@ -1108,7 +1116,7 @@ class FeaturesEngineering:
                 "Final_Label", col("Final_Label").cast("int"))
 
             # --------------------------
-            # 1) Assemble features (auto-include optional anomaly scores if present)
+            # 1) Assemble features
             # --------------------------
             feature_cols = ["features_vec_final"]
             if "anomaly_score_pca" in sequences_df.columns:
@@ -1125,18 +1133,17 @@ class FeaturesEngineering:
             features_col = "features_augmented"
 
             # --------------------------
-            # 1.1) CACHE + MATERIALIZE (stability + speed)
+            # 1.1) CACHE + MATERIALIZE
             # --------------------------
             train_base_df = train_base_df.cache()
             val_df = val_df.cache()
             test_df = test_df.cache()
-
-            _ = train_base_df.count()
-            _ = val_df.count()
+            _ = train_base_df.count();
+            _ = val_df.count();
             _ = test_df.count()
 
             # --------------------------
-            # 2) Train deterministic GBT (reduce internal randomness)
+            # 2) Train deterministic GBT
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=75,
                 maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
@@ -1150,8 +1157,8 @@ class FeaturesEngineering:
             # --------------------------
             val_pred = model.transform(val_df)
 
-            # robust selection of gate flags (val may not have these columns if you didn't include them in train_df)
-            val_pdf = val_pred.select(col("Final_Label").alias("y"), vector_to_array(col("probability")).getItem(1).alias("prob_1"),
+            val_pdf = val_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                 (col("pca_flag") if "pca_flag" in val_pred.columns else lit(0)).alias("pca_flag"),
                 (col("gmm_flag") if "gmm_flag" in val_pred.columns else lit(0)).alias("gmm_flag"), ).toPandas()
 
@@ -1188,9 +1195,9 @@ class FeaturesEngineering:
                 print(f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
             # --------------------------
-            # 3.1) VAL: auto-tune gate offset (only matters if you have flags)
+            # 3.1) VAL: auto-tune gate offset (only if flags exist & fire)
             # --------------------------
-            use_gate = (pca_v.sum() + gmm_v.sum()) > 0  # if no flags ever fire, gating can't help
+            use_gate = (pca_v.sum() + gmm_v.sum()) > 0
             offset_grid = np.arange(0.06, 0.21, 0.02)
             best_offset, best_f1_gate = 0.12, -1.0
 
@@ -1212,8 +1219,9 @@ class FeaturesEngineering:
             test_pred = model.transform(test_df)
             print(f"[INFO] GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
 
-            test_pdf = test_pred.select(col("Final_Label").alias("y"), vector_to_array(col("probability")).getItem(1).alias("prob_1"),
-                col("pca_flag"), col("gmm_flag")).toPandas()
+            test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
+                col("gmm_flag")).toPandas()
 
             p_test = test_pdf["prob_1"].values.astype(float)
 
@@ -1232,6 +1240,25 @@ class FeaturesEngineering:
             else:
                 print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
             exit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
             # ------- classification stage. GBTClassifier-----New / Try ------------------------------------------------
