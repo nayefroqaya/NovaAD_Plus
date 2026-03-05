@@ -1051,6 +1051,7 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
+            '''
             #----------------------ensembell :
             # ============================================================
             # Helper: compute class-1 precision/recall/f1 from y and pred
@@ -1446,6 +1447,7 @@ class FeaturesEngineering:
 
             best_test_pdf = best["test_pdf"]  # optional: access best predictions
             exit()
+            '''
 
 
 
@@ -1805,7 +1807,6 @@ class FeaturesEngineering:
             # --------------------------
 
             if DATASET=='BGL' or DATASET=='TH_1G' :
-
                 SEED =  42
 
                 # --------------------------
