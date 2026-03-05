@@ -1053,40 +1053,44 @@ class FeaturesEngineering:
 
             #----------------------ensembell :
             # ============================================================
-            # RUN BOTH CASES (no DATASET condition) AND PICK THE BEST
-            # Also compare TRAIN vs PREDICT runtimes for case1 vs case2
+            # Helper: compute class-1 precision/recall/f1 from y and pred
             # ============================================================
-
-            from sklearn.metrics import classification_report, precision_recall_fscore_support
+            from sklearn.metrics import precision_score, recall_score, f1_score
             import time
             import numpy as np
 
-            def _score_test(y_true, y_pred):
-                # class-1 metrics (anomaly = 1)
-                p, r, f1, _ = precision_recall_fscore_support(y_true, y_pred, labels=[1], average=None, zero_division=0)
-                return {"precision_1": float(p[0]), "recall_1": float(r[0]), "f1_1": float(f1[0]), }
+            def _class1_metrics(y_true, y_pred):
+                return {"precision_1": float(precision_score(y_true, y_pred, pos_label=1, zero_division=0)),
+                    "recall_1": float(recall_score(y_true, y_pred, pos_label=1, zero_division=0)),
+                    "f1_1": float(f1_score(y_true, y_pred, pos_label=1, zero_division=0)), }
 
             # ============================================================
-            # CASE 1 (UNCHANGED ALGORITHM) + return train/predict runtime
+            # CASE 1: EXACTLY your code (only added train_time_case1/predict_time_case1 capture)
             # ============================================================
-            def run_case1():
+            def run_case1_exact():
+
                 SEED = 42
 
                 # --------------------------
                 # 0) Train data (real normal + ALL pseudo)
                 # --------------------------
                 df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                    col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+                                                                                    col("features_vec_final"),
+                                                                                    lit(0).alias("Final_Label"),
+                                                                                    lit("real").alias("src"))
 
                 df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
-                    col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
+                                                                      col("Final_Label").cast("int").alias(
+                                                                          "Final_Label"), lit("pseudo").alias("src"))
 
                 train_df = df_real_normal.unionByName(df_pseudo_all)
 
                 # --------------------------
                 # 0.1) Deterministic split (NO rand, NO randomSplit)
+                # split_key in [0..99] is stable for each Node_block_id every run
                 # --------------------------
                 train_df = train_df.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
+
                 train_base_df = train_df.filter(col("split_key") < 90).drop("split_key")
                 val_df = train_df.filter(col("split_key") >= 90).drop("split_key")
 
@@ -1094,7 +1098,7 @@ class FeaturesEngineering:
                 # 0.2) Weighting (cap weights to reduce swings)
                 # --------------------------
                 PSEUDO_TRUST = 0.6
-                WEIGHT_CAP = 8.0
+                WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
 
                 n0 = train_df.filter(col("Final_Label") == 0).count()
                 n1 = train_df.filter(col("Final_Label") == 1).count()
@@ -1104,29 +1108,35 @@ class FeaturesEngineering:
                 w0 = 1.0
 
                 print(
-                    f"[CASE1][INFO] Train counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
+                    f"[INFO] Train counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, capped_w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
 
                 train_base_df = train_base_df.withColumn("baseClassWeight",
-                    when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
-                    when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
-                    col("baseClassWeight") * col("srcWeight"))
+                                                         when(col("Final_Label") == 1, lit(w1)).otherwise(
+                                                             lit(w0))).withColumn("srcWeight",
+                                                                                  when(col("src") == "pseudo",
+                                                                                       lit(PSEUDO_TRUST)).otherwise(
+                                                                                      lit(1.0))).withColumn(
+                    "classWeight", col("baseClassWeight") * col("srcWeight"))
 
                 val_df = val_df.withColumn("baseClassWeight",
-                    when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn("srcWeight",
-                    when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn("classWeight",
-                    col("baseClassWeight") * col("srcWeight"))
+                                           when(col("Final_Label") == 1, lit(w1)).otherwise(lit(w0))).withColumn(
+                    "srcWeight", when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn(
+                    "classWeight", col("baseClassWeight") * col("srcWeight"))
 
                 # --------------------------
                 # 0.3) Test set
                 # --------------------------
                 test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
-                    col("features_vec_final"), col("y_true").alias("Final_Label"),
-                    col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
-                        "anomaly_score_pca"),
-                    col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
-                        "anomaly_score_gmm"),
-                    col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
-                    col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                                                                               col("features_vec_final"),
+                                                                               col("y_true").alias("Final_Label"),
+                                                                               col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(
+                                                                                   0.0).alias("anomaly_score_pca"),
+                                                                               col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(
+                                                                                   0.0).alias("anomaly_score_gmm"),
+                                                                               col("pca_flag") if "pca_flag" in sequences_df.columns else lit(
+                                                                                   0).alias("pca_flag"),
+                                                                               col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(
+                                                                                   0).alias("gmm_flag")).withColumn(
                     "Final_Label", col("Final_Label").cast("int"))
 
                 # --------------------------
@@ -1139,9 +1149,11 @@ class FeaturesEngineering:
                     feature_cols.append("anomaly_score_gmm")
 
                 assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
+
                 train_base_df = assembler.transform(train_base_df)
                 val_df = assembler.transform(val_df)
                 test_df = assembler.transform(test_df)
+
                 features_col = "features_augmented"
 
                 # --------------------------
@@ -1159,21 +1171,24 @@ class FeaturesEngineering:
                 # 2) Train deterministic GBT (reduce internal randomness)
                 # --------------------------
                 gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
+                                    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0,
+                                    featureSubsetStrategy="all")
 
                 t0 = time.time()
                 model = gbt.fit(train_base_df)
-                train_time = (time.time() - t0) / 60.0
-                print(f"[CASE1][INFO] GBT fit time: {train_time:.2f} minutes")
+                print(f"[INFO] GBT fit time: {(time.time() - t0) / 60:.2f} minutes")
+                train_time_case1 = (time.time() - t0) / 60.0  # <-- added (timing only)
 
                 # --------------------------
                 # 3) VAL: tune threshold
                 # --------------------------
                 val_pred = model.transform(val_df)
                 val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                    vector_to_array(col("probability")).getItem(1).alias("prob_1"),
-                    col("pca_flag") if "pca_flag" in val_pred.columns else lit(0).alias("pca_flag"),
-                    col("gmm_flag") if "gmm_flag" in val_pred.columns else lit(0).alias("gmm_flag")).toPandas()
+                                          vector_to_array(col("probability")).getItem(1).alias("prob_1"),
+                                          col("pca_flag") if "pca_flag" in val_pred.columns else lit(0).alias(
+                                              "pca_flag"),
+                                          col("gmm_flag") if "gmm_flag" in val_pred.columns else lit(0).alias(
+                                              "gmm_flag")).toPandas()
 
                 y_val = val_pdf["y"].values.astype(int)
                 p_val = val_pdf["prob_1"].values
@@ -1182,8 +1197,8 @@ class FeaturesEngineering:
                 gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(
                     y_val)
 
-                TARGET_RECALL = 0.93
-                best_threshold, best_prec = 0.9, -1.0
+                TARGET_RECALL = 0.93  # 94 0.95
+                best_threshold, best_prec = 0.9, -1.0  # 0.5
 
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
@@ -1200,20 +1215,20 @@ class FeaturesEngineering:
                         f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
                         if f1 > best_f1:
                             best_f1, best_threshold = f1, float(t)
-                    print(f"[CASE1][INFO] Threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
+                    print(f"[INFO] Threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
                 else:
                     print(
-                        f"[CASE1][INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
+                        f"[INFO] Threshold by precision@recall>= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
 
                 if (p_val >= best_threshold).sum() == 0:
                     best_threshold = float(np.quantile(p_val, 0.90))
                     print(
-                        f"[CASE1][WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
+                        f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
                 # --------------------------
                 # 3.1) VAL: auto-tune gate offset (deterministic)
                 # --------------------------
-                offset_grid = np.arange(0.06, 0.21, 0.02)
+                offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
                 best_offset, best_f1_gate = 0.12, -1.0
 
                 for off in offset_grid:
@@ -1223,44 +1238,51 @@ class FeaturesEngineering:
                     if f1g > best_f1_gate:
                         best_f1_gate, best_offset = f1g, float(off)
 
-                print(f"[CASE1][INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
+                print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
 
                 # --------------------------
                 # 4) TEST: gated ensemble using tuned offset
                 # --------------------------
                 t1 = time.time()
                 test_pred = model.transform(test_df)
-                predict_time = (time.time() - t1) / 60.0
-                print(f"[CASE1][INFO] GBT predict time: {predict_time:.2f} minutes")
+                print(f"[INFO] GBT predict time: {(time.time() - t1) / 60:.2f} minutes")
+                predict_time_case1 = (time.time() - t1) / 60.0  # <-- added (timing only)
 
                 test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                    vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
-                    col("gmm_flag")).toPandas()
+                                            vector_to_array(col("probability")).getItem(1).alias("prob_1"),
+                                            col("pca_flag"), col("gmm_flag")).toPandas()
 
                 p_test = test_pdf["prob_1"].values
                 gate_t = min(best_threshold + best_offset, 0.999)
 
                 test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-                            (test_pdf["pca_flag"].values + test_pdf["gmm_flag"].values) >= 1))).astype(int)
+                        (test_pdf["pca_flag"].values + test_pdf["gmm_flag"].values) >= 1))).astype(int)
 
-                print("\n================ CASE1 TEST CLASSIFICATION REPORT ================")
+                print("\n================ TEST CLASSIFICATION REPORT (HASH-split stable) ================")
                 print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-                print(
-                    f"[CASE1][INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
+                print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
-                metrics = _score_test(test_pdf["y"].astype(int).values, test_pdf["final_pred"].astype(int).values)
+                # ---- metrics for comparison ----
+                y_test = test_pdf["y"].astype(int).values
+                y_pred = test_pdf["final_pred"].astype(int).values
+                metrics = _class1_metrics(y_test, y_pred)
 
-                return {"name": "case1", "metrics": metrics, "train_time": train_time, "predict_time": predict_time,
-                    "test_pdf": test_pdf}
+                return {"name": "case1", "metrics": metrics, "train_time": float(train_time_case1),
+                    "predict_time": float(predict_time_case1), "test_pdf": test_pdf}
 
             # ============================================================
-            # CASE 2 (UNCHANGED ALGORITHM) + return train/predict runtime
+            # CASE 2: your original code + return train/predict runtime
+            # (algorithm unchanged; only return timings + metrics)
             # ============================================================
-            def run_case2():
+            def run_case2_exact():
 
+                # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
+                # ======================================
                 # 0) Prepare training and test sets
+                # ======================================
                 df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                    col("features_vec_final"), lit(0).alias("Final_Label"))
+                                                                                     col("features_vec_final"),
+                                                                                     lit(0).alias("Final_Label"))
 
                 # Pseudo-labeled anomalies from novelty detection
                 df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1)
@@ -1283,16 +1305,21 @@ class FeaturesEngineering:
 
                 # Test set
                 test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
-                    col("features_vec_final"), col("y_true").alias("Final_Label"),
-                    col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
-                        "anomaly_score_pca"),
-                    col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
-                        "anomaly_score_gmm"),
-                    col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
-                    col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
+                                                                               col("features_vec_final"),
+                                                                               col("y_true").alias("Final_Label"),
+                                                                               col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(
+                                                                                   0.0).alias("anomaly_score_pca"),
+                                                                               col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(
+                                                                                   0.0).alias("anomaly_score_gmm"),
+                                                                               col("pca_flag") if "pca_flag" in sequences_df.columns else lit(
+                                                                                   0).alias("pca_flag"),
+                                                                               col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(
+                                                                                   0).alias("gmm_flag")).withColumn(
                     "Final_Label", col("Final_Label").cast("int"))
 
+                # ======================================
                 # 1) Assemble features
+                # ======================================
                 feature_cols = ["features_vec_final"]
                 if "anomaly_score_pca" in train_df.columns:
                     feature_cols.append("anomaly_score_pca")
@@ -1305,22 +1332,36 @@ class FeaturesEngineering:
                 test_df = assembler.transform(test_df)
                 features_col = "features_augmented"
 
+                # ======================================
                 # 2) Train GBT Classifier
-                gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=75, maxDepth=5,
-                    stepSize=0.1, seed=123)
+                # ======================================
+                gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", maxIter=75,  # 100
+                                    maxDepth=5,  # 6
+                                    stepSize=0.1,  # 0.05
+                                    seed=123)
 
                 start_fit_classification = time.time()
                 model = gbt.fit(train_base_df)
                 end_fit_classification = time.time()
-                Classification_time = (end_fit_classification - start_fit_classification) / 60.0
-                print(f"[CASE2] final Model classification completed in {Classification_time:.2f} minutes")
+                Classification_time = (end_fit_classification - start_fit_classification) / 60
+                print(f"final Model classification  completed in {Classification_time:.2f} minutes")
 
+                # ======================================
                 # 3) Validation predictions and threshold tuning
+                # ======================================
+
+                # ================================
+                # Validation predictions
+                # ================================
                 val_pred = model.transform(val_df)
 
+                # Convert probability vector to array
                 val_pdf = val_pred.select(col("Final_Label").alias("y"),
-                    vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
+                                          vector_to_array(col("probability")).getItem(1).alias("prob_1")
+                                          # class 1 probability
+                                          ).toPandas()
 
+                # Threshold tuning
                 best_threshold = 0.5
                 best_f1 = -1.0
                 for t in np.arange(0.05, 0.96, 0.01):
@@ -1330,40 +1371,54 @@ class FeaturesEngineering:
                         best_f1 = f1
                         best_threshold = float(t)
 
-                print("[CASE2] Best threshold from VAL:", best_threshold)
-                print("[CASE2] Best VAL weighted F1:", best_f1)
+                print("Best threshold from VAL:", best_threshold)
+                print("Best VAL weighted F1:", best_f1)
 
+                # ================================
                 # Test predictions
+                # ================================
+
                 start_predict_classification = time.time()
+
                 test_pred = model.transform(test_df)
                 end_predict_classification = time.time()
-                Classification_pred_time = (end_predict_classification - start_predict_classification) / 60.0
-                print(f"[CASE2] final Model predicts completed in {Classification_pred_time:.2f} minutes")
+                Classification_pred_time = (end_predict_classification - start_predict_classification) / 60
+                print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
                 test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                    vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
-                    col("gmm_flag")).toPandas()
+                                            vector_to_array(col("probability")).getItem(1).alias("prob_1"),
+                                            # class 1 probability
+                                            col("pca_flag"), col("gmm_flag")).toPandas()
 
+                # Classifier predictions
                 test_pdf["pred_gbt"] = (test_pdf["prob_1"] >= best_threshold).astype(int)
+
+                # Optional ensemble: predict anomaly if >=1 signal
                 test_pdf["final_pred"] = (
                             (test_pdf["pred_gbt"] + test_pdf["pca_flag"] + test_pdf["gmm_flag"]) >= 1).astype(int)
 
-                print("\n================ CASE2 TEST CLASSIFICATION REPORT ================")
+                # ======================================
+                # 5) Classification report
+                # ======================================
+                print("\n================ TEST CLASSIFICATION REPORT ================")
                 print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
-                print(f"[CASE2] final Model classification completed in {Classification_time:.2f} minutes")
-                print(f"[CASE2] final Model predicts completed in {Classification_pred_time:.2f} minutes")
+                print(f"final Model classification  completed in {Classification_time:.2f} minutes")
+                print(f"final Model predicts  completed in {Classification_pred_time:.2f} minutes")
 
-                metrics = _score_test(test_pdf["y"].astype(int).values, test_pdf["final_pred"].astype(int).values)
+                # ---- metrics for comparison ----
+                y_test = test_pdf["y"].astype(int).values
+                y_pred = test_pdf["final_pred"].astype(int).values
+                metrics = _class1_metrics(y_test, y_pred)
 
-                return {"name": "case2", "metrics": metrics, "train_time": Classification_time,
-                    "predict_time": Classification_pred_time, "test_pdf": test_pdf}
+                return {"name": "case2", "metrics": metrics, "train_time": float(Classification_time),
+                    "predict_time": float(Classification_pred_time), "test_pdf": test_pdf}
 
             # ============================================================
             # RUN BOTH + COMPARE + SELECT BEST
             # ============================================================
 
-            res1 = run_case1()
-            res2 = run_case2()
+            res1 = run_case1_exact()
+            res2 = run_case2_exact()
 
             print("\n================ PERFORMANCE SUMMARY (TEST class-1) ================")
             for res in [res1, res2]:
@@ -1391,7 +1446,6 @@ class FeaturesEngineering:
 
             best_test_pdf = best["test_pdf"]  # optional: access best predictions
             exit()
-
 
 
 
