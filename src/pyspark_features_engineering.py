@@ -1631,6 +1631,13 @@ class FeaturesEngineering:
             #    comp = run_both_and_pick_best(sequences_df, df_full_train_labeled_features, min_recall_required=0.90)
             #    best_result = comp["best"]
             # ============================================================
+            comp = run_both_and_pick_best(sequences_df=sequences_df,
+                df_full_train_labeled_features=df_full_train_labeled_features, min_recall_required=0.0
+                # or e.g. 0.90 if you want recall constraint
+            )
+
+            best = comp["best"]
+            print("\nBEST POLICY RESULT:\n", best)
             exit()
 
 
