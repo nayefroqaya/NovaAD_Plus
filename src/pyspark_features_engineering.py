@@ -1057,7 +1057,7 @@ class FeaturesEngineering:
             # 0) Build training data
             # --------------------------
 
-            #if DATASET=='BGL' or DATASET=='TH_1G' :-------------------------------------------------case1
+            #if DATASET=='BGL' or DATASET=='TH_1G' :
             SEED =  42
             # --------------------------
             # 0) Train data (real normal + ALL pseudo)
@@ -1150,10 +1150,7 @@ class FeaturesEngineering:
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=75,
-                                maxDepth=5,
-                                stepSize=0.1,
-                                seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
+                maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
 
             t0 = time.time()
             model = gbt.fit(train_base_df)
@@ -1188,7 +1185,7 @@ class FeaturesEngineering:
                         best_prec, best_threshold = p, float(t)
 
             if best_prec < 0:
-                best_threshold, best_f1 = 0.5, -1.0    # 0.5
+                best_threshold, best_f1 = 0.9, -1.0
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
                     f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
@@ -1243,7 +1240,7 @@ class FeaturesEngineering:
 
 
             #else:
-            # ------- classification stage. GBTClassifier-----New -----------Case2--------------------------------------
+            # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
             # ======================================
             # 0) Prepare training and test sets
             # ======================================
