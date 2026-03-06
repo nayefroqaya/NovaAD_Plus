@@ -1150,12 +1150,10 @@ class FeaturesEngineering:
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=50,  # 75
-                                maxDepth= 7, #5
-                                stepSize=0.3,  # 0.1
-                                seed=SEED,
-                                subsamplingRate=1.0,
-                                featureSubsetStrategy="all")
+                maxIter=75,
+                                maxDepth=5,
+                                stepSize=0.1,
+                                seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
 
             t0 = time.time()
             model = gbt.fit(train_base_df)
@@ -1303,9 +1301,9 @@ class FeaturesEngineering:
             # 2) Train GBT Classifier
             # ======================================
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-                                maxIter=50,  # 75
-                                maxDepth= 7, #5
-                                stepSize=0.3, # 0.1
+                                maxIter=75,  # 100
+                                maxDepth=5, #6
+                stepSize=0.1, # 0.05
                                 seed=123)
 
             start_fit_classification = time.time()
