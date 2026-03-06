@@ -47,3 +47,9 @@ HDFS_Topic_sentiment_df.parquet/
 HDFS_Topic_sentiment_diff_df.parquet/
 HDFS_Topic_sentiment_diff_semantic_df.parquet/
 HDFS_sentiment_df.parquet/
+__pycache__/
+*.pyc
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
