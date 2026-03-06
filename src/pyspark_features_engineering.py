@@ -1082,7 +1082,7 @@ class FeaturesEngineering:
             # --------------------------
             # 0.2) Weighting (cap weights to reduce swings)
             # --------------------------
-            PSEUDO_TRUST = 0.8  #0.6
+            PSEUDO_TRUST = 0.6
             WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
 
             n0 = train_df.filter(col("Final_Label") == 0).count()
@@ -1150,7 +1150,12 @@ class FeaturesEngineering:
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
+                maxIter=50,  # 75
+                                maxDepth= 7, #5
+                                stepSize=0.3,  # 0.1
+                                seed=SEED,
+                                subsamplingRate=1.0,
+                                featureSubsetStrategy="all")
 
             t0 = time.time()
             model = gbt.fit(train_base_df)
@@ -1240,7 +1245,7 @@ class FeaturesEngineering:
 
 
             #else:
-            # ------- classification stage. GBTClassifier-----New ------------------------------------------------------
+            # ------- classification stage. GBTClassifier-----New -----------Case2--------------------------------------
             # ======================================
             # 0) Prepare training and test sets
             # ======================================
@@ -1298,9 +1303,9 @@ class FeaturesEngineering:
             # 2) Train GBT Classifier
             # ======================================
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-                                maxIter=75,  # 100
-                                maxDepth=5, #6
-                stepSize=0.1, # 0.05
+                                maxIter=50,  # 75
+                                maxDepth= 7, #5
+                                stepSize=0.3, # 0.1
                                 seed=123)
 
             start_fit_classification = time.time()
