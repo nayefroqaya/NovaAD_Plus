@@ -1057,7 +1057,7 @@ class FeaturesEngineering:
             # 0) Build training data
             # --------------------------
 
-            #if DATASET=='BGL' or DATASET=='TH_1G' :
+            #if DATASET=='BGL' or DATASET=='TH_1G' :-------------------------------------------------case1
             SEED =  42
             # --------------------------
             # 0) Train data (real normal + ALL pseudo)
@@ -1082,7 +1082,7 @@ class FeaturesEngineering:
             # --------------------------
             # 0.2) Weighting (cap weights to reduce swings)
             # --------------------------
-            PSEUDO_TRUST = 0.6
+            PSEUDO_TRUST = 0.8  #0.6
             WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
 
             n0 = train_df.filter(col("Final_Label") == 0).count()
@@ -1185,7 +1185,7 @@ class FeaturesEngineering:
                         best_prec, best_threshold = p, float(t)
 
             if best_prec < 0:
-                best_threshold, best_f1 = 0.9, -1.0
+                best_threshold, best_f1 = 0.9, -1.0    # 0.5
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
                     f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
