@@ -1051,6 +1051,7 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
+
             # ------- classification stage. GBTClassifier-----New / Try ------------------------------------------------
 
             # --------------------------
@@ -1185,7 +1186,7 @@ class FeaturesEngineering:
                         best_prec, best_threshold = p, float(t)
 
             if best_prec < 0:
-                best_threshold, best_f1 = 0.9, -1.0
+                best_threshold, best_f1 = 0.5, -1.0
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
                     f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
@@ -1248,9 +1249,7 @@ class FeaturesEngineering:
                 col("features_vec_final"), lit(0).alias("Final_Label"))
 
             # Pseudo-labeled anomalies from novelty detection
-            #* df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1 )
-            df_pseudo_anomalies = df_full_train_labeled_features.filter(
-                (col("Final_Label") == 1) | (col("Final_Label") == 0))
+            df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1)
 
             # Merge normal + pseudo-labeled anomalies
             train_df = df_train_normal.unionByName(df_pseudo_anomalies)
