@@ -1188,7 +1188,7 @@ class FeaturesEngineering:
                         best_prec, best_threshold = p, float(t)
 
             if best_prec < 0:
-                best_threshold, best_f1 = 0.9, -1.0    # 0.5
+                best_threshold, best_f1 = 0.5, -1.0    # 0.5
                 for t in np.arange(0.01, 0.999, 0.005):
                     preds = (p_val >= t).astype(int)
                     f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
