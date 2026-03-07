@@ -1056,14 +1056,32 @@ class FeaturesEngineering:
             # if DATASET=='BGL' or DATASET=='TH_1G' :
             SEED = 42
 
+            # =========================================================
+            # CASE 1
+            # real normal + all pseudo
+            # stronger logic + faster classifier (RandomForest)
+            # =========================================================
+
             # --------------------------
             # 0) Train data (real normal + ALL pseudo)
             # --------------------------
             df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag"))
 
             df_pseudo_all = df_full_train_labeled_features.select(col("Node_block_id"), col("features_vec_final"),
-                col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"))
+                col("Final_Label").cast("int").alias("Final_Label"), lit("pseudo").alias("src"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in df_full_train_labeled_features.columns else lit(
+                    0.0).alias("anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in df_full_train_labeled_features.columns else lit(
+                    0.0).alias("anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in df_full_train_labeled_features.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in df_full_train_labeled_features.columns else lit(0).alias("gmm_flag"))
 
             train_df = df_real_normal.unionByName(df_pseudo_all)
 
@@ -1088,7 +1106,7 @@ class FeaturesEngineering:
             w1 = float(min(raw_w1, WEIGHT_CAP))
             w0 = 1.0
 
-            print(f"[INFO] Train counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, "
+            print(f"[INFO] Case1 train counts n0={n0}, n1={n1}, raw_w1={raw_w1:.4f}, "
                   f"capped_w1={w1:.4f}, PSEUDO_TRUST={PSEUDO_TRUST}")
 
             train_base_df = (train_base_df.withColumn("baseClassWeight",
@@ -1117,12 +1135,17 @@ class FeaturesEngineering:
 
             # --------------------------
             # 1) Assemble features
+            # use only columns that exist in train/val/test
             # --------------------------
             feature_cols = ["features_vec_final"]
-            if "anomaly_score_pca" in test_df.columns:
+            common_cols = set(train_base_df.columns) & set(val_df.columns) & set(test_df.columns)
+
+            if "anomaly_score_pca" in common_cols:
                 feature_cols.append("anomaly_score_pca")
-            if "anomaly_score_gmm" in test_df.columns:
+            if "anomaly_score_gmm" in common_cols:
                 feature_cols.append("anomaly_score_gmm")
+
+            print(f"[INFO] Case1 feature_cols used by assembler: {feature_cols}")
 
             assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
 
@@ -1147,9 +1170,9 @@ class FeaturesEngineering:
             # 2) Train FAST RandomForest
             # --------------------------
             rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                numTrees=80,  # try 50 for more speed, 100 for more strength
-                maxDepth=8, maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt",
-                seed=SEED)
+                numTrees=80,  # lower to 50 for more speed
+                maxDepth=8,  # lower to 6 for more speed
+                maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=SEED)
 
             t0 = time.time()
             model = rf.fit(train_base_df)
@@ -1190,14 +1213,15 @@ class FeaturesEngineering:
                     if f1 > best_f1:
                         best_f1 = f1
                         best_threshold = float(t)
-                print(f"[INFO] Threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
+                print(f"[INFO] Case1 threshold by best class-1 F1: t={best_threshold:.3f}, F1={best_f1:.4f}")
             else:
                 print(
-                    f"[INFO] Threshold by precision@recall >= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
+                    f"[INFO] Case1 threshold by precision@recall >= {TARGET_RECALL}: t={best_threshold:.3f}, precision={best_prec:.4f}")
 
             if (p_val >= best_threshold).sum() == 0:
                 best_threshold = float(np.quantile(p_val, 0.90))
-                print(f"[WARN] Threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
+                print(
+                    f"[WARN] Case1 threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
             # --------------------------
             # 3.1) VAL: auto-tune gate offset
@@ -1214,7 +1238,7 @@ class FeaturesEngineering:
                     best_f1_gate = f1g
                     best_offset = float(off)
 
-            print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
+            print(f"[INFO] Case1 best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
 
             # --------------------------
             # 4) TEST: gated ensemble using tuned offset
@@ -1229,38 +1253,63 @@ class FeaturesEngineering:
                 col("gmm_flag")).toPandas()
 
             p_test = case1_test_pdf["prob_1"].values
-            case1_gate_t = min(best_threshold + best_offset, 0.999)
+            case1_best_threshold = best_threshold
+            case1_best_offset = best_offset
+            case1_gate_t = min(case1_best_threshold + case1_best_offset, 0.999)
 
-            case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | (
+            case1_test_pdf["final_pred"] = ((p_test >= case1_best_threshold) | (
                         ((case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1) & (
                             p_test >= case1_gate_t))).astype(int)
 
             print("\n================Case1: TEST CLASSIFICATION REPORT (FAST RF + GATED ENSEMBLE) ================")
             print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
             print(
-                f"[INFO] Case1 best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={case1_gate_t:.4f}")
+                f"[INFO] Case1 best_threshold={case1_best_threshold:.4f}, best_offset={case1_best_offset:.3f}, gate_t={case1_gate_t:.4f}")
 
-            # else:
-            # ------- classification stage. RandomForestClassifier ------------------------------------------------------
-            # ======================================
+            # =========================================================
+            # CASE 2
+            # no oversampling
+            # class weights instead
+            # threshold tuned for anomaly class
+            # gated ensemble instead of weak >=1 fusion
+            # faster classifier (RandomForest)
+            # =========================================================
+
+            # --------------------------
             # 0) Prepare training and test sets
-            # ======================================
+            # --------------------------
             df_train_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
-                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
+                col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in sequences_df.columns else lit(0.0).alias(
+                    "anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in sequences_df.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag"))
 
             df_pseudo_anomalies = df_full_train_labeled_features.filter(col("Final_Label") == 1).select(
                 col("Node_block_id"), col("features_vec_final"), col("Final_Label").cast("int").alias("Final_Label"),
-                lit("pseudo").alias("src"))
+                lit("pseudo").alias("src"),
+                col("anomaly_score_pca") if "anomaly_score_pca" in df_full_train_labeled_features.columns else lit(
+                    0.0).alias("anomaly_score_pca"),
+                col("anomaly_score_gmm") if "anomaly_score_gmm" in df_full_train_labeled_features.columns else lit(
+                    0.0).alias("anomaly_score_gmm"),
+                col("pca_flag") if "pca_flag" in df_full_train_labeled_features.columns else lit(0).alias("pca_flag"),
+                col("gmm_flag") if "gmm_flag" in df_full_train_labeled_features.columns else lit(0).alias("gmm_flag"))
 
             train_df = df_train_normal.unionByName(df_pseudo_anomalies)
 
-            # Deterministic split
+            # --------------------------
+            # 0.1) Deterministic split
+            # --------------------------
             train_df = train_df.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
 
             train_base_df = train_df.filter(col("split_key") < 90).drop("split_key")
             val_df = train_df.filter(col("split_key") >= 90).drop("split_key")
 
-            # Weighting instead of oversampling
+            # --------------------------
+            # 0.2) Weighting instead of oversampling
+            # --------------------------
             PSEUDO_TRUST = 0.6
             WEIGHT_CAP = 8.0
 
@@ -1285,7 +1334,9 @@ class FeaturesEngineering:
                 "srcWeight", when(col("src") == "pseudo", lit(PSEUDO_TRUST)).otherwise(lit(1.0))).withColumn(
                 "classWeight", col("baseClassWeight") * col("srcWeight")))
 
-            # Test set
+            # --------------------------
+            # 0.3) Test set
+            # --------------------------
             test_df = sequences_df.filter(col("Temp_label") == 888).select(col("Node_block_id"),
                 col("features_vec_final"), col("y_true").alias("Final_Label"),
                 col("anomaly_score_pca") if "anomaly_score_pca" in sequences_df.columns else lit(0.0).alias(
@@ -1296,14 +1347,19 @@ class FeaturesEngineering:
                 col("gmm_flag") if "gmm_flag" in sequences_df.columns else lit(0).alias("gmm_flag")).withColumn(
                 "Final_Label", col("Final_Label").cast("int"))
 
-            # ======================================
+            # --------------------------
             # 1) Assemble features
-            # ======================================
+            # use only columns that exist in train/val/test
+            # --------------------------
             feature_cols = ["features_vec_final"]
-            if "anomaly_score_pca" in test_df.columns:
+            common_cols = set(train_base_df.columns) & set(val_df.columns) & set(test_df.columns)
+
+            if "anomaly_score_pca" in common_cols:
                 feature_cols.append("anomaly_score_pca")
-            if "anomaly_score_gmm" in test_df.columns:
+            if "anomaly_score_gmm" in common_cols:
                 feature_cols.append("anomaly_score_gmm")
+
+            print(f"[INFO] Case2 feature_cols used by assembler: {feature_cols}")
 
             assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_augmented")
 
@@ -1313,6 +1369,9 @@ class FeaturesEngineering:
 
             features_col = "features_augmented"
 
+            # --------------------------
+            # 1.1) CACHE + MATERIALIZE
+            # --------------------------
             train_base_df = train_base_df.cache()
             val_df = val_df.cache()
             test_df = test_df.cache()
@@ -1321,12 +1380,13 @@ class FeaturesEngineering:
             _ = val_df.count()
             _ = test_df.count()
 
-            # ======================================
+            # --------------------------
             # 2) Train FAST RandomForestClassifier
-            # ======================================
+            # --------------------------
             rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                numTrees=80, maxDepth=8, maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8,
-                featureSubsetStrategy="sqrt", seed=123)
+                numTrees=80,  # lower to 50 for more speed
+                maxDepth=8,  # lower to 6 for more speed
+                maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=123)
 
             start_fit_classification = time.time()
             model = rf.fit(train_base_df)
@@ -1334,9 +1394,10 @@ class FeaturesEngineering:
             case2_Classification_time = (end_fit_classification - start_fit_classification) / 60
             print(f"Case2 : final Model classification completed in {case2_Classification_time:.2f} minutes")
 
-            # ======================================
+            # --------------------------
             # 3) Validation predictions and threshold tuning
-            # ======================================
+            # tune for anomaly class
+            # --------------------------
             val_pred = model.transform(val_df)
 
             val_pdf = val_pred.select(col("Final_Label").alias("y"),
@@ -1379,9 +1440,10 @@ class FeaturesEngineering:
                 print(
                     f"[WARN] Case2 threshold produced 0 anomalies on VAL. Using quantile fallback t={best_threshold:.6f}")
 
-            # ======================================
+            # --------------------------
             # 3.1) Tune gate offset on validation
-            # ======================================
+            # gated ensemble instead of weak >=1 fusion
+            # --------------------------
             offset_grid = np.arange(0.04, 0.21, 0.02)
             best_offset, best_f1_gate = 0.10, -1.0
 
@@ -1396,9 +1458,9 @@ class FeaturesEngineering:
 
             print(f"[INFO] Case2 best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
 
-            # ======================================
+            # --------------------------
             # 4) Test predictions
-            # ======================================
+            # --------------------------
             start_predict_classification = time.time()
             test_pred = model.transform(test_df)
             end_predict_classification = time.time()
@@ -1409,34 +1471,38 @@ class FeaturesEngineering:
                 vector_to_array(col("probability")).getItem(1).alias("prob_1"), col("pca_flag"),
                 col("gmm_flag")).toPandas()
 
-            case2_gate_t = min(best_threshold + best_offset, 0.999)
+            case2_best_threshold = best_threshold
+            case2_best_offset = best_offset
+            case2_gate_t = min(case2_best_threshold + case2_best_offset, 0.999)
 
-            case2_test_pdf["pred_rf"] = (case2_test_pdf["prob_1"] >= best_threshold).astype(int)
+            case2_test_pdf["pred_rf"] = (case2_test_pdf["prob_1"] >= case2_best_threshold).astype(int)
 
-            case2_test_pdf["final_pred"] = ((case2_test_pdf["prob_1"] >= best_threshold) | (
+            case2_test_pdf["final_pred"] = ((case2_test_pdf["prob_1"] >= case2_best_threshold) | (
                     ((case2_test_pdf["pca_flag"] + case2_test_pdf["gmm_flag"]) >= 1) & (
                         case2_test_pdf["prob_1"] >= case2_gate_t))).astype(int)
 
-            # ======================================
-            # 5) Classification report
-            # ======================================
+            # --------------------------
+            # 5) Classification reports
+            # --------------------------
             print("\n================Case1: TEST CLASSIFICATION REPORT (FAST RF + GATED ENSEMBLE) ================")
             print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
             print(
-                f"[INFO] Case1 : best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={case1_gate_t:.4f}")
-
+                f"[INFO] Case1 : best_threshold={case1_best_threshold:.4f}, best_offset={case1_best_offset:.3f}, gate_t={case1_gate_t:.4f}")
             print(f"[INFO] Case1 : RF fit time: {(end_t0 - t0) / 60:.2f} minutes")
             print(f"[INFO] Case1 : RF predict time: {(end_t1 - t1) / 60:.2f} minutes")
 
             print("\n================Case2: TEST CLASSIFICATION REPORT (FAST RF + STRONGER LOGIC) ================")
             print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
             print(
-                f"[INFO] Case2 : best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={case2_gate_t:.4f}")
-
+                f"[INFO] Case2 : best_threshold={case2_best_threshold:.4f}, best_offset={case2_best_offset:.3f}, gate_t={case2_gate_t:.4f}")
             print(f"Case2 : final Model classification completed in {case2_Classification_time:.2f} minutes")
             print(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.2f} minutes")
 
             exit()
+
+
+
+
 
 
 
