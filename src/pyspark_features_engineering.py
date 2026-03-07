@@ -1169,10 +1169,14 @@ class FeaturesEngineering:
             # --------------------------
             # 2) Train FAST RandomForest
             # --------------------------
+            #**rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+            #**    numTrees=80,  # lower to 50 for more speed
+            #**    maxDepth=8,  # lower to 6 for more speed
+            #**    maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=SEED)
             rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                numTrees=80,  # lower to 50 for more speed
-                maxDepth=8,  # lower to 6 for more speed
-                maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=SEED)
+                numTrees=150, maxDepth=12, maxBins=128, minInstancesPerNode=2, minInfoGain=0.0,
+                minWeightFractionPerNode=0.0, subsamplingRate=0.9, featureSubsetStrategy="all", bootstrap=True,
+                seed=SEED)
 
             t0 = time.time()
             model = rf.fit(train_base_df)
@@ -1383,10 +1387,15 @@ class FeaturesEngineering:
             # --------------------------
             # 2) Train FAST RandomForestClassifier
             # --------------------------
+            #** rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+            # **    numTrees=80,  # lower to 50 for more speed
+            #**    maxDepth=8,  # lower to 6 for more speed
+            #**    maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=123)
+
             rf = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                numTrees=80,  # lower to 50 for more speed
-                maxDepth=8,  # lower to 6 for more speed
-                maxBins=64, minInstancesPerNode=5, subsamplingRate=0.8, featureSubsetStrategy="sqrt", seed=123)
+                numTrees=150, maxDepth=12, maxBins=128, minInstancesPerNode=2, minInfoGain=0.0,
+                minWeightFractionPerNode=0.0, subsamplingRate=0.9, featureSubsetStrategy="all", bootstrap=True,
+                seed=SEED)
 
             start_fit_classification = time.time()
             model = rf.fit(train_base_df)
