@@ -1193,7 +1193,7 @@ class FeaturesEngineering:
             pca_v = val_pdf["pca_flag"].values.astype(int) if "pca_flag" in val_pdf.columns else np.zeros_like(y_val)
             gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
-            TARGET_RECALL = 0.93
+            TARGET_RECALL = 0.80 #0.93
             best_threshold, best_prec = 0.5, -1.0
 
             for t in np.arange(0.01, 0.999, 0.005):
@@ -1410,7 +1410,7 @@ class FeaturesEngineering:
             pca_v = val_pdf["pca_flag"].values.astype(int) if "pca_flag" in val_pdf.columns else np.zeros_like(y_val)
             gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
-            TARGET_RECALL = 0.93
+            TARGET_RECALL = 0.80 #0.93
             best_threshold, best_prec = 0.5, -1.0
 
             for t in np.arange(0.01, 0.999, 0.005):
