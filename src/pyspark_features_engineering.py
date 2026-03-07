@@ -1051,8 +1051,7 @@ class FeaturesEngineering:
             print("\n=== Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
-
-
+            '''
             # if DATASET=='BGL' or DATASET=='TH_1G' :
             SEED = 42
 
@@ -1499,6 +1498,7 @@ class FeaturesEngineering:
             print(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.2f} minutes")
 
             exit()
+            '''
 
 
 
