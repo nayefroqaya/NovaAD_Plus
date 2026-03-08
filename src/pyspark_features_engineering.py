@@ -1600,9 +1600,9 @@ class FeaturesEngineering:
             # --------------------------
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
-            #gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-            #    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate= 0.9 ,  # 1.0
-            #                    featureSubsetStrategy="all")
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+                maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate= 0.9 ,  # 1.0
+                                featureSubsetStrategy="all")
 
             #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
             #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
@@ -1615,21 +1615,21 @@ class FeaturesEngineering:
             #            maxIter=75
             #        )
 
-            gbt = FMClassifier(
-                featuresCol=features_col,
-                labelCol="Final_Label",
-                factorSize=32,
-                regParam=0.001,
-                stepSize=0.03,
-                maxIter=150,
-                miniBatchFraction=0.5,
-                fitLinear=True,
-                fitIntercept=True,
-                solver="adamW",
-                probabilityCol="probability",
-                rawPredictionCol="rawPrediction",
-                predictionCol="prediction"
-            )
+           #gbt = FMClassifier(
+           #     featuresCol=features_col,
+           #     labelCol="Final_Label",
+           #     factorSize=32,
+           #     regParam=0.001,
+            #    stepSize=0.03,
+            #    maxIter=150,
+            #    miniBatchFraction=0.5,
+            #    fitLinear=True,
+            #    fitIntercept=True,
+            #    solver="adamW",
+            #    probabilityCol="probability",
+            #    rawPredictionCol="rawPrediction",
+            #    predictionCol="prediction"
+            #)
 
             t0 = time.time()
             model = gbt.fit(train_base_df)
