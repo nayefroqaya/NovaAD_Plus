@@ -1604,12 +1604,12 @@ class FeaturesEngineering:
             # --------------------------
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate= 0.9 ,  # 1.0
-                                featureSubsetStrategy="all")
+            #gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+            #    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate= 0.9 ,  # 1.0
+            #                    featureSubsetStrategy="all")
 
-            #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-            #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=1.0, featureSubsetStrategy="all")
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+                numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
 
             t0 = time.time()
             model = gbt.fit(train_base_df)
@@ -1754,15 +1754,15 @@ class FeaturesEngineering:
             # ======================================
             # 2) Train GBT Classifier
             # ======================================
-            #*gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-            #*                    maxIter=75,  # 100
-            #*                    maxDepth=5, #6
-            #*    stepSize=0.1, # 0.05
-            #*                    seed=123)
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
+                                maxIter=75,  # 100
+                                maxDepth=5, #6
+                stepSize=0.1, # 0.05
+                                seed=123)
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=75, maxDepth=5,
-                seed=123, subsamplingRate= 0.9,  #1.0
-                                         featureSubsetStrategy="all")
+            #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=75, maxDepth=5,
+            #    seed=123, subsamplingRate= 0.9,  #1.0
+            #                             featureSubsetStrategy="all")
 
             start_fit_classification = time.time()
             model = gbt.fit(train_base_df)
