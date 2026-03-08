@@ -1767,7 +1767,7 @@ class FeaturesEngineering:
             #    seed=123, subsamplingRate= 0.9,  #1.0
             #                             featureSubsetStrategy="all")
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label",
                 numTrees=150, maxDepth=10, maxBins=64, minInstancesPerNode=10, minInfoGain=1e-6, subsamplingRate=0.9,
                 featureSubsetStrategy="all", bootstrap=True, seed=SEED)
 
