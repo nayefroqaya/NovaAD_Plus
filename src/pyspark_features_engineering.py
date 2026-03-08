@@ -1608,9 +1608,12 @@ class FeaturesEngineering:
             #    maxIter=75, maxDepth=5, stepSize=0.1, seed=SEED, subsamplingRate= 0.9 ,  # 1.0
             #                    featureSubsetStrategy="all")
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
+            #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+            #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
 
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+                numTrees=150, maxDepth=10, maxBins=64, minInstancesPerNode=10, minInfoGain=1e-6, subsamplingRate=0.9,
+                featureSubsetStrategy="all", bootstrap=True, seed=SEED)
             t0 = time.time()
             model = gbt.fit(train_base_df)
             end_t0= time.time()
@@ -1691,7 +1694,7 @@ class FeaturesEngineering:
             gate_t = min(best_threshold + best_offset, 0.999)
 
             case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-                        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)
+                        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 2))).astype(int) #1
 
             print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
             print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
@@ -1754,15 +1757,20 @@ class FeaturesEngineering:
             # ======================================
             # 2) Train GBT Classifier
             # ======================================
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-                                maxIter=75,  # 100
-                                maxDepth=5, #6
-                stepSize=0.1, # 0.05
-                                seed=123)
+            #gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
+            #                    maxIter=75,  # 100
+            #                    maxDepth=5, #6
+            #    stepSize=0.1, # 0.05
+            #                    seed=123)
 
             #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=75, maxDepth=5,
             #    seed=123, subsamplingRate= 0.9,  #1.0
             #                             featureSubsetStrategy="all")
+
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+                numTrees=150, maxDepth=10, maxBins=64, minInstancesPerNode=10, minInfoGain=1e-6, subsamplingRate=0.9,
+                featureSubsetStrategy="all", bootstrap=True, seed=SEED)
+
 
             start_fit_classification = time.time()
             model = gbt.fit(train_base_df)
