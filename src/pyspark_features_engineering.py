@@ -1609,7 +1609,7 @@ class FeaturesEngineering:
 
             gbt = FMClassifier(
                         featuresCol=features_col,
-                        labelCol="Final_Label", weightCol="classWeight",
+                        labelCol="Final_Label",
                         stepSize=0.01,
                         factorSize=8,     # dimension of factor vectors
                         maxIter=75
