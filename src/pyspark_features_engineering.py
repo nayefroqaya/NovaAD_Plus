@@ -1608,8 +1608,8 @@ class FeaturesEngineering:
             #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
 
             gbt = FMClassifier(
-                        featuresCol="features_col",
-                        labelCol="Final_Label",
+                        featuresCol=features_col,
+                        labelCol="Final_Label", weightCol="classWeight",
                         stepSize=0.01,
                         factorSize=8,     # dimension of factor vectors
                         maxIter=75
@@ -1768,7 +1768,7 @@ class FeaturesEngineering:
             #    seed=123, subsamplingRate= 0.9,  #1.0
             #                             featureSubsetStrategy="all")
 
-            gbt = FMClassifier(featuresCol="features_col", labelCol="Final_Label", stepSize=0.01, factorSize=8,
+            gbt = FMClassifier(featuresCol=features_col, labelCol="Final_Label", stepSize=0.01, factorSize=8,
                 # dimension of factor vectors
                 maxIter=75)
 
