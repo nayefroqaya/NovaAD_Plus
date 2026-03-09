@@ -1049,7 +1049,7 @@ class FeaturesEngineering:
             pdf_full = df_full_eval.toPandas()
             pdf_full["true_label"] = pdf_full["true_label"].astype(int)
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
-            print("\n=== Classification_report on FULL TRAIN ===")
+            print("\n===Novelty Detection  Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
 
