@@ -1800,6 +1800,7 @@ class FeaturesEngineering:
                 fitLinear=True,
                 fitIntercept=True,
                 solver="adamW",
+                seed=42,                      # important
                 probabilityCol="probability",
                 rawPredictionCol="rawPrediction",
                 predictionCol="prediction"
