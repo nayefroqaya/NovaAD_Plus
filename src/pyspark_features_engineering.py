@@ -1350,9 +1350,6 @@ class FeaturesEngineering:
                 print(
                     f"[INFO] CASE1 best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
-                return {"model": fitted, "test_pdf": test_pdf, "best_threshold": best_threshold,
-                    "best_offset": best_offset}
-
             # ============================================================
             # 3) CASE2
             #   real normal + pseudo anomalies only
@@ -1440,20 +1437,14 @@ class FeaturesEngineering:
                 print(
                     f"[INFO] CASE2 best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
-                return {"model": fitted, "test_pdf": test_pdf, "best_threshold": best_threshold,
-                    "best_offset": best_offset}
+
 
             # ============================================================
             # 4) RUN BOTH
             # ============================================================
-            case1_out = run_case1(sequences_df, df_full_train_labeled_features)
-            case2_out = run_case2(sequences_df, df_full_train_labeled_features)
+            run_case1(sequences_df, df_full_train_labeled_features)
+            run_case2(sequences_df, df_full_train_labeled_features)
 
-            #print("\n" + "=" * 90)
-            #print("FINAL SUMMARY")
-            #print("=" * 90)
-            #print(f"CASE1 threshold={case1_out['best_threshold']:.4f}, offset={case1_out['best_offset']:.3f}")
-            #print(f"CASE2 threshold={case2_out['best_threshold']:.4f}, offset={case2_out['best_offset']:.3f}")
             exit()
 
 
