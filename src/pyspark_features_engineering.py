@@ -1449,11 +1449,11 @@ class FeaturesEngineering:
             case1_out = run_case1(sequences_df, df_full_train_labeled_features)
             case2_out = run_case2(sequences_df, df_full_train_labeled_features)
 
-            print("\n" + "=" * 90)
-            print("FINAL SUMMARY")
-            print("=" * 90)
-            print(f"CASE1 threshold={case1_out['best_threshold']:.4f}, offset={case1_out['best_offset']:.3f}")
-            print(f"CASE2 threshold={case2_out['best_threshold']:.4f}, offset={case2_out['best_offset']:.3f}")
+            #print("\n" + "=" * 90)
+            #print("FINAL SUMMARY")
+            #print("=" * 90)
+            #print(f"CASE1 threshold={case1_out['best_threshold']:.4f}, offset={case1_out['best_offset']:.3f}")
+            #print(f"CASE2 threshold={case2_out['best_threshold']:.4f}, offset={case2_out['best_offset']:.3f}")
             exit()
 
 
