@@ -1796,7 +1796,7 @@ class FeaturesEngineering:
                 regParam=0.001,
                 stepSize=0.03,
                 maxIter=150,
-                miniBatchFraction=0.5,
+                miniBatchFraction=1.0,
                 fitLinear=True,
                 fitIntercept=True,
                 solver="adamW",
