@@ -1062,7 +1062,6 @@ class FeaturesEngineering:
             # --------------------------
 
             #if DATASET=='BGL' or DATASET=='TH_1G' :
-            SEED =  42
             # --------------------------
             # 0) Train data (real normal + ALL pseudo)
             # --------------------------
@@ -1154,7 +1153,7 @@ class FeaturesEngineering:
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=75, maxDepth=6, stepSize=0.1, seed=123, subsamplingRate= 1.0 ,  # 1.0
+                maxIter=50, maxDepth=6, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
                                 featureSubsetStrategy="all")
 
             #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
@@ -1205,8 +1204,8 @@ class FeaturesEngineering:
             gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(
                 y_val)
 
-            TARGET_RECALL =  0.93 #94 0.95
-            best_threshold, best_prec = 0.9, -1.0   # 0.5
+            TARGET_RECALL =  0.95 #94 0.95
+            best_threshold, best_prec = 0.5, -1.0   # 0.5
 
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
@@ -1333,8 +1332,8 @@ class FeaturesEngineering:
             #    stepSize=0.1, # 0.05
             #                    seed=123)
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=75, maxDepth=6,
-                seed=123, subsamplingRate= 1.0,  #1.0
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=6,
+                seed=42, subsamplingRate= 1.0,  #1.0
                                          featureSubsetStrategy="all")
 
             #gbt = FMClassifier(featuresCol=features_col, labelCol="Final_Label", stepSize=0.01,
