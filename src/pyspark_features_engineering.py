@@ -1296,9 +1296,9 @@ class FeaturesEngineering:
 
                 test_df = build_test_schema(sequences_df).withColumn("classWeight", lit(1.0))
 
-                print_basic_distribution("CASE1 train", train_base_df)
-                print_basic_distribution("CASE1 val", val_df)
-                print_basic_distribution("CASE1 test", test_df)
+                #print_basic_distribution("CASE1 train", train_base_df)
+                #print_basic_distribution("CASE1 val", val_df)
+                #print_basic_distribution("CASE1 test", test_df)
 
                 # features
                 train_base_df, val_df, test_df, features_col = assemble_features(train_base_df, val_df, test_df)
@@ -1385,9 +1385,9 @@ class FeaturesEngineering:
 
                 test_df = build_test_schema(sequences_df).withColumn("classWeight", lit(1.0))
 
-                print_basic_distribution("CASE2 train", train_base_df)
-                print_basic_distribution("CASE2 val", val_df)
-                print_basic_distribution("CASE2 test", test_df)
+                #print_basic_distribution("CASE2 train", train_base_df)
+                #print_basic_distribution("CASE2 val", val_df)
+                #print_basic_distribution("CASE2 test", test_df)
 
                 # features
                 train_base_df, val_df, test_df, features_col = assemble_features(train_base_df, val_df, test_df)
