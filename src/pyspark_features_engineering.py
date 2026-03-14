@@ -1341,8 +1341,9 @@ class FeaturesEngineering:
             #                    maxDepth=5, #6
             #    stepSize=0.1, # 0.05
             #                    seed=123)
+            # maxIter=50, maxDepth=6 , stepSize=0.1
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=3,
+            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=6,
                 seed=42, subsamplingRate= 1.0,  #1.0
                                          featureSubsetStrategy="all")
 
