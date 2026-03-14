@@ -1161,7 +1161,7 @@ class FeaturesEngineering:
             # --------------------------
             # maxIter=50, maxDepth=6 , stepSize=0.1
             gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-                maxIter=50, maxDepth=3, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
+                maxIter=50, maxDepth=4, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
                                 featureSubsetStrategy="all")
 
 
