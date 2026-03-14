@@ -1160,13 +1160,11 @@ class FeaturesEngineering:
             # 2) Train deterministic GBT (reduce internal randomness)
             # --------------------------
             # maxIter=50, maxDepth=6 , stepSize=0.1
-            #gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-            #    maxIter=50, maxDepth=6, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
-            #                    featureSubsetStrategy="all")
+            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
+                maxIter=50, maxDepth=4, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
+                                featureSubsetStrategy="all")
 
-            gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight", maxIter=50,
-                maxDepth=6, stepSize=0.1, seed=42, subsamplingRate=1.0, featureSubsetStrategy="sqrt", cacheNodeIds=True,
-                checkpointInterval=10,  maxMemoryInMB=1024)
+
 
             #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
             #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
