@@ -877,6 +877,203 @@ class FeaturesEngineering:
             import time
             from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
+
+            # --------start TR ND
+
+            # ======================================Good ND and classification AD
+            # 1) Prepare y_true and Label
+            # ======================================
+            GT_COL = "Label"
+            sequences_df = sequences_df.withColumn("y_true",
+                                                   when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"),
+                                                        lit(1)).when(
+                                                       lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"),
+                                                       lit(0)).otherwise(col(GT_COL).cast("int")))
+
+            sequences_df = sequences_df.withColumn("Label",
+                                                   when(col("Label") == "normal", 0).when(col("Label") == "anomaly",
+                                                                                          1).otherwise(None))
+
+            # ======================================
+            # 2) Split TRAIN (Temp_label 0 or 999) + TEST (888)
+            # ======================================
+            train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
+            train_normal_df = train_seq_df.filter(col("Label") == 0)
+            train_unlabeled_df = train_seq_df.filter(col("Temp_label") == 999)
+
+            # FIX: test must come from sequences_df, not train_seq_df
+            test_df = sequences_df.filter(col("Temp_label") == 888)
+
+            feature_col = "features_vec_final"
+            id_col = "Node_block_id"
+
+            # ======================================
+            # 2.1) Merge test data into unlabeled pool
+            # ======================================
+            unlabeled_with_test_df = train_unlabeled_df.unionByName(test_df.select(train_unlabeled_df.columns))
+
+            # ======================================
+            # 3) StandardScaler
+            # ======================================
+            scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
+            scaler_model = scaler.fit(train_normal_df)
+            train_normal_scaled = scaler_model.transform(train_normal_df)
+            train_unlabeled_scaled = scaler_model.transform(unlabeled_with_test_df)
+
+            # ======================================
+            # 4) PCA for dimensionality reduction
+            # ======================================
+            candidate_ks = [10, 20, 40, 50, 60]
+            target_variance = 0.999
+            best_k = None
+
+            for k in candidate_ks:
+                pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
+                pca_tmp_model = pca_tmp.fit(train_normal_scaled)
+                explained_variance = float(sum(pca_tmp_model.explainedVariance))
+                if explained_variance >= target_variance:
+                    best_k = k
+                    break
+            if best_k is None:
+                best_k = candidate_ks[-1]
+
+            pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
+            pca_model = pca.fit(train_normal_scaled)
+
+            train_normal_pca = pca_model.transform(train_normal_scaled)
+            train_unlabeled_pca = pca_model.transform(train_unlabeled_scaled)
+
+            # ======================================
+            # 5) PCA reconstruction error (optional hybrid score)
+            # ======================================
+            pc = pca_model.pc.toArray()
+            d = len(train_normal_scaled.select("features_scaled").head()[0])
+            pc_b = spark.sparkContext.broadcast(pc)
+            use_pc_dk_b = spark.sparkContext.broadcast(pc.shape[0] == d)
+
+            @udf(DoubleType())
+            def reconstruction_error(orig_vec, pca_vec):
+                x = np.array(orig_vec.toArray(), dtype=float)
+                z = np.array(pca_vec.toArray(), dtype=float)
+                pc_local = pc_b.value
+                x_hat = (pc_local @ z) if use_pc_dk_b.value else (z @ pc_local)
+                return float(np.linalg.norm(x - x_hat))
+
+            train_normal_pca = train_normal_pca.withColumn("anomaly_score_pca",
+                                                           reconstruction_error(col("features_scaled"),
+                                                                                col("pca_features")))
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
+                                                                 reconstruction_error(col("features_scaled"),
+                                                                                      col("pca_features")))
+
+            # ======================================
+            # 6) Fit GMM on normal PCA space
+            # ======================================
+            gmm_candidates = [2, 4, 6, 8, 10, 12]
+            best_gmm_model = None
+            best_bic = float("inf")
+            best_k_gmm = None
+
+            def bic(model, df, k, d):
+                try:
+                    ll = float(model.summary.logLikelihood)
+                except:
+                    return float("inf")
+                n = df.count()
+                p = (k - 1) + k * d + k * (d * (d + 1) // 2)
+                return -2.0 * ll + p * np.log(max(n, 1))
+
+            d_pca = best_k
+            feat_df = train_normal_pca.select("pca_features")
+
+            for k in gmm_candidates:
+                gmm = GaussianMixture(k=k, seed=123, featuresCol="pca_features", predictionCol="cluster")
+                model = gmm.fit(feat_df)
+                score = bic(model, feat_df, k, d_pca)
+                if score < best_bic:
+                    best_bic = score
+                    best_gmm_model = model
+                    best_k_gmm = k
+
+            print(f"[GMM] Selected k={best_k_gmm} by BIC")
+
+            # ======================================
+            # 7) Compute NLL
+            # ======================================
+            weights = np.array(best_gmm_model.weights)
+            means = np.stack([np.array(g.mean.toArray()) for g in best_gmm_model.gaussians], axis=0)
+            covs = np.stack([np.array(g.cov.toArray()) for g in best_gmm_model.gaussians], axis=0)
+            JITTER = 1e-6
+            covs += np.eye(d_pca)[None, :, :] * JITTER
+            inv_covs = np.linalg.inv(covs)
+            sign, logdets = np.linalg.slogdet(covs)
+            const = d_pca * np.log(2 * np.pi)
+
+            bc_params = spark.sparkContext.broadcast(
+                {"weights": weights, "means": means, "inv_covs": inv_covs, "logdets": logdets, "const": const})
+
+            @udf(DoubleType())
+            def gmm_nll(pca_vec):
+                z = np.array(pca_vec.toArray(), dtype=float)
+                P = bc_params.value
+                w, m, ic, ld, cst = P["weights"], P["means"], P["inv_covs"], P["logdets"], P["const"]
+                logps = []
+                for i in range(len(w)):
+                    diff = z - m[i]
+                    quad = float(diff.T @ ic[i] @ diff)
+                    logN = -0.5 * (quad + float(ld[i]) + cst)
+                    logps.append(np.log(max(float(w[i]), 1e-300)) + logN)
+                a = float(np.max(logps))
+                logp = a + float(np.log(np.sum(np.exp(np.array(logps) - a))))
+                return float(-logp)
+
+            train_normal_pca = train_normal_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+
+            # ======================================
+            # 8) Thresholds for hybrid labeling
+            # ======================================
+            TARGET_FPR = 0.05  # higher FPR to improve anomaly recall
+            thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
+            thr_pca = train_normal_pca.approxQuantile("anomaly_score_pca", [1 - TARGET_FPR], 1e-6)[0]
+
+            train_unlabeled_pca = train_unlabeled_pca.withColumn("Final_Label", when(
+                (col("anomaly_score_gmm") > lit(thr_gmm)) | (col("anomaly_score_pca") > lit(thr_pca)), 1).otherwise(0))
+
+            # ======================================
+            # 9) Build full labeled train dataset
+            # ======================================
+            df_normal_labeled_features = train_normal_df.select(col(id_col),
+                col(feature_col).alias("features_vec_final")).withColumn("Final_Label", lit(0).cast("int"))
+
+            df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
+                col(feature_col).alias("features_vec_final"), col("Final_Label"))
+
+            df_full_train_labeled_features = df_normal_labeled_features.unionByName(df_unlabeled_labeled_features)
+
+            # ======================================
+            # 10) Classification report on TEST ONLY
+            # ======================================
+            df_test_eval = train_unlabeled_pca.filter(col("Temp_label") == 888).join(
+                sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
+                "true_label", "Final_Label").dropna()
+
+            pdf_test = df_test_eval.toPandas()
+            pdf_test["true_label"] = pdf_test["true_label"].astype(int)
+            pdf_test["Final_Label"] = pdf_test["Final_Label"].astype(int)
+
+            print("\n=== Novelty Detection Classification Report on TEST DATA ===")
+            print(classification_report(pdf_test["true_label"], pdf_test["Final_Label"], digits=3))
+            exit()
+
+
+
+
+
+
+
+            #-----------end TR ND
+
             # ======================================Good ND and classification AD
             # 1) Prepare y_true and Label
             # ======================================
@@ -1051,6 +1248,7 @@ class FeaturesEngineering:
             pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
             print("\n===Novelty Detection  Classification_report on FULL TRAIN ===")
             print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
 
 
 
