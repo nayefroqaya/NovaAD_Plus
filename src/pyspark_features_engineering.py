@@ -1355,9 +1355,13 @@ class FeaturesEngineering:
             #                    seed=123)
             # maxIter=50, maxDepth=6 , stepSize=0.1
 
-            gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=6,
-                seed=42, subsamplingRate= 1.0,  #1.0
-                                         featureSubsetStrategy="all")
+            #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=6,
+            #    seed=42, subsamplingRate= 1.0,  #1.0
+            #                             featureSubsetStrategy="all")
+
+            gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+                                     max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
+                                     scale_pos_weight=1.5, eval_metric="logloss", seed=42)
 
             #gbt = FMClassifier(featuresCol=features_col, labelCol="Final_Label", stepSize=0.01,
             #                   factorSize=8,
