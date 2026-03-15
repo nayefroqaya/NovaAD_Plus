@@ -1166,9 +1166,17 @@ class FeaturesEngineering:
 
             from xgboost.spark import SparkXGBClassifier
 
+            #gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+            #    #num_workers=4,  # tune to your cluster
+            #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
+
             gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-                #num_workers=4,  # tune to your cluster
-                max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
+                validation_indicator_col="isVal", early_stopping_rounds=30,
+
+                max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
+                eval_metric="logloss", seed=42)
+
+
 
             #gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
             #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
