@@ -1191,11 +1191,21 @@ class FeaturesEngineering:
                     colsample_bytree=p["colsample_bytree"], scale_pos_weight=p["scale_pos_weight"],
                     eval_metric="logloss", seed=42)
 
+                # --------------------------
+                # 1) TRAIN TIME
+                # --------------------------
                 t0 = time.time()
                 model = xgb.fit(train_base_df)
-                fit_min = (time.time() - t0) / 60.0
+                train_time_sec = time.time() - t0
+                train_time_min = train_time_sec / 60.0
 
+                # --------------------------
+                # 2) VAL PREDICT TIME
+                # --------------------------
+                t1 = time.time()
                 val_pred = model.transform(val_df)
+                val_predict_time_sec = time.time() - t1
+                val_predict_time_min = val_predict_time_sec / 60.0
 
                 val_pdf = val_pred.select(col("Final_Label").alias("y"),
                     vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
@@ -1203,7 +1213,9 @@ class FeaturesEngineering:
                 y_val = val_pdf["y"].astype(int).values
                 p_val = val_pdf["prob_1"].values
 
-                # threshold search for best recall with decent precision
+                # --------------------------
+                # 3) THRESHOLD TUNING
+                # --------------------------
                 best_t = 0.5
                 best_rec = -1
                 best_prec = -1
@@ -1215,39 +1227,61 @@ class FeaturesEngineering:
                     prec = precision_score(y_val, preds, pos_label=1, zero_division=0)
                     f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
 
-                    # choose highest recall, then best f1
                     if (rec > best_rec) or (rec == best_rec and f1 > best_f1):
                         best_rec = rec
                         best_prec = prec
                         best_f1 = f1
                         best_t = float(t)
 
-                results.append({"config": p, "fit_min": fit_min, "best_threshold": best_t, "recall_1": best_rec,
-                    "precision_1": best_prec, "f1_1": best_f1, "model": model})
+                # --------------------------
+                # 4) TEST PREDICT TIME
+                # --------------------------
+                t2 = time.time()
+                test_pred = model.transform(test_df)
+                test_predict_time_sec = time.time() - t2
+                test_predict_time_min = test_predict_time_sec / 60.0
 
-            # pick best model by recall(1), then f1(1)
+                test_pdf = test_pred.select(col("Final_Label").alias("y"),
+                    vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
+
+                test_pdf["final_pred"] = (test_pdf["prob_1"].values >= best_t).astype(int)
+
+                test_report = classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4)
+
+                print(f"[INFO] train time        : {train_time_min:.2f} min")
+                print(f"[INFO] val predict time  : {val_predict_time_min:.2f} min")
+                print(f"[INFO] test predict time : {test_predict_time_min:.2f} min")
+                print(f"[INFO] best threshold    : {best_t:.3f}")
+                print(f"[INFO] val recall_1      : {best_rec:.4f}")
+                print(f"[INFO] val precision_1   : {best_prec:.4f}")
+                print(f"[INFO] val f1_1          : {best_f1:.4f}")
+
+                results.append({"config": p, "model": model, "best_threshold": best_t, "train_time_sec": train_time_sec,
+                    "train_time_min": train_time_min, "val_predict_time_sec": val_predict_time_sec,
+                    "val_predict_time_min": val_predict_time_min, "test_predict_time_sec": test_predict_time_sec,
+                    "test_predict_time_min": test_predict_time_min, "recall_1": best_rec, "precision_1": best_prec,
+                    "f1_1": best_f1, "test_report": test_report})
+
+            # --------------------------
+            # 5) BEST MODEL
+            # --------------------------
             results = sorted(results, key=lambda x: (x["recall_1"], x["f1_1"]), reverse=True)
             best = results[0]
 
-            print("\n[INFO] BEST CONFIG")
+            print("\n================ BEST CONFIG =================")
             print(best["config"])
-            print(f"[INFO] fit time = {best['fit_min']:.2f} min")
-            print(f"[INFO] best threshold = {best['best_threshold']:.3f}")
-            print(f"[INFO] recall_1 = {best['recall_1']:.4f}")
-            print(f"[INFO] precision_1 = {best['precision_1']:.4f}")
-            print(f"[INFO] f1_1 = {best['f1_1']:.4f}")
-
-            # final test
-            best_model = best["model"]
-            test_pred = best_model.transform(test_df)
-
-            test_pdf = test_pred.select(col("Final_Label").alias("y"),
-                vector_to_array(col("probability")).getItem(1).alias("prob_1")).toPandas()
-
-            test_pdf["final_pred"] = (test_pdf["prob_1"].values >= best["best_threshold"]).astype(int)
+            print(f"[INFO] best threshold    : {best['best_threshold']:.3f}")
+            print(f"[INFO] train time        : {best['train_time_min']:.2f} min")
+            print(f"[INFO] val predict time  : {best['val_predict_time_min']:.2f} min")
+            print(f"[INFO] test predict time : {best['test_predict_time_min']:.2f} min")
+            print(f"[INFO] val recall_1      : {best['recall_1']:.4f}")
+            print(f"[INFO] val precision_1   : {best['precision_1']:.4f}")
+            print(f"[INFO] val f1_1          : {best['f1_1']:.4f}")
 
             print("\n================ TEST CLASSIFICATION REPORT ================")
-            print(classification_report(test_pdf["y"].astype(int), test_pdf["final_pred"], digits=4))
+            print(best["test_report"])
+            exit()
+
 
 
 
