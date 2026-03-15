@@ -1170,19 +1170,16 @@ class FeaturesEngineering:
             #    #num_workers=4,  # tune to your cluster
             #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
 
-            gbt = SparkXGBClassifier(    features_col=features_col,
-                label_col="Final_Label",
-                weight_col="classWeight",
+            #gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+            #    max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
+            #    eval_metric="logloss", seed=42)
 
-                max_depth=4,
-                eta=0.03,
-                n_estimators=700,
-                subsample=0.9,
-                colsample_bytree=0.9,
-                scale_pos_weight=1.2,
+            gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
 
-                eval_metric="logloss",
-                seed=42)
+                max_depth=4, eta=0.03, n_estimators=700, subsample=0.9, colsample_bytree=0.9, scale_pos_weight=1.2,
+
+                eval_metric="logloss", seed=42)
+
 
 
 
