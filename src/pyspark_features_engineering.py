@@ -1359,7 +1359,7 @@ class FeaturesEngineering:
             #    seed=42, subsamplingRate= 1.0,  #1.0
             #                             featureSubsetStrategy="all")
 
-            gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+            gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label",
                                      max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
                                      scale_pos_weight=1.5, eval_metric="logloss", seed=42)
 
