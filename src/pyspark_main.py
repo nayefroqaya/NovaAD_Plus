@@ -134,8 +134,8 @@ spark = (
     SparkSession.builder
     .appName("AD")
 #    .master(f"local[{num_cores}]")
-    .master("local[*]")  # use all CPU cores
-
+#    .master("local[*]")  # use all CPU cores
+     .master("local-cluster[4,2,4096]")
     # -----------------------------
     # Memory Control (Core Experiment Variable)
     # -----------------------------
@@ -248,7 +248,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_2G'
+    DATASET = 'TH_1G'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
