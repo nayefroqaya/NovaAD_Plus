@@ -31,68 +31,133 @@ if not hasattr(np, "string_"):
 if not hasattr(np, "unicode_"):
     np.unicode_ = str
 
-# ---------------------------
-# Initialize Spark Session
-# ---------------------------
-'''
-spark = (SparkSession.builder.appName("SentimentAnalysisPySpark")  # Memory tuning
-         .config("spark.executor.memory", "32g").config("spark.driver.memory", "32g").config(
-    "spark.executor.memoryOverhead", "6g").config("spark.driver.memoryOverhead", "6g")
+# ============================================================
+# 1) System Info
+# ============================================================
+vm = psutil.virtual_memory()
+total_gb = vm.total / (1024 ** 3)
+available_gb = vm.available / (1024 ** 3)
+used_gb = vm.used / (1024 ** 3)
+percent_used = vm.percent
 
-         # Use all CPU cores
-         .config("spark.executor.cores", "8").config("spark.driver.cores", "8")
+logical_cores = psutil.cpu_count(logical=True)
+physical_cores = psutil.cpu_count(logical=False)
 
-         # Use Arrow for speed
-         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+disk = psutil.disk_usage("/")
+disk_total_gb = disk.total / (1024 ** 3)
+disk_free_gb = disk.free / (1024 ** 3)
 
-         # ===============================
-         # ENABLE ADAPTIVE QUERY EXECUTION
-         # ===============================
-         .config("spark.sql.adaptive.enabled", "true")  # Auto-optimize shuffle partitions
-         .config("spark.sql.adaptive.shuffle.enabled", "true")  # Auto-merge small partitions
-         .config("spark.sql.adaptive.coalescePartitions.enabled",
-                 "true")  # This controls auto partition size (64 MB default)
-         .config("spark.sql.adaptive.advisoryPartitionSizeInBytese", "64m")  # Set upper bound on partitions
-         .config("spark.sql.adaptive.coalescePartitions.minPartitionSizem", "64MB")
+print("=== System Info ===")
+print(f"Total RAM:     {total_gb:.2f} GB")
+print(f"Available RAM: {available_gb:.2f} GB")
+print(f"Used RAM:      {used_gb:.2f} GB ({percent_used:.1f}%)")
+print(f"CPU cores (physical/logical): {physical_cores} / {logical_cores}")
+print(f"Disk Total: {disk_total_gb:.2f} GB, Disk Free: {disk_free_gb:.2f} GB")
+print(f"OS: {platform.platform()}")
+print(f"Python version: {platform.python_version()}")
+print(f"PySpark version: {pyspark.__version__}")
 
-         # Avoid huge default 200 partitions
-         .config("spark.sql.shuffle.partitions", "200")
+# ============================================================
+# 2) Spark Cluster Emulation Settings
+#    local-cluster[N,C,M]
+#    N = number of workers
+#    C = cores per worker
+#    M = memory per worker in MiB
+# ============================================================
+num_workers = 4
+cores_per_worker = 2
+worker_memory_mib = 4096   # 4 GB per worker
 
-         .getOrCreate())
+# Total emulated executor cores
+total_executor_cores = num_workers * cores_per_worker
 
-print(f"[INFO] Spark initialized with {spark.sparkContext.defaultParallelism} parallel tasks")
-'''
+# Keep driver/executor memory BELOW worker memory
+driver_memory_gb = 4
+executor_memory_gb = 3
 
-# -----------------------------
-# Determine free RAM safely
-# -----------------------------
-'''
-available_gb = psutil.virtual_memory().available / (1024 ** 3)
-spark_memory_gb = max(4, int(available_gb * 0.8))  # use 80% of available RAM, at least 4 GB
+# Shuffle partitions / parallelism
+shuffle_partitions = total_executor_cores * 2
+default_parallelism = total_executor_cores * 2
 
-print(f"Setting Spark memory to {spark_memory_gb} GB")
+# Absolute directories are safer than relative ones
+spill_dir = "/tmp/spark-spill"
+eventlog_dir = "/tmp/spark-events"
 
-# -----------------------------
-# Initialize Spark
-# -----------------------------
+os.makedirs(spill_dir, exist_ok=True)
+os.makedirs(eventlog_dir, exist_ok=True)
+
+print("\n=== Spark Config ===")
+print(f"Master: local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
+print(f"Driver memory:   {driver_memory_gb}g")
+print(f"Executor memory: {executor_memory_gb}g")
+print(f"Total executor cores: {total_executor_cores}")
+print(f"default.parallelism: {default_parallelism}")
+print(f"shuffle.partitions:  {shuffle_partitions}")
+print(f"Spill dir: {spill_dir}")
+print(f"Event log dir: {eventlog_dir}")
+
+# ============================================================
+# 3) Initialize Spark
+# ============================================================
 spark = (
     SparkSession.builder
-    .appName("SentimentAnalysisPySpark")
-    .master("local[*]")  # use all CPU cores
-    .config("spark.driver.memory", f"{spark_memory_gb}g")
-    .config("spark.executor.memory", f"{spark_memory_gb}g")
+    .appName("AD")
+    .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
+
+    # -----------------------------
+    # Memory
+    # -----------------------------
+    .config("spark.driver.memory", f"{driver_memory_gb}g")
+    .config("spark.executor.memory", f"{executor_memory_gb}g")
     .config("spark.memory.fraction", "0.6")
     .config("spark.memory.storageFraction", "0.3")
-    .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+
+    # -----------------------------
+    # CPU / Parallelism
+    # -----------------------------
+    .config("spark.default.parallelism", str(default_parallelism))
+    .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
+
+    # -----------------------------
+    # Shuffle / Spill
+    # -----------------------------
+    .config("spark.reducer.maxSizeInFlight", "48m")
+    .config("spark.shuffle.file.buffer", "32k")
+    .config("spark.shuffle.spill.compress", "true")
+    .config("spark.shuffle.compress", "true")
+    .config("spark.local.dir", spill_dir)
+
+    # -----------------------------
+    # Adaptive Query Execution
+    # -----------------------------
     .config("spark.sql.adaptive.enabled", "true")
     .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
     .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128MB")
-    .config("spark.sql.shuffle.partitions", "200")
+
+    # -----------------------------
+    # Logging / Monitoring
+    # -----------------------------
+    .config("spark.eventLog.enabled", "true")
+    .config("spark.eventLog.dir", eventlog_dir)
+
+    # -----------------------------
+    # Serialization
+    # -----------------------------
+    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+
     .getOrCreate()
 )
-'''
 
-# -----------------------------
+
+
+
+
+
+
+
+
+'''
+# --------------------Start-All resources - default case 
 # System Info
 # -----------------------------
 vm = psutil.virtual_memory()
@@ -181,35 +246,10 @@ spark = (
     # Serialization & Execution
     # -----------------------------
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-    #-----
-   # .config("spark.jars.repositories", "https://mmlspark.azureedge.net/maven")
-   # .config("spark.jars.packages","com.microsoft.azure:synapseml_2.12:1.1.2")
-   # .config("spark.jars.repositories","https://mmlspark.azureedge.net/maven")# optional but often helps avoid dependency clashes
-   # .config("spark.jars.excludes", ",".join(
-   #     ["org.scala-lang:scala-reflect", "org.apache.spark:spark-tags_2.12", "org.scalactic:scalactic_2.12",
-   #         "org.scalatest:scalatest_2.12", "com.fasterxml.jackson.core:jackson-databind"]))
-    #---------------
     .getOrCreate()
 )
-#exit()
+'''
 
-'''
-spark = (
-    SparkSession.builder
-    .appName("SentimentAnalysisPySpark")
-    .master(f"local[{logical_cores}]")  # use all logical CPU cores
-    .config("spark.driver.memory", f"{spark_memory_gb}g")
-    .config("spark.executor.memory", f"{spark_memory_gb}g")
-    .config("spark.memory.fraction", "0.6")
-    .config("spark.memory.storageFraction", "0.3")
-    .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-    .config("spark.sql.adaptive.enabled", "true")
-    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-    .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "128MB")
-    .config("spark.sql.shuffle.partitions", "200")
-    .getOrCreate()
-)
-'''
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
