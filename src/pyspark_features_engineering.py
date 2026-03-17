@@ -1457,13 +1457,10 @@ class FeaturesEngineering:
 
             print("\n================Case2:  TEST CLASSIFICATION REPORT ================")
             print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
-            spark.stop()
-            exit()
-
-
-
             print(f"Case2 : final Model classification  completed in {case2_Classification_time:.2f} minutes")
             print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.2f} minutes")
+            spark.stop()
+            exit()
 
             exit()
 
