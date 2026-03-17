@@ -1068,7 +1068,7 @@ class FeaturesEngineering:
             #if DATASET=='BGL' or DATASET=='TH_1G' :
             # --------------------------
             # 0) Train data (real normal + ALL pseudo)
-            # --------------------------
+            # --------------------------case1 --------------------------------------------------------------------------
             df_real_normal = sequences_df.filter(col("Temp_label") == 0).select(col("Node_block_id"),
                 col("features_vec_final"), lit(0).alias("Final_Label"), lit("real").alias("src"))
 
@@ -1291,6 +1291,7 @@ class FeaturesEngineering:
             print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
             print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
+            # --------------------------case2 --------------------------------------------------------------------------
 
             #else:
             # ------- classification stage. GBTClassifier-----New ------------------------------------------------------

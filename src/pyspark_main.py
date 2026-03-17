@@ -24,12 +24,97 @@ import pyspark
 from pyspark.sql import SparkSession
 import time
 
-
-
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
 if not hasattr(np, "unicode_"):
     np.unicode_ = str
+
+    # ============================================================  # Detect system resources  # ============================================================
+logical_cores = psutil.cpu_count(logical=True)
+physical_cores = psutil.cpu_count(logical=False)
+
+vm = psutil.virtual_memory()
+total_ram_gb = vm.total // (1024 ** 3)
+
+print("Detected CPU cores:", logical_cores)
+print("Detected RAM:", total_ram_gb, "GB")
+
+# ============================================================
+# Spark cluster sizing
+# ============================================================
+
+# use half the CPU cores for Spark
+spark_cores = logical_cores // 2
+
+# workers and cores per worker
+num_workers = 8
+cores_per_worker = spark_cores // num_workers
+
+# allocate ~60% RAM to Spark
+spark_ram_gb = int(total_ram_gb * 0.6)
+
+executor_memory_gb = spark_ram_gb // num_workers
+driver_memory_gb = executor_memory_gb
+
+worker_memory_mib = executor_memory_gb * 1024
+
+# ============================================================
+# Parallelism settings
+# ============================================================
+
+total_executor_cores = num_workers * cores_per_worker
+
+shuffle_partitions = total_executor_cores * 2
+default_parallelism = total_executor_cores * 2
+
+# ============================================================
+# directories
+# ============================================================
+
+spill_dir = "/tmp/spark-spill"
+eventlog_dir = "/tmp/spark-events"
+
+os.makedirs(spill_dir, exist_ok=True)
+os.makedirs(eventlog_dir, exist_ok=True)
+
+# ============================================================
+# Start Spark
+# ============================================================
+
+spark = (SparkSession.builder.appName("Distributed_Log_AD")
+
+         .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
+
+         # memory
+         .config("spark.driver.memory", f"{driver_memory_gb}g").config("spark.executor.memory",
+                                                                       f"{executor_memory_gb}g")
+
+         .config("spark.memory.fraction", "0.6").config("spark.memory.storageFraction", "0.3")
+
+         # parallelism
+         .config("spark.default.parallelism", default_parallelism).config("spark.sql.shuffle.partitions",
+    shuffle_partitions)
+
+         # shuffle
+         .config("spark.reducer.maxSizeInFlight", "48m").config("spark.shuffle.file.buffer", "32k")
+
+         # disk spill
+         .config("spark.local.dir", spill_dir)
+
+         # adaptive execution
+         .config("spark.sql.adaptive.enabled", "true").config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+
+         # logging
+         .config("spark.eventLog.enabled", "true").config("spark.eventLog.dir", eventlog_dir)
+
+         # serialization
+         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+
+         .getOrCreate())
+
+print("Spark initialized")
+
+'''
 
 # ============================================================
 # 1) System Info
@@ -147,14 +232,7 @@ spark = (
 
     .getOrCreate()
 )
-
-
-
-
-
-
-
-
+'''
 
 '''
 # --------------------Start-All resources - default case 
@@ -250,11 +328,10 @@ spark = (
 )
 '''
 
-
 # ===================== ======================
 warnings.filterwarnings('ignore')
 colorama.init()
-#exit()
+# exit()
 
 GREEN = colorama.Fore.GREEN
 GRAY = colorama.Fore.LIGHTBLACK_EX
@@ -276,10 +353,9 @@ def get_spill_size_gb(spill_dir):
 
 
 def main():
-
     # ---------------- Device setup ----------------
-    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #torch.backends.cudnn.enabled = True
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # torch.backends.cudnn.enabled = True
 
     # ---------------- Display options ----------------
     pd.set_option("display.max_columns", None)
@@ -302,7 +378,7 @@ def main():
     PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_pre_final_global_features.pkl'
 
     # ---------------- Spark session ----------------
-    #spark = SparkSession.builder \
+    # spark = SparkSession.builder \
     #    .appName("LogAnomalyPipeline") \
     #    .getOrCreate()
 
@@ -315,9 +391,9 @@ def main():
     utilities_obj = Utilities()
 
     # ---------------- Data as CSV ----------------
-    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    #print(' Reading the file was done successfully ')
-    #exit()
+    # logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    # print(' Reading the file was done successfully ')
+    # exit()
 
     '''
     # ---------------- Load CSV into Spark ----------------
@@ -394,10 +470,9 @@ def main():
     exit()
     '''
 
-
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
-    output_path = round_id + '_'+DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    output_path = round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
     # ---------------- Features Engineering ----------------
@@ -405,31 +480,29 @@ def main():
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
     os.makedirs(SPILL_DIR, exist_ok=True)
 
-    start_agree_trans= time.time()
+    start_agree_trans = time.time()
 
-    sequences_df, x_sequences_df, y_sequences_df = \
-        features_engineering_obj.features_aggregation_transformation(
-            final_train_with_test_with_val,
-            DATASET
-        )
-    print(sequences_df.columns)   # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+    sequences_df, x_sequences_df, y_sequences_df = features_engineering_obj.features_aggregation_transformation(
+        final_train_with_test_with_val, DATASET)
+    print(
+        sequences_df.columns)  # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 
-    #exit()
+    # exit()
 
     aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
-    #exit()
+    # exit()
 
-    end_agree_trans= time.time()
+    end_agree_trans = time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
     print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
 
-    #sequences_df = sequences_df.persist(StorageLevel.MEMORY_AND_DISK)
-    #x_sequences_df = x_sequences_df.cache()
+    # sequences_df = sequences_df.persist(StorageLevel.MEMORY_AND_DISK)
+    # x_sequences_df = x_sequences_df.cache()
 
-    #sequences_df.count()
-    #x_sequences_df.count()
-    #exit()
+    # sequences_df.count()
+    # x_sequences_df.count()
+    # exit()
 
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
@@ -439,32 +512,31 @@ def main():
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
     os.makedirs(SPILL_DIR, exist_ok=True)
 
-
-    start_Novelty= time.time()
+    start_Novelty = time.time()
     df_final_train_cls, df_test_cls, df_val_cls = (
         features_engineering_obj.novelty_detection_label_establishment(DATASET, sequences_df=sequences_df, spark=spark,
-            method="gmm"))
+                                                                       method="gmm"))
 
     Novelty_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
 
-    end_Novelty= time.time()
+    end_Novelty = time.time()
     Novelty_time = (end_Novelty - start_Novelty) / 60
     print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
     print('Novel was done .....')
-    #exit()
+    # exit()
 
     # ---------------- Anomaly Detection ----------------
     print(f"{GRAY}Running anomaly detection on test dataset...{RESET}")
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
     os.makedirs(SPILL_DIR, exist_ok=True)
 
-    start_anomaly= time.time()
+    start_anomaly = time.time()
 
-    test_pred, LABEL_COL , best_thr ,  train_runtime_min, test_runtime_min = anomaly_detection_obj.anomaly_detector(df_train_quality,df_test_cls, df_val_cls ,mode )
-    test_metrics = model_evaluation_obj.evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction", thr=best_thr,
-                                      pos_index=1)
-
+    test_pred, LABEL_COL, best_thr, train_runtime_min, test_runtime_min = anomaly_detection_obj.anomaly_detector(
+        df_train_quality, df_test_cls, df_val_cls, mode)
+    test_metrics = model_evaluation_obj.evaluation_pyspark(test_pred, label_col=LABEL_COL, raw_pred_col="rawPrediction",
+                                                           thr=best_thr, pos_index=1)
 
     print("\n=== TEST METRICS (LinearSVC single classifier) ===")
     print(f"Precision (anomaly=1): {test_metrics['P']:.4f}")
@@ -478,14 +550,14 @@ def main():
 
     Anomaly_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during AD: {Anomaly_spill_gb:.2f} GB")
-    end_anomaly= time.time()
+    end_anomaly = time.time()
     anomaly_time = (end_anomaly - start_anomaly) / 60
     print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
 
-    #results["predictions_df"]  # Spark DF for evaluation
-    #results["best_threshold"]  # chosen on validation
-    #print(results["fit_time"])  # minutes
-    #print(results["predict_time"])  # minutes
+    # results["predictions_df"]  # Spark DF for evaluation
+    # results["best_threshold"]  # chosen on validation
+    # print(results["fit_time"])  # minutes
+    # print(results["predict_time"])  # minutes
 
     # ---------------- Model Evaluation ----------------
 
@@ -499,32 +571,21 @@ def main():
     print(f"TP: {metrics['tp']}, FP: {metrics['fp']}, FN: {metrics['fn']}, TN: {metrics['tn']}")
     print(results["fit_time"])  # minutes
     print(results["predict_time"])  # minutes
-   # print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
-    #print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
-    #print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
-   # print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
-  #  print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-   # print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
-   # print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
-   # print(f"Shuffle Spill during AD Train : {Anomaly_spill_gb:.2f} GB")
-
+    # print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
+    # print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
+    # print(f"Model Novelty and label estimating completed in {Novelty_time:.2f} minutes")
+    # print(f"Model anomaly train completed in {anomaly_time:.2f} minutes")
+    #  print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
+    # print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
+    # print(f"Shuffle Spill during Novelty: {Novelty_features_spill_gb:.2f} GB")
+    # print(f"Shuffle Spill during AD Train : {Anomaly_spill_gb:.2f} GB")
 
     exit()
 
-
-
     print(f"{GRAY}Evaluating model performance...{RESET}")
 
-    model_evaluation_obj.evaluation(
-        round_id,
-        X_train,
-        y_train,
-        number_component,
-        y_test_truth,
-        y_test_pred,
-        DATASET,
-        X_test
-    )
+    model_evaluation_obj.evaluation(round_id, X_train, y_train, number_component, y_test_truth, y_test_pred, DATASET,
+        X_test)
 
     print(f"Model training completed in {fit_time:.2f} minutes")
     print(f"Prediction completed in {predict_time:.2f} minutes")
@@ -538,9 +599,6 @@ def main():
     test_df.unpersist()
 
     spark.stop()
-
-
-
 
 
 '''
@@ -713,4 +771,3 @@ def main():
 '''
 if __name__ == "__main__":
     main()
-
