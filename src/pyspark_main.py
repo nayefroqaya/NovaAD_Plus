@@ -412,6 +412,7 @@ def main():
     validate_df.count()
     test_df.count()
     #exit()
+    '''
 
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
@@ -432,6 +433,15 @@ def main():
     print("Train count:", train_df.count())
     print("Validation count:", val_df.count())
     print("Test count:", test_df.count())
+    #--------------Read Parquest file and convert to Pandas and save PKL
+    train_pd = train_df.toPandas()
+    val_pd = val_df.toPandas()
+    test_pd = test_df.toPandas()
+    train_pd.to_pickle(os.path.join(save_path, "train_df.pkl"))
+    val_pd.to_pickle(os.path.join(save_path, "val_df.pkl"))
+    test_pd.to_pickle(os.path.join(save_path, "test_df.pkl"))
+    #----------------
+    exit()
 
     train_df.printSchema()
     assert train_df.schema == val_df.schema == test_df.schema
@@ -468,13 +478,18 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     exit()
-    '''
+
 
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     output_path = round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
+
+
+
+
+
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
     shutil.rmtree(SPILL_DIR, ignore_errors=True)
