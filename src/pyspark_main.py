@@ -32,7 +32,7 @@ if not hasattr(np, "unicode_"):
     # ============================================================  # Detect system resources  # ============================================================
 logical_cores = psutil.cpu_count(logical=True)
 physical_cores = psutil.cpu_count(logical=False)
-
+'''
 vm = psutil.virtual_memory()
 total_ram_gb = vm.total // (1024 ** 3)
 
@@ -113,6 +113,7 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
          .getOrCreate())
 
 print("Spark initialized")
+'''
 
 '''
 
@@ -234,7 +235,7 @@ spark = (
 )
 '''
 
-'''
+
 # --------------------Start-All resources - default case 
 # System Info
 # -----------------------------
@@ -326,7 +327,7 @@ spark = (
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     .getOrCreate()
 )
-'''
+
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
