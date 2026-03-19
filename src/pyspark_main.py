@@ -441,12 +441,14 @@ def main():
     val_pd.to_pickle(os.path.join(save_path, "val_df.pkl"))
     test_pd.to_pickle(os.path.join(save_path, "test_df.pkl"))
     #----------------
-    exit()
+    spark.stop()
+
+
 
     train_df.printSchema()
     assert train_df.schema == val_df.schema == test_df.schema
 
-    #exit()
+    exit()
     
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
