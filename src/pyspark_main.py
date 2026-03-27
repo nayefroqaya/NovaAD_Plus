@@ -43,29 +43,25 @@ print("Detected RAM:", total_ram_gb, "GB")
 # Spark cluster sizing
 # ============================================================
 
+
+num_workers = 8
+cores_per_worker = 4     # cores_per_worker = spark_cores // num_workers
+executor_memory_gb = 20  # executor_memory_gb = spark_ram_gb // num_workers
+driver_memory_gb = 20     # driver_memory_gb = executor_memory_gb
+worker_memory_mib = executor_memory_gb * 1024   # worker_memory_mib = executor_memory_gb * 1024
+
+
+total_executor_cores = num_workers * cores_per_worker
+shuffle_partitions = total_executor_cores * 2
+default_parallelism = total_executor_cores * 2
+
 # use half the CPU cores for Spark
 spark_cores = logical_cores // 2
-
-# workers and cores per worker
-num_workers = 8
-cores_per_worker = spark_cores // num_workers
 
 # allocate ~60% RAM to Spark
 spark_ram_gb = int(total_ram_gb * 0.6)
 
-executor_memory_gb = spark_ram_gb // num_workers
-driver_memory_gb = executor_memory_gb
 
-worker_memory_mib = executor_memory_gb * 1024
-
-# ============================================================
-# Parallelism settings
-# ============================================================
-
-total_executor_cores = num_workers * cores_per_worker
-
-shuffle_partitions = total_executor_cores * 2
-default_parallelism = total_executor_cores * 2
 
 # ============================================================
 # directories
@@ -364,9 +360,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_1G'
+    DATASET = 'SP_100MB'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
