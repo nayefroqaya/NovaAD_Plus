@@ -497,11 +497,11 @@ def main():
     output_path = round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
+    final_train_with_test_with_val.printSchema()
 
     final_train_with_test_with_val.select("Original_Label").distinct().show()
     final_train_with_test_with_val.select("Label").distinct().show()
 
-    final_train_with_test_with_val.printSchema()
 
     spark.stop()
 
