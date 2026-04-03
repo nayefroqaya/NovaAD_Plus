@@ -360,9 +360,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -408,6 +408,7 @@ def main():
     validate_df.count()
     test_df.count()
     #exit()
+    '''
     
   
 
@@ -446,6 +447,7 @@ def main():
     spark.stop()
 
     exit()
+
     #--------------Read Parquest file and convert to Pandas and save PKL
     #train_pd = train_df.toPandas()
     #val_pd = val_df.toPandas()
@@ -488,7 +490,7 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     exit()
-    '''
+
 
 
 
@@ -502,9 +504,9 @@ def main():
     final_train_with_test_with_val.select("Label").distinct().show()
 
 
-    spark.stop()
+    #spark.stop()
 
-    exit()
+    #exit()
 
 
     # ---------------- Features Engineering ----------------
