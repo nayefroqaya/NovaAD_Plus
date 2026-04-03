@@ -499,8 +499,7 @@ def main():
     final_train_with_test_with_val.count()
     final_train_with_test_with_val.printSchema()
 
-    #final_train_with_test_with_val.select("Original_Label").distinct().show()
-    #final_train_with_test_with_val.select("Label").distinct().show()
+    final_train_with_test_with_val.select("Label").distinct().show()
 
 
     spark.stop()
