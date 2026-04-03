@@ -433,6 +433,7 @@ def main():
     train_df.printSchema()
     val_df.printSchema()
     test_df.printSchema()
+    spark.stop()
 
     exit()
     #--------------Read Parquest file and convert to Pandas and save PKL
