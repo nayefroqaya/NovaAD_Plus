@@ -430,9 +430,9 @@ def main():
     print("Train count:", train_df.count())
     print("Validation count:", val_df.count())
     print("Test count:", test_df.count())
-    train_df.printSchema()
-    val_df.printSchema()
-    test_df.printSchema()
+    #train_df.printSchema()
+    #val_df.printSchema()
+    #test_df.printSchema()
 
     train_df.select("Original_Label").distinct().show()
     train_df.select("Label").distinct().show()
