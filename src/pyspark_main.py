@@ -360,7 +360,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'BGL'
+    DATASET = 'TH_1G'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
