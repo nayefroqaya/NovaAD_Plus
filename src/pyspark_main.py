@@ -408,7 +408,7 @@ def main():
     validate_df.count()
     test_df.count()
     #exit()
-    '''
+    
   
 
     # ---------------- Process normal data ----------------
@@ -488,6 +488,7 @@ def main():
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     exit()
+    '''
 
 
 
@@ -496,6 +497,15 @@ def main():
     output_path = round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
+
+    final_train_with_test_with_val.select("Original_Label").distinct().show()
+    final_train_with_test_with_val.select("Label").distinct().show()
+
+    final_train_with_test_with_val.printSchema()
+
+    spark.stop()
+
+    exit()
 
 
     # ---------------- Features Engineering ----------------
