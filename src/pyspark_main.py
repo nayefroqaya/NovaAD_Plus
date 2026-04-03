@@ -433,6 +433,16 @@ def main():
     train_df.printSchema()
     val_df.printSchema()
     test_df.printSchema()
+
+    train_df.select("Original_Label").distinct().show()
+    train_df.select("Label").distinct().show()
+
+    val_df.select("Original_Label").distinct().show()
+    val_df.select("Label").distinct().show()
+
+    test_df.select("Original_Label").distinct().show()
+    test_df.select("Label").distinct().show()
+
     spark.stop()
 
     exit()
