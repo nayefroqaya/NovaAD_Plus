@@ -1,0 +1,181 @@
+Detected CPU cores: 64
+Detected RAM: 251 GB
+Spark initialized
+✅ Loaded CSV into Spark DataFrame
+Splitting dataset into training, validation, and test sets...
+[INFO] Preparing dataset 'BGL'...
+[INFO] DataFrame cleaned. Null 'Content' rows removed.
+root
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Label: string (nullable = true)
+
+[INFO] Total rows after cleanup: 4645210
+[INFO] Dataset timestamps parsed and sorted.
+[INFO] No overlaps found between train, validation, and test sets.
+[CHECK] max(train block start)=2005-08-26 12:07:17.518917, min(test block start)=2005-08-26 12:23:37.728922
+[INFO] Dataset split complete. Sizes -> Train: 3546504, Validation: 183506, Test: 915200
+ Normal seq Train : 21737
+ Anomaly seq Train : 29218
+ Normal seq Test : 18461
+ Anomaly seq Test : 7018
++--------------+
+|Original_Label|
++--------------+
+|      KERNSTOR|
+|       APPUNAV|
+|        KERNMC|
+|       APPREAD|
+|     KERNMICRO|
+|        APPSEV|
+|             -|
+|      KERNTERM|
+|       APPBUSY|
+|      KERNDTLB|
+|      KERNMNTF|
+|      KERNRTSP|
+|        APPRES|
+|      KERNSOCK|
+|        MONPOW|
+|     MASABNORM|
+|       KERNMNT|
+|       KERNPAN|
+|       KERNREC|
+|       MONNULL|
++--------------+
+only showing top 20 rows
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|             -|
+|        KERNMC|
+|      KERNRTSP|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|        APPOUT|
+|      APPTORUS|
+|         APPTO|
+|        KERNMC|
+|        APPSEV|
+|     MASABNORM|
+|             -|
+|      KERNTERM|
+|          MMCS|
+|       KERNREC|
+|      KERNMNTF|
+|      KERNRTSP|
+|        APPRES|
+|      APPCHILD|
+|     KERNMICRO|
+|      KERNSOCK|
+|     KERNNOETH|
+|       KERNPOW|
+|       KERNCON|
+|      KERNSERV|
++--------------+
+only showing top 20 rows
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
+[INFO] Total unique normal Node_block_ids: 21737
+[INFO] Total unique anomaly Node_block_ids: 29218
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+Extracting features for training and test datasets...
+[INFO] DataFrame schema and sample:
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+✅ Rows with processed_EventTemplate notnull: 4639813
+✅ Rows with processed_EventTemplate null: 5397
+[INFO] DataFrame after preparation:
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+[INFO] Starting sentiment analysis feature extraction...
+Spark version: 4.0.1
+Spark version: 4.0.1
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: string (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
