@@ -38,102 +38,23 @@ from pyspark.ml.classification import (
 class ModelEvaluation:
     """Class for evaluating model performance and feature importance."""
 
-    def prf_at_threshold_fast(scored_df, thr, label_col="y", score_col="s1"):
-        tmp = scored_df.select(col(label_col).alias("y"),
-                               when(col(score_col) >= lit(thr), 1).otherwise(0).alias("yhat"))
-        agg = tmp.agg(F.sum(((col("yhat") == 1) & (col("y") == 1)).cast("int")).alias("tp"),
-                      F.sum(((col("yhat") == 1) & (col("y") == 0)).cast("int")).alias("fp"),
-                      F.sum(((col("yhat") == 0) & (col("y") == 1)).cast("int")).alias("fn"), ).collect()[0]
-
-        tp, fp, fn = int(agg["tp"]), int(agg["fp"]), int(agg["fn"])
-        p = tp / (tp + fp + 1e-9)
-        r = tp / (tp + fn + 1e-9)
-        f1 = 2 * p * r / (p + r + 1e-9)
-        return float(p), float(r), float(f1), tp, fp, fn
-
-
     @staticmethod
 
-    def  evaluation_pyspark(predictions_df, label_col, raw_pred_col="rawPrediction", thr=0.0,
-                                   pos_index=1):
-        from pyspark.ml.functions import vector_to_array
-        from pyspark.sql import functions as F
-        """
-        predictions_df: output of model.transform(df)
-        Uses rawPrediction[pos_index] as score (s1), thresholds at thr, returns metrics dict.
-        """
-        scored = (predictions_df.select(col(label_col).cast("int").alias("y"),
-                                        vector_to_array(col(raw_pred_col))[pos_index].alias("s1")).cache())
+    def  evaluation_pyspark(case1_test_pdf, case2_test_pdf, case1_classification_time,
+                            case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time):
+        # ======================================
+        # 5) Classification report
+        # ======================================
+        print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
+        print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
+        # print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
-        # materialize so timing/metrics reflect actual execution
-        _ = scored.count()
+        print(f"[INFO] Case1 :  GBT fit time: {case1_classification_time / 60:.2f} minutes")
+        print(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.2f} minutes")
 
-        p, r, f1, tp, fp, fn = ModelEvaluation.prf_at_threshold_fast(scored, thr=thr, label_col="y", score_col="s1")
-        return {"P": p, "R": r, "F1": f1, "TP": tp, "FP": fp, "FN": fn}
-
-
+        print("\n================Case2:  TEST CLASSIFICATION REPORT ================")
+        print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
+        print(f"Case2 : final Model classification  completed in {case2_Classification_time:.2f} minutes")
+        print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.2f} minutes")
 
 
-
-
-
-    @staticmethod
-    def evaluation(number_components, final_pred_df, df_final, dataset):
-        """
-        Evaluate model performance and compute feature importance metrics.
-
-        Parameters:
-        number_components (int): Number of principal components used
-        y_test_truth (array): Ground truth labels
-        y_test_pred (array): Predicted labels
-        dataset (str): Dataset identifier for output file naming
-        X_test (DataFrame or array): Test features
-        """
-
-        # Print classification report
-        # Convert required columns to pandas
-        pdf = final_pred_df.select("label", "last_pred_label").toPandas()
-
-        y_true = pdf["label"].values
-        y_pred = pdf["last_pred_label"].values
-        print('supervised final model performance ..........')
-        report = classification_report(y_true, y_pred, digits=3)
-        print(report)
-        exit()
-
-        # Define feature names
-        feature_names = ([f"component_{i + 1}" for i in range(number_components)] + [  # Text features
-            'sentiment', 'dominant_topic', 'word_count', 'character_count', 'entropy',
-
-            # Temporal features
-            'month', 'day', 'hour', 'minute', 'second'])
-
-        num_features = df_final.select("features_vec_final").first()[0].size
-
-        selector = UnivariateFeatureSelector(outputCol="selectedFeatures", labelCol="Final_Label",
-                                             featuresCol="features_vec_final", selectionMode="numTopFeatures",
-                                             selectionThreshold=num_features, # select ALL features
-                                             featureType="continuous", labelType="categorical",
-                                             selectorType="mutualInformation")
-
-        model = selector.fit(df_final)
-        mi_scores = model.getScores()  # returns an array of MI values
-        # ============================================
-        # 5. Build table of (index, name, score)
-        # ============================================
-        rows = [Row(feature_index=i, feature_name=feature_names[i], mi_score=float(mi_scores[i])) for i in
-                range(len(mi_scores))]
-
-        mi_df = spark.createDataFrame(rows)
-
-        # ============================================
-        # 6. Sort by MI importance
-        # ============================================
-        mi_df_sorted = mi_df.orderBy(mi_df.mi_score.desc())
-
-        # ============================================
-        # 7. Save to CSV
-        # ============================================
-        mi_df_sorted.coalesce(1).write.csv(dataset + "_mi_feature_importance", header=True, mode="overwrite")
-
-        print("Mutual Information feature ranking saved to: mi_feature_importance/")
