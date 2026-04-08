@@ -83,6 +83,51 @@ RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
 
 
+
+# cache model once per worker process
+_ST_MODEL = None
+_ST_DEVICE = None
+
+def _get_sentence_transformer(device: str = "cpu"):
+    global _ST_MODEL, _ST_DEVICE
+
+    if _ST_MODEL is None or _ST_DEVICE != device:
+        _ST_MODEL = SentenceTransformer("bert-base-nli-mean-tokens")
+        _ST_MODEL.to(torch.device(device))
+        _ST_DEVICE = device
+
+    return _ST_MODEL
+
+def generate_bert_embeddings_worker(sentences, device="cpu", batch_size=64):
+    model = _get_sentence_transformer(device)
+    embeddings = {}
+
+    sentences = ["" if s is None else str(s) for s in sentences]
+
+    for i in range(0, len(sentences), batch_size):
+        batch = sentences[i:i + batch_size]
+        batch_emb = model.encode(batch, convert_to_tensor=False)
+
+        for text, emb in zip(batch, batch_emb):
+            embeddings[text] = [float(x) for x in emb]
+
+    return embeddings
+
+
+def bert_embedding_udf_factory(device="cpu", batch_size=64):
+    @F.pandas_udf(ArrayType(FloatType()))
+    def udf(texts: pd.Series) -> pd.Series:
+        text_list = texts.fillna("").astype(str).tolist()
+        embeddings_map = generate_bert_embeddings_worker(
+            text_list,
+            device=device,
+            batch_size=batch_size
+        )
+        return pd.Series([embeddings_map[t] for t in text_list])
+
+    return udf
+
+
 class FeaturesExtractor:
 
    # @staticmethod
@@ -417,6 +462,7 @@ class FeaturesExtractor:
     # ---------------------------------------------------------
     # 1️⃣ Generate BERT embeddings
     # ---------------------------------------------------------
+    '''
     def generate_bert_embeddings(self, sentences, device="cpu", batch_size=64):
         model = SentenceTransformer('bert-base-nli-mean-tokens')
         model.to(torch.device(device))
@@ -429,10 +475,11 @@ class FeaturesExtractor:
                 embeddings[text] = emb
 
         return embeddings
-
+    '''
     # ---------------------------------------------------------
     # 2️⃣ PySpark pandas_udf for distributed embedding generation
     # ---------------------------------------------------------
+    '''
     def bert_embedding_udf(self, device="cpu", batch_size=64):
         @F.pandas_udf(ArrayType(FloatType()))
         def udf(texts: pd.Series) -> pd.Series:
@@ -440,6 +487,8 @@ class FeaturesExtractor:
             return pd.Series([list(embeddings_map[t]) for t in texts])
 
         return udf
+    '''
+
 
     # ---------------------------------------------------------
     # 3️⃣ Semantic feature extraction with PCA fine-tuning
@@ -466,8 +515,8 @@ class FeaturesExtractor:
         # -------------------------------
         # 2️⃣ Compute distributed BERT embeddings
         # -------------------------------
-        udf_embedding = self.bert_embedding_udf(device=device, batch_size=batch_size)
-        sdf_unique = sdf_unique.withColumn("embedding", udf_embedding(F.col(text_col)))
+        #**udf_embedding = self.bert_embedding_udf(device=device, batch_size=batch_size)
+        #**sdf_unique = sdf_unique.withColumn("embedding", udf_embedding(F.col(text_col)))
 
         # -------------------------------
         # 3️⃣ Convert embeddings to VectorUDT for PCA
@@ -544,15 +593,25 @@ class FeaturesExtractor:
         # -------------------------------
         # 6️⃣ Apply final PCA on all unique templates
         # -------------------------------
-        from pyspark.ml.feature import PCA as SparkPCA
+        #**from pyspark.ml.feature import PCA as SparkPCA
 
         from pyspark.ml.functions import array_to_vector
         from pyspark.ml.feature import PCA as SparkPCA
 
+        #**sdf_unique = sdf_unique.withColumn("vector_emb", array_to_vector("embedding"))
+        #**print(sdf_unique.count(), flush=True)
+
+        #-----------
+        #** pca_final = SparkPCA(k=best_k, inputCol="vector_emb", outputCol="reduced_vector")
+        #**pca_model = pca_final.fit(sdf_unique)
+        #**sdf_unique = pca_model.transform(sdf_unique)
+
+        udf_embedding = bert_embedding_udf_factory(device=device, batch_size=batch_size)
+        sdf_unique = sdf_unique.withColumn("embedding", udf_embedding(F.col(text_col)))
+
         sdf_unique = sdf_unique.withColumn("vector_emb", array_to_vector("embedding"))
         print(sdf_unique.count(), flush=True)
 
-        #-----------
         pca_final = SparkPCA(k=best_k, inputCol="vector_emb", outputCol="reduced_vector")
         pca_model = pca_final.fit(sdf_unique)
         sdf_unique = pca_model.transform(sdf_unique)
