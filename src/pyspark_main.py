@@ -101,8 +101,10 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
          # serialization
          .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
 
+
          .getOrCreate())
 
+spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
 
 '''
@@ -457,8 +459,8 @@ def main():
 
     # ---------------- Features Extracting ----------------
     # --- Before Train ---
-    shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    os.makedirs(SPILL_DIR, exist_ok=True)
+    #shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    #os.makedirs(SPILL_DIR, exist_ok=True)
 
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
