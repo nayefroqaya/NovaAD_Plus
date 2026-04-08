@@ -36,13 +36,13 @@ root
 |Original_Label|
 +--------------+
 |    R_HDA_STAT|
-|      R_HDA_NR|
 |             -|
+|      R_HDA_NR|
 |     N_PBS_CHK|
-|    N_PBS_BFD1|
-|     N_PBS_EPI|
 |    N_PBS_BAIL|
 |     N_PBS_PRE|
+|    N_PBS_BFD1|
+|     N_PBS_EPI|
 |    R_GM_LANAI|
 |        N_AUTH|
 +--------------+
@@ -50,8 +50,8 @@ root
 +-------+
 |  Label|
 +-------+
-|Anomaly|
 | Normal|
+|Anomaly|
 +-------+
 
 +--------------+
@@ -75,13 +75,13 @@ root
 +--------------+
 |Original_Label|
 +--------------+
-|             -|
-|     N_PBS_CHK|
 |    R_HDA_STAT|
 |      R_HDA_NR|
+|             -|
+|     N_PBS_CHK|
+|     N_PBS_PRE|
 |     N_PBS_EPI|
 |    N_PBS_BAIL|
-|     N_PBS_PRE|
 +--------------+
 
 +-------+
@@ -218,13 +218,13 @@ root
 
 ✅ Loaded DataFrame schema:
 [STATUS] Starting Spark-native topic modeling...
-[INFO] k=2, logLikelihood=-3713800.1742445384, perplexity=5.354455717294465
-[INFO] k=3, logLikelihood=-3537790.254074288, perplexity=5.1006894188390905
-[INFO] k=5, logLikelihood=-3289736.795082434, perplexity=4.743052712691233
-[INFO] k=7, logLikelihood=-3098107.6898268545, perplexity=4.46676721439956
-[INFO] k=9, logLikelihood=-2976974.4364962163, perplexity=4.292123272887329
-[INFO] k=13, logLikelihood=-2794794.2605373417, perplexity=4.029458262374892
-[INFO] k=15, logLikelihood=-2697118.047279209, perplexity=3.8886307733171854
+[INFO] k=2, logLikelihood=-3717689.3549671364, perplexity=5.36006303189363
+[INFO] k=3, logLikelihood=-3529446.1375905466, perplexity=5.088659099454699
+[INFO] k=5, logLikelihood=-3273583.565440773, perplexity=4.71976342711274
+[INFO] k=7, logLikelihood=-3107975.7240418834, perplexity=4.480994561919232
+[INFO] k=9, logLikelihood=-2978725.0119298906, perplexity=4.294645029758823
+[INFO] k=13, logLikelihood=-2786390.865403967, perplexity=4.0173410192085734
+[INFO] k=15, logLikelihood=-2710429.3278135182, perplexity=3.9078195772407884
 [RESULT] Best k = 15
 [SUCCESS] Final dataframe with Sentiment + Topics created!
 Total rows: 809536, Rows with Dominant_Topic : 809536
@@ -436,14 +436,15 @@ root
 [INFO] Starting semantic feature extraction using BERT embeddings...
 [INFO] Unique templates: 668
 [INFO] Unique blocks: 46487
+668
 Traceback (most recent call last):
   File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 547, in <module>
     main()
   File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 467, in main
     number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 155, in features_extracting_configuring_tuning
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 154, in features_extracting_configuring_tuning
     number_component, final_all_features_df = self.start_semantic_extraction(round_id,Dataset_name, spark,
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 549, in start_semantic_extraction
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 550, in start_semantic_extraction
     pca_model = pca_final.fit(sdf_unique)
   File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/base.py", line 203, in fit
   File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/util.py", line 164, in wrapped
