@@ -24,7 +24,6 @@ from pyspark.ml.feature import CountVectorizer
 # from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF
 from pyspark.ml.feature import CountVectorizer
 from pyspark.ml.feature import CountVectorizer, IDF, Tokenizer
-from pyspark.ml.feature import PCA as SparkPCA
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.functions import vector_to_array
@@ -545,6 +544,8 @@ class FeaturesExtractor:
         # -------------------------------
         # 6️⃣ Apply final PCA on all unique templates
         # -------------------------------
+        from pyspark.ml.feature import PCA as SparkPCA
+        print(sdf_unique.count(), flush=True)
         pca_final = SparkPCA(k=best_k, inputCol="vector_emb", outputCol="reduced_vector")
         pca_model = pca_final.fit(sdf_unique)
         sdf_unique = pca_model.transform(sdf_unique)
