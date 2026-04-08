@@ -355,7 +355,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -469,8 +469,8 @@ def main():
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
     print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
 
-    extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
-    print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
+    #extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
+    #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     spark.stop()
     exit()
 
