@@ -129,19 +129,19 @@ class FeaturesExtractor:
         df_features.printSchema()
         # ==================== SENTIMENT FEATURE EXTRACTION ====================
         print("[INFO] Starting sentiment analysis feature extraction...")
-        df_features_with_sentiment = features_extracting_obj.start_sentiment_extracting(Dataset_name, df_features,
+        df_features_with_sentiment = self.start_sentiment_extracting(Dataset_name, df_features,
                                                                                          spark)
         df_features_with_sentiment.printSchema()
         #exit()
         # ==================== TOPIC MODELING FEATURE EXTRACTION ===============
         print("[INFO] Starting topic modeling feature extraction...")
-        best_topic_number, df_features_with_sentiment_topic = features_extracting_obj.start_topics_extracting(
+        best_topic_number, df_features_with_sentiment_topic = self.start_topics_extracting(
             Dataset_name, df_features_with_sentiment,   spark)
         df_features_with_sentiment_topic.printSchema()
         #exit()
         # ==================== ADDITIONAL FEATURE EXTRACTION ===================
         print("[INFO] Extracting additional features (temporal, statistical, entropy)...")
-        df_feature_full_dataset = features_extracting_obj.features_extracted_different_features(Dataset_name,
+        df_feature_full_dataset = self.features_extracted_different_features(Dataset_name,
                                                                                                 best_topic_number,
                                                                                                 df_features_with_sentiment_topic,
                                                                                                 pre_final_global_features_pkl_path,
@@ -152,7 +152,7 @@ class FeaturesExtractor:
         print("[INFO] Starting semantic feature extraction using BERT embeddings...")
         df_feature_full_dataset = df_features
 
-        number_component, final_all_features_df = features_extracting_obj.start_semantic_extraction(round_id,Dataset_name, spark,
+        number_component, final_all_features_df = self.start_semantic_extraction(round_id,Dataset_name, spark,
                                                                                                     df_feature_full_dataset,
                                                                                                     text_col="processed_EventTemplate",
                                                                                                     device="cpu",
