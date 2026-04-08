@@ -39,49 +39,49 @@ root
 |             -|
 |      R_HDA_NR|
 |     N_PBS_CHK|
-|    N_PBS_BAIL|
-|     N_PBS_PRE|
 |    N_PBS_BFD1|
-|     N_PBS_EPI|
 |    R_GM_LANAI|
 |        N_AUTH|
-+--------------+
-
-+-------+
-|  Label|
-+-------+
-| Normal|
-|Anomaly|
-+-------+
-
-+--------------+
-|Original_Label|
-+--------------+
-|     N_PBS_EPI|
-|             -|
-|     N_PBS_CHK|
-|     N_PBS_PRE|
-|    R_HDA_STAT|
-|      R_HDA_NR|
-+--------------+
-
-+-------+
-|  Label|
-+-------+
-|Anomaly|
-| Normal|
-+-------+
-
-+--------------+
-|Original_Label|
-+--------------+
-|    R_HDA_STAT|
-|      R_HDA_NR|
-|             -|
-|     N_PBS_CHK|
 |     N_PBS_PRE|
 |     N_PBS_EPI|
 |    N_PBS_BAIL|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|     N_PBS_EPI|
+|             -|
+|     N_PBS_CHK|
+|     N_PBS_PRE|
+|    R_HDA_STAT|
+|      R_HDA_NR|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|    R_HDA_STAT|
+|      R_HDA_NR|
+|             -|
+|     N_PBS_EPI|
+|     N_PBS_CHK|
+|    N_PBS_BAIL|
+|     N_PBS_PRE|
 +--------------+
 
 +-------+
@@ -218,13 +218,13 @@ root
 
 ✅ Loaded DataFrame schema:
 [STATUS] Starting Spark-native topic modeling...
-[INFO] k=2, logLikelihood=-3717689.3549671364, perplexity=5.36006303189363
-[INFO] k=3, logLikelihood=-3529446.1375905466, perplexity=5.088659099454699
-[INFO] k=5, logLikelihood=-3273583.565440773, perplexity=4.71976342711274
-[INFO] k=7, logLikelihood=-3107975.7240418834, perplexity=4.480994561919232
-[INFO] k=9, logLikelihood=-2978725.0119298906, perplexity=4.294645029758823
-[INFO] k=13, logLikelihood=-2786390.865403967, perplexity=4.0173410192085734
-[INFO] k=15, logLikelihood=-2710429.3278135182, perplexity=3.9078195772407884
+[INFO] k=2, logLikelihood=-3716983.1987135094, perplexity=5.359044915080893
+[INFO] k=3, logLikelihood=-3534978.505869737, perplexity=5.096634806142015
+[INFO] k=5, logLikelihood=-3275782.966667045, perplexity=4.722934463763238
+[INFO] k=7, logLikelihood=-3099921.816573165, perplexity=4.469382657930261
+[INFO] k=9, logLikelihood=-2966230.3502960335, perplexity=4.276650152678924
+[INFO] k=13, logLikelihood=-2781555.1957190624, perplexity=4.0103720973481085
+[INFO] k=15, logLikelihood=-2695529.7434820496, perplexity=3.8863308419635625
 [RESULT] Best k = 15
 [SUCCESS] Final dataframe with Sentiment + Topics created!
 Total rows: 809536, Rows with Dominant_Topic : 809536
@@ -444,7 +444,7 @@ Traceback (most recent call last):
     number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
   File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 154, in features_extracting_configuring_tuning
     number_component, final_all_features_df = self.start_semantic_extraction(round_id,Dataset_name, spark,
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 550, in start_semantic_extraction
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 557, in start_semantic_extraction
     pca_model = pca_final.fit(sdf_unique)
   File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/base.py", line 203, in fit
   File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/util.py", line 164, in wrapped
