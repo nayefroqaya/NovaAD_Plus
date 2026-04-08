@@ -472,8 +472,8 @@ class FeaturesExtractor:
         # -------------------------------
         # 3️⃣ Convert embeddings to VectorUDT for PCA
         # -------------------------------
-        to_vector_udf = F.udf(lambda arr: Vectors.dense(arr), VectorUDT())
-        sdf_unique = sdf_unique.withColumn("vector_emb", to_vector_udf(F.col("embedding")))
+        ##*to_vector_udf = F.udf(lambda arr: Vectors.dense(arr), VectorUDT())
+        ##*sdf_unique = sdf_unique.withColumn("vector_emb", to_vector_udf(F.col("embedding")))
 
         # -------------------------------
         # 4️⃣ Sample subset for fast PCA tuning
@@ -545,7 +545,14 @@ class FeaturesExtractor:
         # 6️⃣ Apply final PCA on all unique templates
         # -------------------------------
         from pyspark.ml.feature import PCA as SparkPCA
+
+        from pyspark.ml.functions import array_to_vector
+        from pyspark.ml.feature import PCA as SparkPCA
+
+        sdf_unique = sdf_unique.withColumn("vector_emb", array_to_vector("embedding"))
         print(sdf_unique.count(), flush=True)
+
+        #-----------
         pca_final = SparkPCA(k=best_k, inputCol="vector_emb", outputCol="reduced_vector")
         pca_model = pca_final.fit(sdf_unique)
         sdf_unique = pca_model.transform(sdf_unique)
