@@ -87,7 +87,7 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesExtractor:
 
     @staticmethod
-    def features_extracting_configuring_tuning(round_id,features_extracting_obj, doc_topic_df_path, sentiment_df_path,
+    def features_extracting_configuring_tuning(round_id,features_extracting_obj,
                                                Dataset_name, pre_final_global_features_pkl_path, df_features, spark):
 
         """
