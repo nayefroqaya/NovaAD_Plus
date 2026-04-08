@@ -130,13 +130,13 @@ class FeaturesExtractor:
         # ==================== SENTIMENT FEATURE EXTRACTION ====================
         print("[INFO] Starting sentiment analysis feature extraction...")
         df_features_with_sentiment = features_extracting_obj.start_sentiment_extracting(Dataset_name, df_features,
-                                                                                        sentiment_df_path, spark)
+                                                                                         spark)
         df_features_with_sentiment.printSchema()
         #exit()
         # ==================== TOPIC MODELING FEATURE EXTRACTION ===============
         print("[INFO] Starting topic modeling feature extraction...")
         best_topic_number, df_features_with_sentiment_topic = features_extracting_obj.start_topics_extracting(
-            Dataset_name, df_features_with_sentiment, sentiment_df_path, doc_topic_df_path, spark)
+            Dataset_name, df_features_with_sentiment,   spark)
         df_features_with_sentiment_topic.printSchema()
         #exit()
         # ==================== ADDITIONAL FEATURE EXTRACTION ===================
@@ -144,7 +144,6 @@ class FeaturesExtractor:
         df_feature_full_dataset = features_extracting_obj.features_extracted_different_features(Dataset_name,
                                                                                                 best_topic_number,
                                                                                                 df_features_with_sentiment_topic,
-                                                                                                doc_topic_df_path,
                                                                                                 pre_final_global_features_pkl_path,
                                                                                                 spark)
         df_feature_full_dataset.printSchema()
@@ -164,7 +163,7 @@ class FeaturesExtractor:
         final_all_features_df.printSchema()
         return number_component, best_topic_number , final_all_features_df
 
-    def start_sentiment_extracting(self, Dataset_name, df_features, sentiment_df_path, spark):
+    def start_sentiment_extracting(self, Dataset_name, df_features,  spark):
         print(f"Spark version: {spark.version}")
         print(f"Spark version: {spark.version}")
 
@@ -246,7 +245,7 @@ class FeaturesExtractor:
 
         return best_k, cv_model, idf_model
 
-    def start_topics_extracting(self, Dataset_name, df_features_with_sentiment, sentiment_df_path, doc_topic_df_path,
+    def start_topics_extracting(self, Dataset_name, df_features_with_sentimen,
                                 spark):
 
         output_path = Dataset_name + "_sentiment_df.parquet"
@@ -320,7 +319,7 @@ class FeaturesExtractor:
         return best_k, df_features_with_sentiment_topic
 
     def features_extracted_different_features(self, Dataset_name, best_topic_number, mapped_df_topics_sentiment,
-                                              doc_topic_df_path, pre_final_global_features_pkl_path, spark):
+                                               pre_final_global_features_pkl_path, spark):
         """
         Extract additional features including temporal, statistical, and entropy features
 
