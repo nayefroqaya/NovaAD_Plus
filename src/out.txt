@@ -7,396 +7,6 @@
 Detected CPU cores: 64
 Detected RAM: 251 GB
 Spark initialized
-✅ Loaded CSV into Spark DataFrame
-Splitting dataset into training, validation, and test sets...
-[INFO] Preparing dataset 'SP_100MB'...
-[INFO] DataFrame cleaned. Null 'Content' rows removed.
-root
- |-- Timestamp: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- processed_EventTemplate: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Label: string (nullable = true)
-
-[INFO] Total rows after cleanup: 811723
-[INFO] Dataset timestamps parsed and sorted.
-[INFO] No overlaps found between train, validation, and test sets.
-[CHECK] max(train block start)=2005-01-07 10:05:21, min(test block start)=2005-01-07 13:58:05
-[INFO] Dataset split complete. Sizes -> Train: 503040, Validation: 83759, Test: 224924
- Normal seq Train : 2277
- Anomaly seq Train : 1915
- Normal seq Test : 1128
- Anomaly seq Test : 969
-+--------------+
-|Original_Label|
-+--------------+
-|             -|
-|    N_PBS_BFD1|
-|     N_PBS_EPI|
-|     N_PBS_CHK|
-|    N_PBS_BAIL|
-|     N_PBS_PRE|
-|    R_HDA_STAT|
-|      R_HDA_NR|
-|    R_GM_LANAI|
-|        N_AUTH|
-+--------------+
-
-+-------+
-|  Label|
-+-------+
-|Anomaly|
-| Normal|
-+-------+
-
-+--------------+
-|Original_Label|
-+--------------+
-|    R_HDA_STAT|
-|      R_HDA_NR|
-|             -|
-|     N_PBS_EPI|
-|     N_PBS_CHK|
-|     N_PBS_PRE|
-+--------------+
-
-+-------+
-|  Label|
-+-------+
-|Anomaly|
-| Normal|
-+-------+
-
-+--------------+
-|Original_Label|
-+--------------+
-|     N_PBS_EPI|
-|             -|
-|     N_PBS_CHK|
-|    N_PBS_BAIL|
-|     N_PBS_PRE|
-|    R_HDA_STAT|
-|      R_HDA_NR|
-+--------------+
-
-+-------+
-|  Label|
-+-------+
-|Anomaly|
-| Normal|
-+-------+
-
-[INFO] Total unique normal Node_block_ids: 2277
-[INFO] Total unique anomaly Node_block_ids: 1915
-root
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- processed_EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
-
-Extracting features for training and test datasets...
-[INFO] DataFrame schema and sample:
-root
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- processed_EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
-
-✅ Rows with processed_EventTemplate notnull: 809536
-✅ Rows with processed_EventTemplate null: 2187
-[INFO] DataFrame after preparation:
-root
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- processed_EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
-
-[INFO] Starting sentiment analysis feature extraction...
-Spark version: 4.0.1
-Spark version: 4.0.1
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- sentiment_label: string (nullable = true)
-
-root
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- processed_EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
-
-Total rows: 809536, Rows with sentiment: 809536
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
- |-- sentiment_label: string (nullable = true)
-
-✅ sentiment  saved successfully to SP_100MB_sentiment_df.parquet
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = false)
- |-- sentiment_label: string (nullable = true)
-
-[INFO] Starting topic modeling feature extraction...
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
-
-✅ Loaded DataFrame schema:
-[STATUS] Starting Spark-native topic modeling...
-[INFO] k=2, logLikelihood=-3715613.305961268, perplexity=5.357069841104389
-[INFO] k=3, logLikelihood=-3524589.8849548823, perplexity=5.081657486967287
-[INFO] k=5, logLikelihood=-3293719.4635167993, perplexity=4.748793194776962
-[INFO] k=7, logLikelihood=-3115600.587098266, perplexity=4.49198725755677
-[INFO] k=9, logLikelihood=-2981566.41424047, perplexity=4.29874275968972
-[INFO] k=13, logLikelihood=-2789152.366505502, perplexity=4.0213237478868304
-[INFO] k=15, logLikelihood=-2704199.7072475045, perplexity=3.8988529796012354
-[RESULT] Best k = 15
-[SUCCESS] Final dataframe with Sentiment + Topics created!
-Total rows: 809536, Rows with Dominant_Topic : 809536
-✅ Topic_sentiment_df.parquet  saved successfully to SP_100MB_Topic_sentiment_df.parquet
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
- |-- Dominant_Topic: double (nullable = false)
- |-- T_0: double (nullable = true)
- |-- T_1: double (nullable = true)
- |-- T_2: double (nullable = true)
- |-- T_3: double (nullable = true)
- |-- T_4: double (nullable = true)
- |-- T_5: double (nullable = true)
- |-- T_6: double (nullable = true)
- |-- T_7: double (nullable = true)
- |-- T_8: double (nullable = true)
- |-- T_9: double (nullable = true)
- |-- T_10: double (nullable = true)
- |-- T_11: double (nullable = true)
- |-- T_12: double (nullable = true)
- |-- T_13: double (nullable = true)
- |-- T_14: double (nullable = true)
-
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Date: string (nullable = true)
- |-- Time: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
- |-- Dominant_Topic: double (nullable = false)
- |-- T_0: double (nullable = true)
- |-- T_1: double (nullable = true)
- |-- T_2: double (nullable = true)
- |-- T_3: double (nullable = true)
- |-- T_4: double (nullable = true)
- |-- T_5: double (nullable = true)
- |-- T_6: double (nullable = true)
- |-- T_7: double (nullable = true)
- |-- T_8: double (nullable = true)
- |-- T_9: double (nullable = true)
- |-- T_10: double (nullable = true)
- |-- T_11: double (nullable = true)
- |-- T_12: double (nullable = true)
- |-- T_13: double (nullable = true)
- |-- T_14: double (nullable = true)
-
-[INFO] Extracting additional features (temporal, statistical, entropy)...
-[STATUS] Calculating text statistical features...
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
- |-- Dominant_Topic: double (nullable = true)
- |-- T_0: double (nullable = true)
- |-- T_1: double (nullable = true)
- |-- T_2: double (nullable = true)
- |-- T_3: double (nullable = true)
- |-- T_4: double (nullable = true)
- |-- T_5: double (nullable = true)
- |-- T_6: double (nullable = true)
- |-- T_7: double (nullable = true)
- |-- T_8: double (nullable = true)
- |-- T_9: double (nullable = true)
- |-- T_10: double (nullable = true)
- |-- T_11: double (nullable = true)
- |-- T_12: double (nullable = true)
- |-- T_13: double (nullable = true)
- |-- T_14: double (nullable = true)
- |-- year: integer (nullable = true)
- |-- month: integer (nullable = true)
- |-- day: integer (nullable = true)
- |-- hour: integer (nullable = true)
- |-- minute: integer (nullable = true)
- |-- second: integer (nullable = true)
- |-- num_words: integer (nullable = true)
- |-- Character_Count: integer (nullable = true)
-
-[INFO] Topic columns: ['T_0', 'T_1', 'T_2', 'T_3', 'T_4', 'T_5', 'T_6', 'T_7', 'T_8', 'T_9', 'T_10', 'T_11', 'T_12', 'T_13', 'T_14']
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Timestamp_ts: timestamp (nullable = true)
- |-- Content: string (nullable = true)
- |-- Original_Label: string (nullable = true)
- |-- EventId: string (nullable = true)
- |-- EventTemplate: string (nullable = true)
- |-- Label: string (nullable = true)
- |-- Type_ds: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
- |-- Dominant_Topic: double (nullable = true)
- |-- T_0: double (nullable = true)
- |-- T_1: double (nullable = true)
- |-- T_2: double (nullable = true)
- |-- T_3: double (nullable = true)
- |-- T_4: double (nullable = true)
- |-- T_5: double (nullable = true)
- |-- T_6: double (nullable = true)
- |-- T_7: double (nullable = true)
- |-- T_8: double (nullable = true)
- |-- T_9: double (nullable = true)
- |-- T_10: double (nullable = true)
- |-- T_11: double (nullable = true)
- |-- T_12: double (nullable = true)
- |-- T_13: double (nullable = true)
- |-- T_14: double (nullable = true)
- |-- year: integer (nullable = true)
- |-- month: integer (nullable = true)
- |-- day: integer (nullable = true)
- |-- hour: integer (nullable = true)
- |-- minute: integer (nullable = true)
- |-- second: integer (nullable = true)
- |-- num_words: integer (nullable = true)
- |-- Character_Count: integer (nullable = true)
-
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- Timestamp: timestamp (nullable = true)
- |-- Label: string (nullable = true)
- |-- Temp_label: integer (nullable = true)
- |-- sentiment_label: string (nullable = true)
- |-- Dominant_Topic: double (nullable = true)
- |-- year: integer (nullable = true)
- |-- month: integer (nullable = true)
- |-- day: integer (nullable = true)
- |-- hour: integer (nullable = true)
- |-- minute: integer (nullable = true)
- |-- second: integer (nullable = true)
- |-- Character_Count: integer (nullable = true)
- |-- num_words: integer (nullable = true)
-
-root
- |-- processed_EventTemplate: string (nullable = true)
- |-- Node_block_id: string (nullable = true)
- |-- entropy: double (nullable = true)
-
-[SUCCESS] Final dataframe with Entropy 
-Total rows: 809536, Rows with entropy : 809536
-✅ sentiment_topic_diff  saved successfully to SP_100MB_Topic_sentiment_diff_df.parquet
 root
  |-- processed_EventTemplate: string (nullable = true)
  |-- Node_block_id: string (nullable = true)
@@ -414,7 +24,17 @@ root
  |-- Character_Count: integer (nullable = true)
  |-- num_words: integer (nullable = true)
  |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
 
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
+---- Starting feature aggregation and transformation ----
 root
  |-- processed_EventTemplate: string (nullable = true)
  |-- Node_block_id: string (nullable = true)
@@ -432,40 +52,92 @@ root
  |-- Character_Count: integer (nullable = true)
  |-- num_words: integer (nullable = true)
  |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
 
-[INFO] Starting semantic feature extraction using BERT embeddings...
-[INFO] Unique templates: 668
-[INFO] Unique blocks: 46487
-668
+Columns: ['processed_EventTemplate', 'Node_block_id', 'Timestamp', 'Label', 'Temp_label', 'sentiment_label', 'Dominant_Topic', 'year', 'month', 'day', 'hour', 'minute', 'second', 'Character_Count', 'num_words', 'entropy', 'reduced_embedding']
+root
+ |-- sentiment_label: string (nullable = true)
+
+ preparing the numeric array ----
+preparing  full vector by concating 
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- sentiment_label_indexed: integer (nullable = false)
+ |-- numeric_array: array (nullable = false)
+ |    |-- element: double (containsNull = true)
+ |-- features_array: array (nullable = true)
+ |    |-- element: double (containsNull = true)
+ |-- features: vector (nullable = true)
+
+xxxx-------------------
++----------+-------+
+|Temp_label|  count|
++----------+-------+
+|         0|3544399|
+|       888|2859006|
+|       777|1030201|
+|       999|3742023|
++----------+-------+
+
++-------+--------+
+|  Label|   count|
++-------+--------+
+|Anomaly|  288250|
+| Normal|10887379|
++-------+--------+
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: string (nullable = false)
+ |-- Temp_label: integer (nullable = false)
+
+Feature aggregation completed successfully
+# 3️⃣ Apply RobustScaler-------
+✅ StandardScaler fit on TRAIN only, applied to train/test/val (no leakage)
+scaling done finally -------
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+Shuffle Spill during aggregation: 0.00 GB
+aggregation and transform completed in 0.57 minutes
+Preparing training and evaluation datasets...
+Performing novelty detection and establishing labels...
+[GMM] Selected k=12 by BIC
+
+===Novelty Detection  Classification_report on FULL TRAIN ===
+              precision    recall  f1-score   support
+
+           0      1.000     0.973     0.986    500817
+           1      0.451     1.000     0.621     11158
+
+    accuracy                          0.973    511975
+   macro avg      0.725     0.986     0.804    511975
+weighted avg      0.988     0.973     0.978    511975
+
+[INFO] Train counts n0=654154, n1=24760, raw_w1=18.4939, capped_w1=8.0000, PSEUDO_TRUST=0.6
 Traceback (most recent call last):
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 547, in <module>
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 545, in <module>
     main()
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 467, in main
-    number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 199, in features_extracting_configuring_tuning
-    number_component, final_all_features_df = self.start_semantic_extraction(round_id,Dataset_name, spark,
-  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 616, in start_semantic_extraction
-    pca_model = pca_final.fit(sdf_unique)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/base.py", line 203, in fit
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/util.py", line 164, in wrapped
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/wrapper.py", line 411, in _fit
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/ml/wrapper.py", line 407, in _fit_java
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1362, in __call__
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 288, in deco
-pyspark.errors.exceptions.captured.PythonException: 
-  An exception was thrown from the Python worker. Please see the stack trace below.
-Traceback (most recent call last):
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/worker.py", line 2028, in main
-    func, profiler, deserializer, serializer = read_udfs(pickleSer, infile, eval_type)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/worker.py", line 1938, in read_udfs
-    read_single_udf(
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/worker.py", line 876, in read_single_udf
-    f, return_type = read_command(pickleSer, infile)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/worker_util.py", line 64, in read_command
-    command = serializer._read_with_length(file)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/serializers.py", line 173, in _read_with_length
-    return self.loads(obj)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/serializers.py", line 473, in loads
-    return cloudpickle.loads(obj, encoding=encoding)
-ModuleNotFoundError: No module named 'pyspark_features_extracting'
-
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 531, in main
+    case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time = anomaly_detection_obj.anomaly_detector(
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_anomaly_detection.py", line 227, in anomaly_detector
+    train_base_df = train_base_df.persist(StorageLevel.MEMORY_AND_DISK)
+NameError: name 'StorageLevel' is not defined
