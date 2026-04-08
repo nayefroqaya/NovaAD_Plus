@@ -575,7 +575,8 @@ class FeaturesExtractor:
                                       how="left")
         sdf_final.printSchema()
 
-        output_path =round_id + '_'+ Dataset_name + "_Topic_sentiment_diff_semantic_df.parquet"
+        output_path = f'../datasets/{Dataset_name}/{round_id}_{Dataset_name}_Topic_sentiment_diff_semantic_df.parquet'    #round_id + '_'+ Dataset_name + "_Topic_sentiment_diff_semantic_df.parquet"
+
         sdf_final.write.mode("overwrite").parquet(output_path)
         print(f"✅ Topic_sentiment_diff_semanti  saved successfully to {output_path}")
 

@@ -355,7 +355,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'SP_150MB'
+    DATASET = 'HDFS'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -364,9 +364,10 @@ def main():
     # Paths
     ALL_DATASET_LOG_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}.LOG'
     ALL_DATASET_CSV_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}.csv'
-    DOC_TOPIC_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_doc_topic_df.pkl'
-    SENTIMENT_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_sentiment_df.pkl'
-    PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{DATASET}_All_pre_final_global_features.pkl'
+
+    DOC_TOPIC_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_doc_topic_df.pkl'
+    SENTIMENT_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_sentiment_df.pkl'
+    PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_pre_final_global_features.pkl'
 
     # ---------------- Spark session ----------------
     # spark = SparkSession.builder \
@@ -403,6 +404,7 @@ def main():
     test_df.count()
     # exit()
 
+
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
         save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
@@ -434,10 +436,6 @@ def main():
 
     test_df.select("Original_Label").distinct().show()
     test_df.select("Label").distinct().show()
-
-    # spark.stop()
-
-    # exit()
 
     # --------------Read Parquest file and convert to Pandas and save PKL for experiments with baseline
     # train_pd = train_df.toPandas()
@@ -473,11 +471,14 @@ def main():
 
     extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    # exit()
+    exit()
+
+
+
 
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
-    output_path = round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
     final_train_with_test_with_val.printSchema()
@@ -486,7 +487,7 @@ def main():
 
     # spark.stop()
 
-    # exit()
+    exit()
 
     # ---------------- Features Engineering ----------------
     print(f"{GRAY}Aggregating and transforming features...{RESET}")
