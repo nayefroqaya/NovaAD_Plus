@@ -465,7 +465,7 @@ def main():
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
     number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
-        round_id, features_extracting_obj,   DATASET,
+        round_id,  DATASET,
         PRE_FINAL_GLOBAL_FEATURES_PKL_PATH, final_train_with_test_with_val, spark)
     end_features_extracting = time.time()
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
