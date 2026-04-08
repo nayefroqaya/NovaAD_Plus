@@ -359,7 +359,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'HDFS'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -383,6 +383,8 @@ def main():
     anomaly_detection_obj = AnomalyDetector()
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
+
+    '''
 
     # ---------------- Data as CSV ----------------
     # logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
@@ -475,9 +477,7 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     spark.stop()
     exit()
-
-
-
+    '''
 
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
@@ -485,17 +485,15 @@ def main():
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
     final_train_with_test_with_val.printSchema()
-
     final_train_with_test_with_val.select("Label").distinct().show()
 
     # spark.stop()
-
-    exit()
+    #exit()
 
     # ---------------- Features Engineering ----------------
-    print(f"{GRAY}Aggregating and transforming features...{RESET}")
-    shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    os.makedirs(SPILL_DIR, exist_ok=True)
+    #print(f"{GRAY}Aggregating and transforming features...{RESET}")
+    #shutil.rmtree(SPILL_DIR, ignore_errors=True)
+    #os.makedirs(SPILL_DIR, exist_ok=True)
 
     start_agree_trans = time.time()
 
