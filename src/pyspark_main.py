@@ -42,8 +42,8 @@ print("Detected RAM:", total_ram_gb, "GB")
 # ============================================================
 
 
-num_workers = 8
-cores_per_worker = 4  # cores_per_worker = spark_cores // num_workers
+num_workers = 8      # defualt =8
+cores_per_worker = 2   # defaul =4  # cores_per_worker = spark_cores // num_workers
 executor_memory_gb = 20  # executor_memory_gb = spark_ram_gb // num_workers
 driver_memory_gb = 20  # driver_memory_gb = executor_memory_gb
 worker_memory_mib = executor_memory_gb * 1024  # worker_memory_mib = executor_memory_gb * 1024
@@ -357,9 +357,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_1G'
+    DATASET = 'HDFS'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
