@@ -563,8 +563,8 @@ class LogdataRead:
 
             # Print Dataset Statistics
             print(f"All logs: {x:,}")
-            print(f"Normal logs: {len(df1):,}")  # 4,365,033
-            print(f"Anomaly logs: {len(df2):,}")  # 348,460
+            print(f"Normal logs: {len(df1):,}")  # TH_1G : 4,365,033
+            print(f"Anomaly logs: {len(df2):,}")  # TH_1G :348,460
             print(f"Unique normal blocks: {len(df3):,}")  # 49,247
             print(f"Unique anomaly blocks: {len(df4):,}")  # 36,251
             print(f"All unique blocks: {len(df_block):,}")
