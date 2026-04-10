@@ -44,7 +44,7 @@ print("Detected RAM:", total_ram_gb, "GB")
 
 num_workers = 8    # defualt =8
 cores_per_worker = 4   # defaul =4  # cores_per_worker = spark_cores // num_workers
-executor_memory_gb = 10  # executor_memory_gb = spark_ram_gb // num_workers
+executor_memory_gb = 20  # executor_memory_gb = spark_ram_gb // num_workers
 driver_memory_gb = 20  # driver_memory_gb = executor_memory_gb
 worker_memory_mib = executor_memory_gb * 1024  # worker_memory_mib = executor_memory_gb * 1024
 
@@ -357,7 +357,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'TH_1G'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -385,7 +385,7 @@ def main():
     utilities_obj = Utilities()
 
 
-    '''
+
     # ---------------- Data as CSV ----------------
     # logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
     # print(' Reading the file was done successfully ')
@@ -395,6 +395,14 @@ def main():
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
     print('✅ Loaded CSV into Spark DataFrame')
+    df1 = all_data_df.query("Label == '-'").reset_index(drop=True)  # Normal logs
+    df2 = all_data_df.query("Label != '-'").reset_index(drop=True)  # Anomaly logs
+
+    print(f"Normal logs: {len(df1):,}")  #
+    print(f"Anomaly logs: {len(df2):,}")  #
+
+    exit()
+
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
@@ -477,7 +485,7 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     spark.stop()
     exit()
-    '''
+
 
 
     # ---------------- Load feature PKL → Spark ----------------
