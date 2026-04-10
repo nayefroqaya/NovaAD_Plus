@@ -43,8 +43,8 @@ print("Detected RAM:", total_ram_gb, "GB")
 
 
 num_workers = 1    # defualt =8
-cores_per_worker =2   # defaul =4  # cores_per_worker = spark_cores // num_workers
-executor_memory_gb =2  # executor_memory_gb = spark_ram_gb // num_workers
+cores_per_worker =1   # defaul =4  # cores_per_worker = spark_cores // num_workers
+executor_memory_gb =1  # executor_memory_gb = spark_ram_gb // num_workers
 driver_memory_gb = 20  # driver_memory_gb = executor_memory_gb
 worker_memory_mib = executor_memory_gb * 1024  # worker_memory_mib = executor_memory_gb * 1024
 
