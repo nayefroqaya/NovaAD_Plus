@@ -387,16 +387,16 @@ def main():
 
 
     # ---------------- Data as CSV ----------------
-    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    print(' Reading the file was done successfully ')
-    exit()
+    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    #print(' Reading the file was done successfully ')
+    #exit()
  
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
     print('✅ Loaded CSV into Spark DataFrame')
-    df1 = all_data_df.query("Label == '-'").reset_index(drop=True)  # Normal logs
-    df2 = all_data_df.query("Label != '-'").reset_index(drop=True)  # Anomaly logs
+    #df1 = all_data_df.query("Label == '-'").reset_index(drop=True)  # Normal logs
+    #df2 = all_data_df.query("Label != '-'").reset_index(drop=True)  # Anomaly logs
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
@@ -459,7 +459,7 @@ def main():
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
     final_train_with_test_with_val.count()
-    # exit()
+    #exit()
 
     # ---------------- Features Extracting ----------------
     # --- Before Train ---
