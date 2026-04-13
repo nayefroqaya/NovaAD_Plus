@@ -1,0 +1,238 @@
+[nltk_data] Downloading package punkt_tab to
+[nltk_data]     /app/home/roqaya/nltk_data...
+[nltk_data]   Package punkt_tab is already up-to-date!
+[nltk_data] Downloading package stopwords to
+[nltk_data]     /app/home/roqaya/nltk_data...
+[nltk_data]   Package stopwords is already up-to-date!
+Detected CPU cores: 64
+Detected RAM: 251 GB
+Spark initialized
+✅ Loaded CSV into Spark DataFrame
+Splitting dataset into training, validation, and test sets...
+[INFO] Preparing dataset 'SP_100MB_ratio'...
+[INFO] DataFrame cleaned. Null 'Content' rows removed.
+root
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Label: string (nullable = true)
+
+[INFO] Total rows after cleanup: 811723
+[INFO] Dataset timestamps parsed and sorted.
+[INFO] No overlaps found between train, validation, and test sets.
+[CHECK] max(train block start)=2005-01-07 10:05:21, min(test block start)=2005-01-07 13:58:05
+[INFO] Dataset split complete. Sizes -> Train: 503040, Validation: 83759, Test: 224924
+ Normal seq Train : 2277
+ Anomaly seq Train : 1915
+ Normal seq Test : 1128
+ Anomaly seq Test : 969
++--------------+
+|Original_Label|
++--------------+
+|    R_HDA_STAT|
+|             -|
+|      R_HDA_NR|
+|    N_PBS_BFD1|
+|    R_GM_LANAI|
+|        N_AUTH|
+|     N_PBS_CHK|
+|     N_PBS_PRE|
+|     N_PBS_EPI|
+|    N_PBS_BAIL|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|     N_PBS_EPI|
+|             -|
+|     N_PBS_CHK|
+|     N_PBS_PRE|
+|    R_HDA_STAT|
+|      R_HDA_NR|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
++--------------+
+|Original_Label|
++--------------+
+|    R_HDA_STAT|
+|      R_HDA_NR|
+|             -|
+|     N_PBS_CHK|
+|     N_PBS_EPI|
+|    N_PBS_BAIL|
+|     N_PBS_PRE|
++--------------+
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
+[INFO] Total unique normal Node_block_ids: 2277
+[INFO] Total unique anomaly Node_block_ids: 1915
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+Extracting features for training and test datasets...
+[INFO] DataFrame schema and sample:
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+✅ Rows with processed_EventTemplate notnull: 809536
+✅ Rows with processed_EventTemplate null: 2187
+[INFO] DataFrame after preparation:
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+[INFO] Starting sentiment analysis feature extraction...
+Spark version: 4.0.1
+Spark version: 4.0.1
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+
+Total rows: 809536, Rows with sentiment: 809536
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Timestamp_ts: timestamp (nullable = true)
+ |-- Date: string (nullable = true)
+ |-- Time: timestamp (nullable = true)
+ |-- Content: string (nullable = true)
+ |-- Original_Label: string (nullable = true)
+ |-- EventId: string (nullable = true)
+ |-- EventTemplate: string (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Type_ds: string (nullable = true)
+ |-- Temp_label: integer (nullable = false)
+ |-- sentiment_label: string (nullable = true)
+
+ERROR:root:Exception while sending command.
+Traceback (most recent call last):
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/clientserver.py", line 535, in send_command
+    answer = smart_decode(self.stream.readline()[:-1])
+RuntimeError: reentrant call inside <_io.BufferedReader name=7>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1038, in send_command
+    response = connection.send_command(command)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/clientserver.py", line 566, in send_command
+    raise Py4JNetworkError(
+py4j.protocol.Py4JNetworkError: Error while sending or receiving
+ERROR:root:Exception while sending command.
+Traceback (most recent call last):
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/clientserver.py", line 535, in send_command
+    answer = smart_decode(self.stream.readline()[:-1])
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/core/context.py", line 389, in signal_handler
+    self.cancelAllJobs()
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/core/context.py", line 2487, in cancelAllJobs
+    self._jsc.sc().cancelAllJobs()
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1362, in __call__
+    return_value = get_return_value(
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 282, in deco
+    return f(*a, **kw)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/protocol.py", line 335, in get_return_value
+    raise Py4JError(
+py4j.protocol.Py4JError: An error occurred while calling o44.sc
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1038, in send_command
+    response = connection.send_command(command)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/clientserver.py", line 566, in send_command
+    raise Py4JNetworkError(
+py4j.protocol.Py4JNetworkError: Error while sending or receiving
+Traceback (most recent call last):
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 549, in <module>
+    main()
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 471, in main
+    number_component, best_topic_number, final_all_features_df = features_extracting_obj.features_extracting_configuring_tuning(
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 176, in features_extracting_configuring_tuning
+    df_features_with_sentiment = self.start_sentiment_extracting(Dataset_name, df_features,
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_features_extracting.py", line 248, in start_sentiment_extracting
+    df_features_with_sentiment.write.mode("overwrite").parquet(output_path)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/sql/readwriter.py", line 2003, in parquet
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1362, in __call__
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 282, in deco
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/protocol.py", line 335, in get_return_value
+py4j.protocol.Py4JError: An error occurred while calling o457.parquet
