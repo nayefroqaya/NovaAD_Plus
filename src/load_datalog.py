@@ -579,6 +579,8 @@ class LogdataRead:
             print(' save as csv file ....')
             # Save Processed Dataset Efficiently
             df.to_csv(All_dataset_path_as_csv, escapechar='\\', index=False)
+
+
         elif dataset == 'TH_1G_ratio' or dataset == 'TH_2G_ratio' or dataset == 'TH_5G_ratio' or dataset == 'TH_10G_ratio':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
@@ -613,37 +615,32 @@ class LogdataRead:
                      'Node_block_id', 'Label']]
 
             #-------take anomaly ration and normal ration based on original dataset. In Thunderbird 4.3% Anomaly
-            # Define normal vs anomaly
-            df_normal = df[df['Label'] == '-'].copy()
-            df_anomaly = df[df['Label'] != '-'].copy()
+            r = 0.043
 
-            target_anomaly_ratio = 0.043
+            a = df[df['Label'] != '-']  # anomaly
+            n = df[df['Label'] == '-']  # normal
 
-            # Option 1: keep all anomalies, sample normals to match 2.6%
-            n_anomaly = len(df_anomaly)
-            n_normal_needed = int(round(n_anomaly * (1 - target_anomaly_ratio) / target_anomaly_ratio))
+            # take all available normal rows
+            n_n = len(n)
 
-            if n_normal_needed <= len(df_normal):
-                df_normal_sampled = df_normal.sample(n=n_normal_needed, random_state=42)
-                df_final = pd.concat([df_anomaly, df_normal_sampled], ignore_index=True)
-            else:
-                # Not enough normal rows, so keep all normals and downsample anomalies instead
-                n_normal = len(df_normal)
-                n_anomaly_needed = int(round(n_normal * target_anomaly_ratio / (1 - target_anomaly_ratio)))
-                df_anomaly_sampled = df_anomaly.sample(n=n_anomaly_needed, random_state=42)
-                df_final = pd.concat([df_normal, df_anomaly_sampled], ignore_index=True)
+            # compute how many anomalies are needed so anomaly ratio becomes 2.6%
+            n_a = int(n_n * r / (1 - r))
 
-            # Shuffle rows
-            df_final = df_final.sample(frac=1, random_state=42).reset_index(drop=True)
+            # sample anomalies
+            df_final = pd.concat([a.sample(n=n_a, random_state=42), n]).sample(frac=1, random_state=42).reset_index(
+                drop=True)
 
-            # Check
-            print(df_final['Label'].apply(lambda x: 'Normal' if x == '-' else 'Anomaly').value_counts())
-            print(df_final['Label'].apply(lambda x: x != '-').mean())  # anomaly ratio
+            # check
+            n_total = len(df_final)
+            n_anomaly = (df_final['Label'] != '-').sum()
+            n_normal = (df_final['Label'] == '-').sum()
 
-            df_final.info()
-            df=df_final
-            print(df['Type'].value_counts(normalize=True) * 100)
-            exit()
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+
+
+            #exit()
 
             print(' length df before windows ' + str(len(df)))
 
@@ -1018,6 +1015,9 @@ class LogdataRead:
             print(' save as csv file ....')
             # Save Processed Dataset Efficiently
             df.to_csv(All_dataset_path_as_csv, escapechar='\\', index=False)
+
+
+
         elif dataset == 'SP_150MB_ratio' or dataset == 'SP_100MB_ratio':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
@@ -1054,37 +1054,32 @@ class LogdataRead:
 
 
             #-------take anomaly ration and normal ration based on original dataset. In Spirit 2.6% Anomaly
-            # Define normal vs anomaly
-            df_normal = df[df['Label'] == '-'].copy()
-            df_anomaly = df[df['Label'] != '-'].copy()
+            r = 0.026
 
-            target_anomaly_ratio = 0.026
+            a = df[df['Label'] != '-']  # anomaly
+            n = df[df['Label'] == '-']  # normal
 
-            # Option 1: keep all anomalies, sample normals to match 2.6%
-            n_anomaly = len(df_anomaly)
-            n_normal_needed = int(round(n_anomaly * (1 - target_anomaly_ratio) / target_anomaly_ratio))
+            # take all available normal rows
+            n_n = len(n)
 
-            if n_normal_needed <= len(df_normal):
-                df_normal_sampled = df_normal.sample(n=n_normal_needed, random_state=42)
-                df_final = pd.concat([df_anomaly, df_normal_sampled], ignore_index=True)
-            else:
-                # Not enough normal rows, so keep all normals and downsample anomalies instead
-                n_normal = len(df_normal)
-                n_anomaly_needed = int(round(n_normal * target_anomaly_ratio / (1 - target_anomaly_ratio)))
-                df_anomaly_sampled = df_anomaly.sample(n=n_anomaly_needed, random_state=42)
-                df_final = pd.concat([df_normal, df_anomaly_sampled], ignore_index=True)
+            # compute how many anomalies are needed so anomaly ratio becomes 2.6%
+            n_a = int(n_n * r / (1 - r))
 
-            # Shuffle rows
-            df_final = df_final.sample(frac=1, random_state=42).reset_index(drop=True)
+            # sample anomalies
+            df_final = pd.concat([a.sample(n=n_a, random_state=42), n]).sample(frac=1, random_state=42).reset_index(
+                drop=True)
 
-            # Check
-            print(df_final['Label'].apply(lambda x: 'Normal' if x == '-' else 'Anomaly').value_counts())
-            print(df_final['Label'].apply(lambda x: x != '-').mean())  # anomaly ratio
+            # check
+            n_total = len(df_final)
+            n_anomaly = (df_final['Label'] != '-').sum()
+            n_normal = (df_final['Label'] == '-').sum()
 
-            df_final.info()
-            df=df_final
-            print(df['Type'].value_counts(normalize=True) * 100)
-            exit()
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+
+
+            #exit()
             #============================================================
 
 
