@@ -176,6 +176,8 @@ def main():
     # ---------------- Data as CSV ----------------
     logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
     print(' Reading the file was done successfully ')
+    spark.stop()
+
     exit()
  
     # ---------------- Load CSV into Spark ----------------
