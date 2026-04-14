@@ -49,12 +49,12 @@ class ModelEvaluation:
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
         # print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
 
-        print(f"[INFO] Case1 :  GBT fit time: {case1_classification_time / 60:.2f} minutes")
-        print(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.2f} minutes")
+        print(f"[INFO] Case1 :  GBT fit time: {case1_classification_time / 60:.6f} minutes")
+        print(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes")
 
         print("\n================Case2:  TEST CLASSIFICATION REPORT ================")
         print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
-        print(f"Case2 : final Model classification  completed in {case2_Classification_time:.2f} minutes")
-        print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.2f} minutes")
+        print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
+        print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
 
 
