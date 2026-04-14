@@ -692,7 +692,7 @@ class LogdataRead:
             print(f"Updated df length: {len(df)}")
 
 
-            exit()
+            #exit()
 
             print(' length df before windows ' + str(len(df)))
 
