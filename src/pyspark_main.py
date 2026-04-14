@@ -145,7 +145,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'Sp_150MB_ratio'
+    DATASET = 'SP_150MB_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
