@@ -265,8 +265,8 @@ def main():
 
     #extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
-    spark.stop()
-    exit()
+    #spark.stop()
+    #exit()
 
 
 
