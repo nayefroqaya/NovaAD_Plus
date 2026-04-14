@@ -16,3 +16,4 @@ datasets/HDO_normal.log
 datasets/Haddop_preparing.py
 datasets/SP_300MB/
 datasets/SP_300MB/
+datasets/*_ratio/
