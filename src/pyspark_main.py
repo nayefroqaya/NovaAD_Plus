@@ -147,7 +147,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'TH_3G_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '1'
+    round_id = '2'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -174,8 +174,8 @@ def main():
 
 
     # ---------------- Data as CSV ----------------
-    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    print(' Reading the file was done successfully ')
+    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    #print(' Reading the file was done successfully ')
     #spark.stop()
     #exit()
  
