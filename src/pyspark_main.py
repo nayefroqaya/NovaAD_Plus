@@ -147,7 +147,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'TH_1G_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '1'
+    round_id = '2'
     mode = 'X'
     Mix_or_stable = '0'
 
