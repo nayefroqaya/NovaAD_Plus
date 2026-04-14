@@ -37,7 +37,7 @@ from Drain import LogParser
 # This part is for TH  dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
 input_dir  = '../datasets/TH_3G_ratio/' # The input directory of log file
 output_dir = '../datasets/TH_3G_ratio/'  # The output directory of parsing results
-log_file   = 'TH_3G.log'  # The input log file name
+log_file   = 'TH_3G_ratio.log'  # The input log file name
 log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Location> <Component>(\[<PID>\])?: <Content>'  # TH  log format
 # Regular expression list for optional preprocessing (default: [])
 regex      = [r"(\d+\.){3}\d+"]
