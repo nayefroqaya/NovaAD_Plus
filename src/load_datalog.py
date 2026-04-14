@@ -615,15 +615,14 @@ class LogdataRead:
                      'Node_block_id', 'Label']]
 
             #-------take anomaly ration and normal ration based on original dataset. In Thunderbird 4.3% Anomaly
+            '''
             r = 0.043
-
             a = df[df['Label'] != '-']  # anomaly
             n = df[df['Label'] == '-']  # normal
-
             # take all available normal rows
             n_n = len(n)
 
-            # compute how many anomalies are needed so anomaly ratio becomes 2.6%
+            # compute how many anomalies are needed so anomaly ratio becomes 4.3%
             n_a = int(n_n * r / (1 - r))
 
             # sample anomalies
@@ -643,9 +642,57 @@ class LogdataRead:
 
             df=df_final  # new dataset with the new portion
             print(len(df))
+            '''
+
+            r = 0.043
+
+            a = df[df['Label'] != '-']  # anomaly
+            n = df[df['Label'] == '-']  # normal
+
+            total_anomalies_available = len(a)
+            total_normals_available = len(n)
+
+            if total_anomalies_available == 0:
+                raise ValueError("No anomaly samples available in df.")
+
+            if total_normals_available == 0:
+                raise ValueError("No normal samples available in df.")
+
+            n_a_needed = round(total_normals_available * r / (1 - r))
+
+            if total_anomalies_available >= n_a_needed:
+                a_sampled = a.sample(n=n_a_needed, random_state=42)
+                n_sampled = n
+
+                print("Enough anomaly samples found.")
+                print(f"Sampling {n_a_needed} anomalies and keeping all {total_normals_available} normal samples.")
+            else:
+                n_n_needed = round(total_anomalies_available * (1 - r) / r)
+                n_n_needed = min(n_n_needed, total_normals_available)
+
+                a_sampled = a
+                n_sampled = n.sample(n=n_n_needed, random_state=42)
+
+                print("Not enough anomaly samples found.")
+                print(f"Keeping all {total_anomalies_available} anomalies and sampling {n_n_needed} normal samples.")
+
+            df_final = pd.concat([a_sampled, n_sampled]).sample(frac=1, random_state=42).reset_index(drop=True)
+
+            n_total = len(df_final)
+            n_anomaly = (df_final['Label'] != '-').sum()
+            n_normal = (df_final['Label'] == '-').sum()
+
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            print(f"Original df length: {len(df)}")
+            print(f"Final df_final length: {len(df_final)}")
+
+            df = df_final
+            print(f"Updated df length: {len(df)}")
 
 
-            #exit()
+            exit()
 
             print(' length df before windows ' + str(len(df)))
 
