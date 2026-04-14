@@ -7,21 +7,1364 @@
 Detected CPU cores: 64
 Detected RAM: 251 GB
 Spark initialized
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 64245 entries, 0 to 64244
+Data columns (total 15 columns):
+ #   Column         Non-Null Count  Dtype   
+---  ------         --------------  -----   
+ 0   LineId         64245 non-null  int64   
+ 1   Label          64245 non-null  category
+ 2   Timestamp      64245 non-null  int64   
+ 3   Date           64245 non-null  object  
+ 4   User           64245 non-null  object  
+ 5   Month          64245 non-null  object  
+ 6   Day            64245 non-null  int64   
+ 7   Time           64245 non-null  object  
+ 8   Location       64245 non-null  object  
+ 9   Component      64245 non-null  category
+ 10  PID            62212 non-null  float64 
+ 11  Content        64245 non-null  object  
+ 12  EventId        64245 non-null  object  
+ 13  EventTemplate  64245 non-null  category
+ 14  ParameterList  64245 non-null  object  
+dtypes: category(3), float64(1), int64(3), object(8)
+memory usage: 6.1+ MB
+Processing Rows:   0%|          | 0/64245 [00:00<?, ?row/s]Processing Rows:  18%|█▊        | 11617/64245 [00:00<00:00, 116159.59row/s]Processing Rows:  46%|████▋     | 29811/64245 [00:00<00:00, 154846.74row/s]Processing Rows:  76%|███████▌  | 48617/64245 [00:00<00:00, 170007.45row/s]Processing Rows: 100%|██████████| 64245/64245 [00:00<00:00, 167516.00row/s]
+Number of NaN values in 'log_message': 0
+--ok text ------
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+
+--ok text ------
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+
+--ok text ------
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+
+--ok text ------
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+
+--ok text ------# initlog configuration file
+Removing common English stop words...
+Processed message:
+initlog configuration file
+--ok text ------# lines preceded by a '#' are comments
+Removing common English stop words...
+Processed message:
+line preceded comment
+--ok text ------#117# : <*> ; PWD=/home/#117# ; USER=root ; COMMAND=/bin/su -
+Removing common English stop words...
+Processed message:
+PWDhome USERroot COMMANDbinsu
+--ok text ------( 8  
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+( 8  
+--ok text ------( l 8 l  l l
+Removing common English stop words...
+Processed message:
+l l l l
+--ok text ------(CRON) STARTUP (fork ok)
+Removing common English stop words...
+Processed message:
+CRON STARTUP fork ok
+--ok text ------(root) CMD (/projects/tbird/temps/get_temps <*> &> /dev/null)
+Removing common English stop words...
+Processed message:
+root CMD projectstbirdtempsgettemps devnull
+--ok text ------(root) CMD (/usr/bin/mrtg /etc/mrtg/mrtg.cfg --lock-file /var/lock/mrtg/mrtg_l --confcache-file /var/lib/mrtg/mrtg.ok)
+Removing common English stop words...
+Processed message:
+root CMD usrbinmrtg etcmrtgmrtgcfg lockfile varlockmrtgmrtgl confcachefile varlibmrtgmrtgok
+--ok text ------(root) CMD <*> 1 1)
+Removing common English stop words...
+Processed message:
+root CMD
+--ok text ------(root) CMD <*> <*>
+Removing common English stop words...
+Processed message:
+root CMD
+--ok text ------.... IRQ redirection table:
+Removing common English stop words...
+Processed message:
+IRQ redirection table
+--ok text ------.... register <*> <*>
+Removing common English stop words...
+Processed message:
+register
+--ok text ------..... CPU clock speed is <*> MHz.
+Removing common English stop words...
+Processed message:
+CPU clock speed MHz
+--ok text ------..... host bus clock speed is <*> MHz.
+Removing common English stop words...
+Processed message:
+host bus clock speed MHz
+--ok text ------....... : <*> <*> 0
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+....... : <*> <*> 0
+--ok text ------....... : <*> APIC <*> <*>
+Removing common English stop words...
+Processed message:
+APIC
+--ok text ------....... : Boot DT : 1
+Removing common English stop words...
+Processed message:
+Boot DT
+--ok text ------....... : PRQ implemented: 1
+Removing common English stop words...
+Processed message:
+PRQ implemented
+--ok text ------....... : arbitration: <*>
+Removing common English stop words...
+Processed message:
+arbitration
+--ok text ------....... : max redirection entries: 0017
+Removing common English stop words...
+Processed message:
+max redirection entry
+--ok text ------.................................... done.
+Removing common English stop words...
+Processed message:
+done
+--ok text ------...changing IO-APIC physical APIC ID to <*> ... ok.
+Removing common English stop words...
+Processed message:
+changing IOAPIC physical APIC ID ok
+--ok text ------..TIMER: vector=0x31 pin1=2 pin2=0
+Removing common English stop words...
+Processed message:
+TIMER vectorx pin pin
+--ok text ------/boot: clean, 43/64256 files, 23146/257008 blocks
+Removing common English stop words...
+Processed message:
+boot clean file block
+--ok text ------/tmp: clean, 16/1026144 files, 40436/2048279 blocks
+Removing common English stop words...
+Processed message:
+tmp clean file block
+--ok text ------/var: clean, <*> files, <*> blocks
+Removing common English stop words...
+Processed message:
+var clean file block
+--ok text ------1+0 records <*>
+Removing common English stop words...
+Processed message:
+record
+--ok text ------12416MB HIGHMEM available.
+Removing common English stop words...
+Processed message:
+MB HIGHMEM available
+--ok text ------896MB LOWMEM available.
+Removing common English stop words...
+Processed message:
+MB LOWMEM available
+--ok text ------8^ H^ ^ ^
+Removing common English stop words...
+Processed message:
+H
+--ok text ------<*> 000 00 1 0 0 0 0 0 0 00
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+<*> 000 00 1 0 0 0 0 0 0 00
+--ok text ------<*> 003 03 <*> <*> 0 <*> 0 1 1 <*>
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+<*> 003 03 <*> <*> 0 <*> 0 1 1 <*>
+--ok text ------<*> = 0
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+<*> = 0
+--ok text ------<*> = 8192
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+<*> = 8192
+--ok text ------<*> Intel(R) Xeon(TM) CPU 3.60GHz stepping 03
+Removing common English stop words...
+Processed message:
+Intel R Xeon TM CPU GHz stepping
+--ok text ------<*> banner: Kerberos 5
+Removing common English stop words...
+Processed message:
+banner Kerberos
+--ok text ------<*> flag: no <*>
+Removing common English stop words...
+Processed message:
+flag
+--ok text ------<*> shutdown succeeded
+Removing common English stop words...
+Processed message:
+shutdown succeeded
+--ok text ------<*> startup succeeded
+Removing common English stop words...
+Processed message:
+startup succeeded
+--ok text ------Accepted publickey for <*> from <*> port <*> ssh2
+Removing common English stop words...
+Processed message:
+Accepted publickey port ssh
+--ok text ------Activating swap partitions: succeeded
+Removing common English stop words...
+Processed message:
+Activating swap partition succeeded
+--ok text ------Adding Swap: 13309844k swap-space (priority -1)
+Removing common English stop words...
+Processed message:
+Adding Swap k swapspace priority
+--ok text ------Attached scsi disk sda at scsi0, channel 0, id 0, lun 0
+Removing common English stop words...
+Processed message:
+Attached scsi disk sda scsi channel id lun
+--ok text ------Attached scsi generic sg1 at scsi0, channel 4, id 6, lun 0, type 3
+Removing common English stop words...
+Processed message:
+Attached scsi generic sg scsi channel id lun type
+--ok text ------BIOS update verification failed. Version expected: A04, Version found: A02
+Removing common English stop words...
+Processed message:
+BIOS update verification failed Version expected Version found
+--ok text ------BIOS update verification was successful. Version expected: A04, Version found: A04
+Removing common English stop words...
+Processed message:
+BIOS update verification successful Version expected Version found
+--ok text ------BIOS-e820: 00000000bffc0000 - 00000000bffcfc00 (ACPI data)
+Removing common English stop words...
+Processed message:
+BIOSe bffc bffcfc ACPI data
+--ok text ------BIOS-e820: <*> - <*> (reserved)
+Removing common English stop words...
+Processed message:
+BIOSe reserved
+--ok text ------BIOS-e820: <*> - <*> (usable)
+Removing common English stop words...
+Processed message:
+BIOSe usable
+--ok text ------BIOS-provided physical RAM map:
+Removing common English stop words...
+Processed message:
+BIOSprovided physical RAM map
+--ok text ------Based upon Swansea University Computer Society NET3.039
+Removing common English stop words...
+Processed message:
+Based upon Swansea University Computer Society NET
+--ok text ------Booting processor 1/6 eip 2000
+Removing common English stop words...
+Processed message:
+Booting processor eip
+--ok text ------Bringing up <*> <*> succeeded
+Removing common English stop words...
+Processed message:
+Bringing succeeded
+--ok text ------Buffer cache hash table entries: 1048576 (order: 10, 4096 KB)
+Removing common English stop words...
+Processed message:
+Buffer cache hash table entry order KB
+--ok text ------CPU0<T0:1995040,T1:1330016,D:10,S:665014,C:1995043>
+Removing common English stop words...
+Processed message:
+CPUTTDSC
+--ok text ------CPU0<T0:1995264,T1:1330176,D:0,S:665088,C:1995265>
+Removing common English stop words...
+Processed message:
+CPUTTDSC
+--ok text ------CPU1<T0:1995040,T1:665008,D:4,S:665014,C:1995043>
+Removing common English stop words...
+Processed message:
+CPUTTDSC
+--ok text ------CPU1<T0:1995264,T1:665088,D:0,S:665088,C:1995265>
+Removing common English stop words...
+Processed message:
+CPUTTDSC
+--ok text ------CPU: After generic, caps: afebfbff 20100000 00000000 00000000
+Removing common English stop words...
+Processed message:
+CPU generic cap afebfbff
+--ok text ------CPU: Common caps: afebfbff 20100000 00000000 00000000
+Removing common English stop words...
+Processed message:
+CPU Common cap afebfbff
+--ok text ------CPU: Trace cache: 12K uops<6>CPU: L2 cache: 2048K
+Removing common English stop words...
+Processed message:
+CPU Trace cache K uops CPU L cache K
+--ok text ------Calibrating delay loop... 7156.53 BogoMIPS
+Removing common English stop words...
+Processed message:
+Calibrating delay loop Bogo MIPS
+--ok text ------Calling the system activity data collector (sadc):
+Removing common English stop words...
+Processed message:
+Calling system activity data collector sadc
+--ok text ------Caught signal 15, un-registering and exiting.
+Removing common English stop words...
+Processed message:
+Caught signal unregistering exiting
+--ok text ------Checking 'hlt' instruction... OK.
+Removing common English stop words...
+Processed message:
+Checking hlt instruction OK
+--ok text ------Checking all file systems.
+Removing common English stop words...
+Processed message:
+Checking file system
+--ok text ------Checking filesystems succeeded
+Removing common English stop words...
+Processed message:
+Checking filesystems succeeded
+--ok text ------Console: colour VGA+ 80x25
+Removing common English stop words...
+Processed message:
+Console colour VGA x
+--ok text ------Copyright (c) 1999-2004 Intel Corporation.
+Removing common English stop words...
+Processed message:
+Copyright c Intel Corporation
+--ok text ------Creating Topspin /dev entries:
+Removing common English stop words...
+Processed message:
+Creating Topspin dev entry
+--ok text ------DHCPACK on <*> to <*> via eth0
+Removing common English stop words...
+Processed message:
+DHCPACK via eth
+--ok text ------DHCPDISCOVER from 00:11:43:e3:95:14 via eth0
+Removing common English stop words...
+Processed message:
+DHCPDISCOVER e via eth
+--ok text ------DHCPOFFER on <*> to 00:11:43:e3:95:14 via eth0
+Removing common English stop words...
+Processed message:
+DHCPOFFER e via eth
+--ok text ------DHCPREQUEST for <*> (<*>) from 00:11:43:e3:95:14 via eth0
+Removing common English stop words...
+Processed message:
+DHCPREQUEST e via eth
+--ok text ------DHCPREQUEST for <*> from 00:11:43:e3:b9:1f via eth0
+Removing common English stop words...
+Processed message:
+DHCPREQUEST ebf via eth
+--ok text ------Dentry cache hash table entries: 2097152 (order: 12, 16384 KB)
+Removing common English stop words...
+Processed message:
+Dentry cache hash table entry order KB
+--ok text ------Detected <*> MHz processor.
+Removing common English stop words...
+Processed message:
+Detected MHz processor
+--ok text ------Detected PS/2 Mouse Port.
+Removing common English stop words...
+Processed message:
+Detected PS Mouse Port
+--ok text ------Device: /dev/sda, No such device or address, open() failed
+Removing common English stop words...
+Processed message:
+Device devsda device address open failed
+--ok text ------Device: /dev/sda, SMART Failure: HARDWARE IMPENDING FAILURE TOO MANY BLOCK REASSIGNS
+Removing common English stop words...
+Processed message:
+Device devsda SMART Failure HARDWARE IMPENDING FAILURE MANY BLOCK REASSIGNS
+--ok text ------Device: /dev/sda, SMART Failure: SERVO IMPENDING FAILURE DRIVE ERROR RATE TOO HIGH
+Removing common English stop words...
+Processed message:
+Device devsda SMART Failure SERVO IMPENDING FAILURE DRIVE ERROR RATE HIGH
+--ok text ------Device: /dev/sda, Temperature changed <*> Celsius to <*> Celsius since last report
+Removing common English stop words...
+Processed message:
+Device devsda Temperature changed Celsius Celsius since last report
+--ok text ------ENABLING IO-APIC IRQs
+Removing common English stop words...
+Processed message:
+ENABLING IOAPIC IRQs
+--ok text ------ESR value <*> enabling vector: 00000000
+Removing common English stop words...
+Processed message:
+ESR value enabling vector
+--ok text ------EXT3 FS 2.4-0.9.19, 19 August 2002 on <*> internal journal
+Removing common English stop words...
+Processed message:
+EXT FS August internal journal
+--ok text ------EXT3-fs: mounted filesystem with ordered data mode.
+Removing common English stop words...
+Processed message:
+EXTfs mounted filesystem ordered data mode
+--ok text ------Enabling APIC mode: Flat. Using 3 I/O APICs
+Removing common English stop words...
+Processed message:
+Enabling APIC mode Flat Using IO APICs
+--ok text ------Enabling fast FPU save and restore... done.
+Removing common English stop words...
+Processed message:
+Enabling fast FPU save restore done
+--ok text ------Enabling local filesystem quotas: succeeded
+Removing common English stop words...
+Processed message:
+Enabling local filesystem quota succeeded
+--ok text ------Enabling swap space: succeeded
+Removing common English stop words...
+Processed message:
+Enabling swap space succeeded
+--ok text ------Enabling unmasked SIMD FPU exception support... done.
+Removing common English stop words...
+Processed message:
+Enabling unmasked SIMD FPU exception support done
+--ok text ------Entering runlevel: 3
+Removing common English stop words...
+Processed message:
+Entering runlevel
+--ok text ------Exiting...
+Removing common English stop words...
+Processed message:
+Exiting
+--ok text ------Finding module dependencies: succeeded
+Removing common English stop words...
+Processed message:
+Finding module dependency succeeded
+--ok text ------Freeing initrd memory: 253k freed
+Removing common English stop words...
+Processed message:
+Freeing initrd memory k freed
+--ok text ------Freeing unused kernel memory: 232k freed
+Removing common English stop words...
+Processed message:
+Freeing unused kernel memory k freed
+--ok text ------Got trap from peer on fd <*>
+Removing common English stop words...
+Processed message:
+Got trap peer fd
+--ok text ------Hugetlbfs mounted.
+Removing common English stop words...
+Processed message:
+Hugetlbfs mounted
+--ok text ------I/O APIC <*> Version 32 at <*>
+Removing common English stop words...
+Processed message:
+IO APIC Version
+--ok text ------IO APIC <*>
+Removing common English stop words...
+Processed message:
+IO APIC
+--ok text ------IO-APIC (apicid-pin) 8-0, 8-7, 8-10, 8-11, 8-13, 8-14, 8-15, 8-22, 9-0, 9-1, 9-3, 9-4, 9-5, 9-6, 9-7, 9-8, 9-9, 9-10, 9-11, 9-12, 9-13, 9-15, 9-16, 9-17, 9-18, 9-19, 9-20, 9-21, 9-22, 9-23, 10-2, 10-3, 10-4, 10-5, 10-6, 10-7, 10-8, 10-9, 10-10, 10-11, 10-12, 10-13, 10-14, 10-15, 10-16, 10-17, 10-18, 10-19, 10-20, 10-21, 10-22, 10-23 not connected.
+Removing common English stop words...
+Processed message:
+IOAPIC apicidpin connected
+--ok text ------IP: routing cache hash table of 131072 buckets, 1024Kbytes
+Removing common English stop words...
+Processed message:
+IP routing cache hash table bucket Kbytes
+--ok text ------IRQ to pin mappings:
+Removing common English stop words...
+Processed message:
+IRQ pin mapping
+--ok text ------IRQ0 -> 0:2
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ1 -> 0:1
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ12 -> 0:12
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ16 -> 0:16
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ17 -> 0:17
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ18 -> 0:18
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ19 -> 0:19
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ20 -> 0:20
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ21 -> 0:21
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ23 -> 0:23
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ26 -> 1:2
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ3 -> 0:3
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ38 -> 1:14
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ4 -> 0:4
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ48 -> 2:0
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ49 -> 2:1
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ5 -> 0:5
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ6 -> 0:6
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ8 -> 0:8
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------IRQ9 -> 0:9
+Removing common English stop words...
+Processed message:
+IRQ
+--ok text ------Initializing <*>
+Removing common English stop words...
+Processed message:
+Initializing
+--ok text ------Initializing <*> netlink socket
+Removing common English stop words...
+Processed message:
+Initializing netlink socket
+--ok text ------Initializing Cryptographic API
+Removing common English stop words...
+Processed message:
+Initializing Cryptographic API
+--ok text ------Initializing random number generator: succeeded
+Removing common English stop words...
+Processed message:
+Initializing random number generator succeeded
+--ok text ------Inode cache hash table entries: 1048576 (order: 11, 8192 KB)
+Removing common English stop words...
+Processed message:
+Inode cache hash table entry order KB
+--ok text ------Instrumentation Service EventID: 1000 Server Administrator starting
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Server Administrator starting
+--ok text ------Instrumentation Service EventID: 1001 Server Administrator startup complete
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Server Administrator startup complete
+--ok text ------Instrumentation Service EventID: 1052 Temperature sensor returned to a normal value Sensor location: BMC <*> Temp Chassis location: Main System Chassis Previous state was: Unknown Temperature sensor value (in Degrees Celsius): <*>
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Temperature sensor returned normal value Sensor location BMC Temp Chassis location Main System Chassis Previous state Unknown Temperature sensor value Degrees Celsius
+--ok text ------Instrumentation Service EventID: 1052 Temperature sensor returned to a normal value Sensor location: BMC Ambient Temp Chassis location: Main System Chassis Previous state was: Non-Critical (Warning) Temperature sensor value (in Degrees Celsius): 11.0
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Temperature sensor returned normal value Sensor location BMC Ambient Temp Chassis location Main System Chassis Previous state Non Critical Warning Temperature sensor value Degrees Celsius
+--ok text ------Instrumentation Service EventID: 1052 Temperature sensor returned to a normal value Sensor location: PROC_1 Temp Chassis location: Main System Chassis Previous state was: Unknown Temperature sensor value (in Degrees Celsius): 27.0
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Temperature sensor returned normal value Sensor location PROC Temp Chassis location Main System Chassis Previous state Unknown Temperature sensor value Degrees Celsius
+--ok text ------Instrumentation Service EventID: 1053 Temperature sensor detected a warning value Sensor location: BMC Ambient Temp Chassis location: Main System Chassis Previous state was: OK (Normal) Temperature sensor value (in Degrees Celsius): 10.0
+Removing common English stop words...
+Processed message:
+Instrumentation Service Event ID Temperature sensor detected warning value Sensor location BMC Ambient Temp Chassis location Main System Chassis Previous state OK Normal Temperature sensor value Degrees Celsius
+--ok text ------Intel MultiProcessor Specification v1.4
+Removing common English stop words...
+Processed message:
+Intel Multi Processor Specification v
+--ok text ------Intel machine check architecture supported.
+Removing common English stop words...
+Processed message:
+Intel machine check architecture supported
+--ok text ------Intel machine check reporting enabled on <*>
+Removing common English stop words...
+Processed message:
+Intel machine check reporting enabled
+--ok text ------Intel(R) PRO/1000 Network Driver - version 6.0.54-k2-NAPI
+Removing common English stop words...
+Processed message:
+Intel R PRO Network Driver version k NAPI
+--ok text ------Journalled Block Device driver loaded
+Removing common English stop words...
+Processed message:
+Journalled Block Device driver loaded
+--ok text ------Kernel command line: ro root=LABEL=/ noht tsc nousb console=ttyS0,19200
+Removing common English stop words...
+Processed message:
+Kernel command line ro root LABEL noht tsc nousb consoletty S
+--ok text ------Kernel log daemon terminating.
+Removing common English stop words...
+Processed message:
+Kernel log daemon terminating
+--ok text ------Kernel logging (proc) stopped.
+Removing common English stop words...
+Processed message:
+Kernel logging proc stopped
+--ok text ------LAuS error - do_command.c:233 - laus_attach: (19) laus_attach: No such device
+Removing common English stop words...
+Processed message:
+LAu S error docommandc lausattach lausattach device
+--ok text ------Linux IP multicast router 0.06 plus PIM-SM
+Removing common English stop words...
+Processed message:
+Linux IP multicast router plus PIMSM
+--ok text ------Linux NET4.0 for Linux 2.4
+Removing common English stop words...
+Processed message:
+Linux NET Linux
+--ok text ------Linux version 2.4.21-37.ELsmp (#600#@#2127#) (gcc version 3.2.3 20030502 (Red Hat Linux 3.2.3-53)) #1 SMP Wed Sep 7 13:28:55 EDT 2005
+Removing common English stop words...
+Processed message:
+Linux version ELsmp gcc version Red Hat Linux SMP Wed Sep EDT
+--ok text ------Memory: <*> available (1718k kernel code, 254448k reserved, 1300k data, 232k init, <*> highmem)
+Removing common English stop words...
+Processed message:
+Memory available k kernel code k reserved k data k init highmem
+--ok text ------Mount cache hash table entries: 512 (order: 0, 4096 bytes)
+Removing common English stop words...
+Processed message:
+Mount cache hash table entry order byte
+--ok text ------Mounting <*> filesystems: succeeded
+Removing common English stop words...
+Processed message:
+Mounting filesystems succeeded
+--ok text ------NET-SNMP version 5.0.9
+Removing common English stop words...
+Processed message:
+NETSNMP version
+--ok text ------NET4: Frame Diverter 0.46
+Removing common English stop words...
+Processed message:
+NET Frame Diverter
+--ok text ------NET4: Linux TCP/IP 1.0 for NET4.0
+Removing common English stop words...
+Processed message:
+NET Linux TCPIP NET
+--ok text ------NET4: Unix domain sockets 1.0/SMP for Linux NET4.0.
+Removing common English stop words...
+Processed message:
+NET Unix domain socket SMP Linux NET
+--ok text ------NR Log Phy Mask Trig IRR Pol Stat Dest Deli Vect:
+Removing common English stop words...
+Processed message:
+NR Log Phy Mask Trig IRR Pol Stat Dest Deli Vect
+--ok text ------NX (Execute Disable) protection: active
+Removing common English stop words...
+Processed message:
+NX Execute Disable protection active
+--ok text ------OEM ID: DELL Product ID: PE 016C APIC at: 0xFEE00000
+Removing common English stop words...
+Processed message:
+OEM ID DELL Product ID PE C APIC x FEE
+--ok text ------On node 0 totalpages: 3407872
+Removing common English stop words...
+Processed message:
+node totalpages
+--ok text ------PCI->APIC IRQ transform: <*> -> <*>
+Removing common English stop words...
+Processed message:
+PCIAPIC IRQ transform
+--ok text ------PCI: PCI BIOS revision 2.10 entry at <*> last bus=9
+Removing common English stop words...
+Processed message:
+PCI PCI BIOS revision entry last bus
+--ok text ------PCI: Probing PCI hardware
+Removing common English stop words...
+Processed message:
+PCI Probing PCI hardware
+--ok text ------PCI: Using IRQ router PIIX [8086/24d0] at 00:1f.0
+Removing common English stop words...
+Processed message:
+PCI Using IRQ router PIIX f
+--ok text ------PCI: Using configuration type 1
+Removing common English stop words...
+Processed message:
+PCI Using configuration type
+--ok text ------POSIX conformance testing by UNIFIX
+Removing common English stop words...
+Processed message:
+POSIX conformance testing UNIFIX
+--ok text ------Package Release <*> Package Description=Dell <*> <*> <*> <*> Support Log <*> Exit code = 2 (Reboot required)
+Removing common English stop words...
+Processed message:
+Package Release Package Description Dell Support Log Exit code Reboot required
+--ok text ------Page-cache hash table entries: 4194304 (order: 12, 16384 KB)
+Removing common English stop words...
+Processed message:
+Pagecache hash table entry order KB
+--ok text ------Page-pin hash table entries: 1048576 (order: 10, 4096 KB)
+Removing common English stop words...
+Processed message:
+Pagepin hash table entry order KB
+--ok text ------Partition check:
+Removing common English stop words...
+Processed message:
+Partition check
+--ok text ------Process timing init...done.
+Removing common English stop words...
+Processed message:
+Process timing initdone
+--ok text ------Processor <*> Unknown CPU [15:4] APIC version 20
+Removing common English stop words...
+Processed message:
+Processor Unknown CPU APIC version
+--ok text ------Processors: 2
+Removing common English stop words...
+Processed message:
+Processors
+--ok text ------RAMDISK driver initialized: 256 RAM disks of 8192K size 1024 blocksize
+Removing common English stop words...
+Processed message:
+RAMDISK driver initialized RAM disk K size blocksize
+--ok text ------RAMDISK: Compressed image found at block 0
+Removing common English stop words...
+Processed message:
+RAMDISK Compressed image found block
+--ok text ------Reading included configuration file: <*> <*> <*>
+Removing common English stop words...
+Processed message:
+Reading included configuration file
+--ok text ------Real Time Clock Driver v1.10e
+Removing common English stop words...
+Processed message:
+Real Time Clock Driver
+--ok text ------Received TERM or STOP signal... shutting down...
+Removing common English stop words...
+Processed message:
+Received TERM STOP signal shutting
+--ok text ------Received signal 15; terminating.
+Removing common English stop words...
+Processed message:
+Received signal terminating
+--ok text ------Remounting root filesystem in read-write mode: succeeded
+Removing common English stop words...
+Processed message:
+Remounting root filesystem readwrite mode succeeded
+--ok text ------SCSI device sda: 143114240 512-byte hdwr sectors (73274 MB)
+Removing common English stop words...
+Processed message:
+SCSI device sda byte hdwr sector MB
+--ok text ------SCSI subsystem driver Revision: 1.00
+Removing common English stop words...
+Processed message:
+SCSI subsystem driver Revision
+--ok text ------START: tftp <*> from=<*>
+Removing common English stop words...
+Processed message:
+START tftp
+--ok text ------Saving random seed: succeeded
+Removing common English stop words...
+Processed message:
+Saving random seed succeeded
+--ok text ------Searching for custom.cnf. . .
+Removing common English stop words...
+Processed message:
+Searching customcnf
+--ok text ------Serial driver version 5.05c (2001-07-08) with MANY_PORTS MULTIPORT SHARE_IRQ SERIAL_PCI ISAPNP enabled
+Removing common English stop words...
+Processed message:
+Serial driver version c MANYPORTS MULTIPORT SHAREIRQ SERIALPCI ISAPNP enabled
+--ok text ------Server listening on <*> port 22.
+Removing common English stop words...
+Processed message:
+Server listening port
+--ok text ------Setting <*> in the phys_id_present_map
+Removing common English stop words...
+Processed message:
+Setting physidpresentmap
+--ok text ------Setting network parameters: succeeded
+Removing common English stop words...
+Processed message:
+Setting network parameter succeeded
+--ok text ------Shutting down postfix:
+Removing common English stop words...
+Processed message:
+Shutting postfix
+--ok text ------Skipping customization. custom.cnf not found.
+Removing common English stop words...
+Processed message:
+Skipping customization customcnf found
+--ok text ------Started working: 1 available service
+Removing common English stop words...
+Processed message:
+Started working available service
+--ok text ------Starting <*> succeeded
+Removing common English stop words...
+Processed message:
+Starting succeeded
+--ok text ------Starting kswapd
+Removing common English stop words...
+Processed message:
+Starting kswapd
+--ok text ------Starting migration thread for cpu <*>
+Removing common English stop words...
+Processed message:
+Starting migration thread cpu
+--ok text ------Stopping postfix: succeeded
+Removing common English stop words...
+Processed message:
+Stopping postfix succeeded
+--ok text ------Switching to runlevel: 6
+Removing common English stop words...
+Processed message:
+Switching runlevel
+--ok text ------TCP: Hash tables configured (established 524288 bind 65536)
+Removing common English stop words...
+Processed message:
+TCP Hash table configured established bind
+--ok text ------Total HugeTLB memory allocated, 0
+Removing common English stop words...
+Processed message:
+Total Huge TLB memory allocated
+--ok text ------Total of 2 processors activated (14313.06 BogoMIPS).
+Removing common English stop words...
+Processed message:
+Total processor activated Bogo MIPS
+--ok text ------Transparent bridge - Intel Corp. 82801BA/CA/DB/EB PCI Bridge
+Removing common English stop words...
+Processed message:
+Transparent bridge Intel Corp BACADBEB PCI Bridge
+--ok text ------Type: <*> ANSI SCSI revision: 02
+Removing common English stop words...
+Processed message:
+Type ANSI SCSI revision
+--ok text ------Uniform Multi-Platform E-IDE driver Revision: 7.00beta4-2.4
+Removing common English stop words...
+Processed message:
+Uniform Multi Platform EIDE driver Revision beta
+--ok text ------Unmounting NFS filesystems: succeeded
+Removing common English stop words...
+Processed message:
+Unmounting NFS filesystems succeeded
+--ok text ------Using local APIC timer interrupts.
+Removing common English stop words...
+Processed message:
+Using local APIC timer interrupt
+--ok text ------VFS: Disk quotas vdquot_6.5.1
+Removing common English stop words...
+Processed message:
+VFS Disk quota vdquot
+--ok text ------VFS: Mounted root (ext2 filesystem).
+Removing common English stop words...
+Processed message:
+VFS Mounted root ext filesystem
+--ok text ------Vendor: MegaRAID Model: LD 0 RAID1 69G Rev: 516A
+Removing common English stop words...
+Processed message:
+Vendor Mega RAID Model LD RAID G Rev
+--ok text ------Vendor: PE/PV Model: 1x2 SCSI BP Rev: 1.0
+Removing common English stop words...
+Processed message:
+Vendor PEPV Model x SCSI BP Rev
+--ok text ------Version 1.0.6 Starting
+Removing common English stop words...
+Processed message:
+Version Starting
+--ok text ------Virtual Wire compatibility mode.
+Removing common English stop words...
+Processed message:
+Virtual Wire compatibility mode
+--ok text ------[ -P fixed_process_priority ]
+Removing common English stop words...
+Processed message:
+P fixedprocesspriority
+--ok text ------[ -T chroot_dir ] [ -U server_user ]
+Removing common English stop words...
+Processed message:
+chrootdir U serveruser
+--ok text ------[ <*> <*> ] [ <*> <*> ] [ <*> <*> ]
+Removing common English stop words...
+Tokenization issues, returning default value for empty tokens...
+[ <*> <*> ] [ <*> <*> ] [ <*> <*> ]
+--ok text ------[/sbin/fsck.ext3 (1) -- <*> fsck.ext3 -a <*>
+Removing common English stop words...
+Processed message:
+sbinfsckext fsckext
+--ok text ------[ib_sm_sweep.c:1516]: No topology change
+Removing common English stop words...
+Processed message:
+ibsmsweepc topology change
+--ok text ------[ib_sm_sweep.c:1553]: No configuration change required
+Removing common English stop words...
+Processed message:
+ibsmsweepc configuration change required
+--ok text ------[ib_sm_sweep.c:1914]: ********************** NEW SWEEP ********************
+Removing common English stop words...
+Processed message:
+ibsmsweepc NEW SWEEP
+--ok text ------[smux_accept] accepted fd 11 from <*>
+Removing common English stop words...
+Processed message:
+smuxaccept accepted fd
+--ok text ------accepted smux peer: oid SNMPv2-SMI::enterprises.674.10892.1, password , descr Systems Management SNMP MIB Plug-in Manager
+Removing common English stop words...
+Processed message:
+accepted smux peer oid SNMPv SMIenterprises password descr Systems Management SNMP MIB Plugin Manager
+--ok text ------aio_setup: num_physpages = 851968
+Removing common English stop words...
+Processed message:
+aiosetup numphyspages
+--ok text ------aio_setup: sizeof(struct page) = 60
+Removing common English stop words...
+Processed message:
+aiosetup sizeofstruct page
+--ok text ------allocated 32 pages and 32 bhs reserved for the highmem bounces
+Removing common English stop words...
+Processed message:
+allocated page bh reserved highmem bounce
+--ok text ------apm: BIOS not found.
+Removing common English stop words...
+Processed message:
+apm BIOS found
+--ok text ------audit subsystem ver 0.1 initialized
+Removing common English stop words...
+Processed message:
+audit subsystem ver initialized
+--ok text ------blk: queue <*> I/O limit 4294967295Mb (mask 0xffffffffffffffff)
+Removing common English stop words...
+Processed message:
+blk queue IO limit Mb mask xffffffffffffffff
+--ok text ------calibrating APIC timer ...
+Removing common English stop words...
+Processed message:
+calibrating APIC timer
+--ok text ------can't open /var/lib/ntp/drift.TEMP: Permission denied
+Removing common English stop words...
+Processed message:
+cant open varlibntpdrift TEMP Permission denied
+--ok text ------can't open /var/lib/ntp/drift.TEMP: Read-only file system
+Removing common English stop words...
+Processed message:
+cant open varlibntpdrift TEMP Readonly file system
+--ok text ------cpu: <*> clocks: <*> slice: <*>
+Removing common English stop words...
+Processed message:
+cpu clock slice
+--ok text ------daemon started -- version 2.0.16
+Removing common English stop words...
+Processed message:
+daemon started version
+--ok text ------dcdbas device driver loaded
+Removing common English stop words...
+Processed message:
+dcdbas device driver loaded
+--ok text ------dcdbas: BIOS Update phys addr: 36600000
+Removing common English stop words...
+Processed message:
+dcdbas BIOS Update phys addr
+--ok text ------dcdipm device driver loaded
+Removing common English stop words...
+Processed message:
+dcdipm device driver loaded
+--ok text ------devlabel service started/restarted
+Removing common English stop words...
+Processed message:
+devlabel service startedrestarted
+--ok text ------devlabel's temporary ignore list /etc/sysconfig/devlabel.d/ignore_list has been emptied due to a change in device configuration.
+Removing common English stop words...
+Processed message:
+devlabels temporary ignore list etcsysconfigdevlabeldignorelist emptied due change device configuration
+--ok text ------divert: allocating divert_blk for <*>
+Removing common English stop words...
+Processed message:
+divert allocating divertblk
+--ok text ------e1000: <*> e1000_probe: Intel(R) PRO/1000 Network Connection
+Removing common English stop words...
+Processed message:
+e eprobe Intel R PRO Network Connection
+--ok text ------e1000: eth0: e1000_watchdog: NIC Link is Up 1000 Mbps Full Duplex
+Removing common English stop words...
+Processed message:
+e eth ewatchdog NIC Link Mbps Full Duplex
+--ok text ------enabled ExtINT on CPU#0
+Removing common English stop words...
+Processed message:
+enabled Ext INT CPU
+--ok text ------facility local7
+Removing common English stop words...
+Processed message:
+facility local
+--ok text ------found SMP MP-table at 000fe710
+Removing common English stop words...
+Processed message:
+found SMP MPtable fe
+--ok text ------frequency initialized 0.000 from /var/lib/ntp/drift
+Removing common English stop words...
+Processed message:
+frequency initialized varlibntpdrift
+--ok text ------fs.file-max = 562454
+Removing common English stop words...
+Processed message:
+fsfilemax
+--ok text ------h
+Removing common English stop words...
+Processed message:
+h
+--ok text ------hm, page <*> reserved twice.
+Removing common English stop words...
+Processed message:
+hm page reserved twice
+--ok text ------ide-floppy driver 0.99.newide
+Removing common English stop words...
+Processed message:
+idefloppy driver newide
+--ok text ------ide: Assuming 33MHz system bus speed for PIO modes; override with idebus=xx
+Removing common English stop words...
+Processed message:
+ide Assuming MHz system bus speed PIO mode override idebusxx
+--ok text ------init IO_APIC IRQs
+Removing common English stop words...
+Processed message:
+init IOAPIC IRQs
+--ok text ------ip_tables: (C) 2000-2002 Netfilter core team
+Removing common English stop words...
+Processed message:
+iptables C Netfilter core team
+--ok text ------isapnp: No Plug & Play device found
+Removing common English stop words...
+Processed message:
+isapnp Plug Play device found
+--ok text ------isapnp: Scanning for PnP cards...
+Removing common English stop words...
+Processed message:
+isapnp Scanning Pn P card
+--ok text ------kernel time discipline status 0040
+Removing common English stop words...
+Processed message:
+kernel time discipline status
+--ok text ------kernel time discipline status change <*>
+Removing common English stop words...
+Processed message:
+kernel time discipline status change
+--ok text ------kernel.core_uses_pid = 1
+Removing common English stop words...
+Processed message:
+kernelcoreusespid
+--ok text ------kernel.sysrq = 1
+Removing common English stop words...
+Processed message:
+kernelsysrq
+--ok text ------kjournald starting. Commit interval 5 seconds
+Removing common English stop words...
+Processed message:
+kjournald starting Commit interval second
+--ok text ------klogd 1.4.1, log source = /proc/kmsg started.
+Removing common English stop words...
+Processed message:
+klogd log source prockmsg started
+--ok text ------masked ExtINT on CPU#1
+Removing common English stop words...
+Processed message:
+masked Ext INT CPU
+--ok text ------md: ... autorun DONE.
+Removing common English stop words...
+Processed message:
+md autorun DONE
+--ok text ------md: Autodetecting RAID arrays.
+Removing common English stop words...
+Processed message:
+md Autodetecting RAID array
+--ok text ------md: autorun ...
+Removing common English stop words...
+Processed message:
+md autorun
+--ok text ------md: md driver 0.90.0 MAX_MD_DEVS=256, MD_SB_DISKS=27
+Removing common English stop words...
+Processed message:
+md md driver MAXMDDEVS MDSBDISKS
+--ok text ------megaraid: [516A:H418] detected 1 logical drives.
+Removing common English stop words...
+Processed message:
+megaraid AH detected logical drive
+--ok text ------megaraid: channel[0] is raid.
+Removing common English stop words...
+Processed message:
+megaraid channel raid
+--ok text ------megaraid: found 0x1028:0x0013:bus 2:slot 14:func 0
+Removing common English stop words...
+Processed message:
+megaraid found xxbus slot func
+--ok text ------megaraid: supports extended CDBs.
+Removing common English stop words...
+Processed message:
+megaraid support extended CDBs
+--ok text ------megaraid: v<*>-RH1 (Release Date: Mon Jul 26 12:15:51 EDT 2004)
+Removing common English stop words...
+Processed message:
+megaraid v RH Release Date Mon Jul EDT
+--ok text ------modprobe: Can't locate module <*>
+Removing common English stop words...
+Processed message:
+modprobe Cant locate module
+--ok text ------mtrr: detected mtrr type: Intel
+Removing common English stop words...
+Processed message:
+mtrr detected mtrr type Intel
+--ok text ------mtrr: v1.40 (20010327) Richard Gooch (#728#@atnf.csiro.au)
+Removing common English stop words...
+Processed message:
+mtrr v Richard Gooch atnfcsiroau
+--ok text ------net.core.rmem_default = 262144
+Removing common English stop words...
+Processed message:
+netcorermemdefault
+--ok text ------net.core.rmem_max = 262144
+Removing common English stop words...
+Processed message:
+netcorermemmax
+--ok text ------net.core.wmem_default = 262144
+Removing common English stop words...
+Processed message:
+netcorewmemdefault
+--ok text ------net.core.wmem_max = 262144
+Removing common English stop words...
+Processed message:
+netcorewmemmax
+--ok text ------net.ipv4.conf.default.rp_filter = 1
+Removing common English stop words...
+Processed message:
+netipvconfdefaultrpfilter
+--ok text ------ntpd #727#@1.892 Tue Feb 24 06:32:25 EST 2004 (1)
+Removing common English stop words...
+Processed message:
+ntpd Tue Feb EST
+--ok text ------ntpd <*> failed
+Removing common English stop words...
+Processed message:
+ntpd failed
+--ok text ------ntpd startup succeeded
+Removing common English stop words...
+Processed message:
+ntpd startup succeeded
+--ok text ------ntpd: unknown option -u
+Removing common English stop words...
+Processed message:
+ntpd unknown option u
+--ok text ------number of IO-APIC <*> registers: 24.
+Removing common English stop words...
+Processed message:
+number IOAPIC register
+--ok text ------number of MP IRQ sources: 40.
+Removing common English stop words...
+Processed message:
+number MP IRQ source
+--ok text ------pam_krb5[10252]: <*> lifetime: 36000
+Removing common English stop words...
+Processed message:
+pamkrb lifetime
+--ok text ------pam_krb5[10252]: afs not running
+Removing common English stop words...
+Processed message:
+pamkrb afs running
+--ok text ------pam_krb5[10252]: ccache dir: /tmp
+Removing common English stop words...
+Processed message:
+pamkrb ccache dir tmp
+--ok text ------pam_krb5[10252]: configured realm '#24#'
+Removing common English stop words...
+Processed message:
+pamkrb configured realm
+--ok text ------pam_krb5[10252]: destroyed v5 ticket file for '#53#'
+Removing common English stop words...
+Processed message:
+pamkrb destroyed v ticket file
+--ok text ------pam_krb5[10252]: flag: <*>
+Removing common English stop words...
+Processed message:
+pamkrb flag
+--ok text ------pam_krb5[10252]: flags: forwardable not proxiable
+Removing common English stop words...
+Processed message:
+pamkrb flag forwardable proxiable
+--ok text ------pam_krb5[10252]: keytab: /etc/v5srvtab
+Removing common English stop words...
+Processed message:
+pamkrb keytab etcvsrvtab
+--ok text ------pam_krb5[10252]: pam_close_session returning 0 (Success)
+Removing common English stop words...
+Processed message:
+pamkrb pamclosesession returning Success
+--ok text ------pam_krb5[10252]: removing ccache file '/tmp/krb5cc_18861_zSzfsX'
+Removing common English stop words...
+Processed message:
+pamkrb removing ccache file tmpkrbccz Szfs X
+--ok text ------pci_hotplug: PCI Hot Plug PCI Core version: 0.5
+Removing common English stop words...
+Processed message:
+pcihotplug PCI Hot Plug PCI Core version
+--ok text ------peer disconnected: SNMPv2-SMI::enterprises.674.10892.1
+Removing common English stop words...
+Processed message:
+peer disconnected SNMPv SMIenterprises
+--ok text ------per-CPU timeslice cutoff: 2434.45 usecs.
+Removing common English stop words...
+Processed message:
+per CPU timeslice cutoff usecs
+--ok text ------precision = <*> usec
+Removing common English stop words...
+Processed message:
+precision usec
+--ok text ------pty: 2048 Unix98 ptys configured
+Removing common English stop words...
+Processed message:
+pty Unix ptys configured
+--ok text ------removing <*>
+Removing common English stop words...
+Processed message:
+removing
+--ok text ------restart.
+Removing common English stop words...
+Processed message:
+restart
+--ok text ------scsi0 : LSI Logic MegaRAID 516A 254 commands 16 targs 4 chans 7 luns
+Removing common English stop words...
+Processed message:
+scsi LSI Logic Mega RAID command targs chans luns
+--ok text ------scsi0: scanning scsi channel 4 [P0] for physical devices.
+Removing common English stop words...
+Processed message:
+scsi scanning scsi channel P physical device
+--ok text ------scsi0: scanning scsi channel <*> for logical drives.
+Removing common English stop words...
+Processed message:
+scsi scanning scsi channel logical drive
+--ok text ------scsi0:Found MegaRAID controller at 0xf8840000, IRQ:38
+Removing common English stop words...
+Processed message:
+scsi Found Mega RAID controller xf IRQ
+--ok text ------sda: sda1 sda2 sda3 sda4 < sda5 sda6 >
+Removing common English stop words...
+Processed message:
+sda sda sda sda sda sda sda
+--ok text ------sendto(<*>): Bad file descriptor
+Removing common English stop words...
+Processed message:
+sendto Bad file descriptor
+--ok text ------session closed for user <*>
+Removing common English stop words...
+Processed message:
+session closed user
+--ok text ------session opened for user <*> by <*>
+Removing common English stop words...
+Processed message:
+session opened user
+--ok text ------shutting down for system reboot
+Removing common English stop words...
+Processed message:
+shutting system reboot
+--ok text ------snmpd <*> succeeded
+Removing common English stop words...
+Processed message:
+snmpd succeeded
+--ok text ------sshd -TERM succeeded
+Removing common English stop words...
+Processed message:
+sshd TERM succeeded
+--ok text ------starting the Postfix mail system
+Removing common English stop words...
+Processed message:
+starting Postfix mail system
+--ok text ------step time server <*> offset <*> sec
+Removing common English stop words...
+Processed message:
+step time server offset sec
+--ok text ------stopping the Postfix mail system
+Removing common English stop words...
+Processed message:
+stopping Postfix mail system
+--ok text ------succeeded
+Removing common English stop words...
+Processed message:
+succeeded
+--ok text ------synchronized to <*>, stratum <*>
+Removing common English stop words...
+Processed message:
+synchronized stratum
+--ok text ------task migration cache decay timeout: 10 msecs.
+Removing common English stop words...
+Processed message:
+task migration cache decay timeout msec
+--ok text ------terminating on signal 15
+Removing common English stop words...
+Processed message:
+terminating signal
+--ok text ------testing the IO APIC.......................
+Removing common English stop words...
+Processed message:
+testing IO APIC
+--ok text ------tftp: client does not accept options
+Removing common English stop words...
+Processed message:
+tftp client accept option
+--ok text ------ttyS0 at 0x03f8 (irq = 4) is a 16550A
+Removing common English stop words...
+Processed message:
+tty S xf irq
+--ok text ------usage: ntpd [ -abdgmnqx ] [ -c config_file ] [ -e e_delay ]
+Removing common English stop words...
+Processed message:
+usage ntpd abdgmnqx c configfile e edelay
+--ok text ------vm.max-readahead = 1024
+Removing common English stop words...
+Processed message:
+vmmaxreadahead
+--ok text ------warning: mail_queue_enter: create file <*> Read-only file system
+Removing common English stop words...
+Processed message:
+warning mailqueueenter create file Readonly file system
+--ok text ------x X
+Removing common English stop words...
+Processed message:
+x X
+--ok text ------xAPIC support is present
+Removing common English stop words...
+Processed message:
+x APIC support present
+--ok text ------xinetd Version 2.3.12 started with libwrap loadavg options compiled in.
+Removing common English stop words...
+Processed message:
+xinetd Version started libwrap loadavg option compiled
+--ok text ------xk k Xk k
+Removing common English stop words...
+Processed message:
+xk k Xk k
+--ok text ------zapping low mappings.
+Removing common English stop words...
+Processed message:
+zapping low mapping
+--ok text ------zone(0): 4096 pages.
+Removing common English stop words...
+Processed message:
+zone page
+--ok text ------zone(1): 225280 pages.
+Removing common English stop words...
+Processed message:
+zone page
+--ok text ------zone(2): 3178496 pages.
+Removing common English stop words...
+Processed message:
+zone page
+Number of NaN values in 'processed_EventTemplate': 0
 Traceback (most recent call last):
   File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 338, in <module>
     main()
   File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 177, in main
     logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-  File "/storage/home/roqaya/NovaAD_Plus/src/load_datalog.py", line 589, in read_original_data_log_from_log_to_csv
-    df = pd.read_csv(f'../datasets/{dataset}/{dataset}.log_structured.csv', dtype=dtype_mapping)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1026, in read_csv
-    return _read(filepath_or_buffer, kwds)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 620, in _read
-    parser = TextFileReader(filepath_or_buffer, **kwds)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1620, in __init__
-    self._engine = self._make_engine(f, self.engine)
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1880, in _make_engine
-    self.handles = get_handle(
-  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pandas/io/common.py", line 873, in get_handle
-    handle = open(
-FileNotFoundError: [Errno 2] No such file or directory: '../datasets/TH_5G_ratio/TH_5G_ratio.log_structured.csv'
+  File "/storage/home/roqaya/NovaAD_Plus/src/load_datalog.py", line 656, in read_original_data_log_from_log_to_csv
+    raise ValueError("No anomaly samples available in df.")
+ValueError: No anomaly samples available in df.
