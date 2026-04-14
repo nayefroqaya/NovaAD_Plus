@@ -639,6 +639,8 @@ class LogdataRead:
             print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
             print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
 
+            df=df_final  # new dataset with the new portion
+
 
             #exit()
 
@@ -1077,6 +1079,8 @@ class LogdataRead:
             print(f"Total: {n_total}")
             print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
             print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            df=df_final  # new dataset with the new portion
+
 
 
             #exit()
