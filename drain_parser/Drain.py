@@ -344,7 +344,7 @@ class LogParser:
         with open(log_file, "r", encoding='utf-8', errors='ignore') as fin:
             for line in fin.readlines():
                 try:
-                    match = regex.search(line.strip(), timeout=3.0)  # <-- timeout added
+                    match = regex.search(line.strip(), timeout=0.1)  # <-- timeout added
                     message = [match.group(header) for header in headers]
                     log_messages.append(message)
                     linecount += 1
