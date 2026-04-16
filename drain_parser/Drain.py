@@ -340,15 +340,27 @@ class LogParser:
         """Function to transform log file to dataframe"""
         log_messages = []
         linecount = 0
+
         with open(log_file, "r", encoding='utf-8', errors='ignore') as fin:
             for line in fin.readlines():
                 try:
-                    match = regex.search(line.strip())
+                    match = regex.search(line.strip(), timeout=0.01)  # <-- timeout added
                     message = [match.group(header) for header in headers]
                     log_messages.append(message)
                     linecount += 1
                 except Exception as e:
                     print("[Warning] Skip line: " + line)
+
+        #with open(log_file, "r", encoding='utf-8', errors='ignore') as fin:
+        #    for line in fin.readlines():
+        #        try:
+       #             match = regex.search(line.strip())
+        #            message = [match.group(header) for header in headers]
+       #             log_messages.append(message)
+       #             linecount += 1
+        #        except Exception as e:
+        #            print("[Warning] Skip line: " + line)
+
         logdf = pd.DataFrame(log_messages, columns=headers)
         logdf.insert(0, "LineId", None)
         logdf["LineId"] = [i + 1 for i in range(linecount)]
