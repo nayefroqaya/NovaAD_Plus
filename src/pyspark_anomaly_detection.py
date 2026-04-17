@@ -250,7 +250,7 @@ class AnomalyDetector:
 
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
                                  max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-                                 scale_pos_weight=1.0 #**scale_pos_weight=1.5
+                                 scale_pos_weight=2.0 #**scale_pos_weight=1.5
                                  , eval_metric="logloss", seed=42)
 
         # gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
