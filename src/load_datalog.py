@@ -643,7 +643,7 @@ class LogdataRead:
             df=df_final  # new dataset with the new portion
             print(len(df))
             '''
-
+            '''
             r = 0.043
 
             a = df[df['Label'] != '-']  # anomaly
@@ -690,9 +690,21 @@ class LogdataRead:
 
             df = df_final
             print(f"Updated df length: {len(df)}")
+            '''
+
+            n_total = len(df)
+            n_anomaly = (df['Label'] != '-').sum()
+            n_normal = (df['Label'] == '-').sum()
+
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            print(f"Original df length: {len(df)}")
+            print(f"Final df_final length: {len(df)}")
 
 
-            #exit()
+
+            exit()
 
             print(' length df before windows ' + str(len(df)))
 
