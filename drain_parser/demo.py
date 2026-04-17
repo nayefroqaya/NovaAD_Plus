@@ -35,9 +35,9 @@ from Drain import LogParser
 #depth      = 5  # Depth of all leaf nodes
 #==========================================TH
 # This part is for TH  dataset includes : Input dir, output dir, name of log file, log format(all formats in Benchmark file).
-input_dir  = '../datasets/TH_6G_ratio/' # The input directory of log file
-output_dir = '../datasets/TH_6G_ratio/'  # The output directory of parsing results
-log_file   = 'TH_6G_ratio.log'  # The input log file name
+input_dir  = '../datasets/TH_9G_ratio/' # The input directory of log file
+output_dir = '../datasets/TH_9G_ratio/'  # The output directory of parsing results
+log_file   = 'TH_9G_ratio.log'  # The input log file name
 log_format = '<Label> <Timestamp> <Date> <User> <Month> <Day> <Time> <Location> <Component>(\[<PID>\])?: <Content>'  # TH  log format
 # Regular expression list for optional preprocessing (default: [])
 regex      = [r"(\d+\.){3}\d+"]
