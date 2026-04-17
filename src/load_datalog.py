@@ -704,7 +704,7 @@ class LogdataRead:
 
 
 
-            exit()
+            #exit()
 
             print(' length df before windows ' + str(len(df)))
 
