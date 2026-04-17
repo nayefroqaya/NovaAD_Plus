@@ -316,8 +316,7 @@ class AnomalyDetector:
         # --------------------------
         # 3.1) VAL: auto-tune gate offset (deterministic)
         # --------------------------
-        #***offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
-        offset_grid = np.arange(0.01, 0.10, 0.02)
+        offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
         best_offset, best_f1_gate = 0.12, -1.0
 
         for off in offset_grid:
