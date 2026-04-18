@@ -168,7 +168,7 @@ class AnomalyDetector:
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
         #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        raw_w1 = float(n0 / max(n1, 1)) * 0.4
+        raw_w1 = float(n0 / max(n1, 1)) * 0.7
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
 
