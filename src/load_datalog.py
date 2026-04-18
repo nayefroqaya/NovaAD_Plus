@@ -643,7 +643,7 @@ class LogdataRead:
             df=df_final  # new dataset with the new portion
             print(len(df))
             '''
-            '''
+
             r = 0.043
 
             a = df[df['Label'] != '-']  # anomaly
@@ -690,7 +690,8 @@ class LogdataRead:
 
             df = df_final
             print(f"Updated df length: {len(df)}")
-            '''
+
+
 
             n_total = len(df)
             n_anomaly = (df['Label'] != '-').sum()
