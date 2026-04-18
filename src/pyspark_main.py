@@ -145,7 +145,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_9G_ratio'
+    DATASET = 'TH_15G_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -173,14 +173,12 @@ def main():
     utilities_obj = Utilities()
 
 
-
-
     # ---------------- Data as CSV ----------------
     logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
     print(' Reading the file was done successfully ')
-    spark.stop()
-    exit()
-    '''
+    #spark.stop()
+    #exit()
+
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -270,7 +268,7 @@ def main():
     #spark.stop()
     #exit()
     
-    '''
+
 
 
 
