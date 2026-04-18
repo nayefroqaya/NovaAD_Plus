@@ -162,12 +162,13 @@ class AnomalyDetector:
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
         PSEUDO_TRUST = 0.6
-        WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-
+       #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
+        WEIGHT_CAP = 5.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
-        raw_w1 = float(n0 / max(n1, 1)) * 0.7
+        #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
+        raw_w1 = float(n0 / max(n1, 1)) * 0.5
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
 
@@ -248,10 +249,14 @@ class AnomalyDetector:
         #    #num_workers=4,  # tune to your cluster
         #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
 
+        #** gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+        #**                         max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
+        #**                         scale_pos_weight=1.5
+        #**                         , eval_metric="logloss", seed=42)
+
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-                                 max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-                                 scale_pos_weight=1.5
-                                 , eval_metric="logloss", seed=42)
+            max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.0,
+            eval_metric="logloss", seed=42)
 
         # gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
         #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
@@ -286,7 +291,8 @@ class AnomalyDetector:
         pca_v = val_pdf["pca_flag"].values.astype(int) if "pca_flag" in val_pdf.columns else np.zeros_like(y_val)
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
-        TARGET_RECALL = 0.95  # 94 0.95
+       #** TARGET_RECALL = 0.95  # 94 0.95
+        TARGET_RECALL = 0.88
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
@@ -343,8 +349,10 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        #**case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+        #**        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+
+        case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
