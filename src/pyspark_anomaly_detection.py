@@ -249,14 +249,12 @@ class AnomalyDetector:
         #    #num_workers=4,  # tune to your cluster
         #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
 
-        #** gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-        #**                         max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-        #**                         scale_pos_weight=1.5
-        #**                         , eval_metric="logloss", seed=42)
-
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-            max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
-            eval_metric="logloss", seed=42)
+                                 max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
+                                 scale_pos_weight=1.5
+                                 , eval_metric="logloss", seed=42)
+
+
 
         # gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
         #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
@@ -349,10 +347,10 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        #**case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-        #**        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
 
-        case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
+        #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
