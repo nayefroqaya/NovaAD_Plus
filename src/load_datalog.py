@@ -704,7 +704,7 @@ class LogdataRead:
 
             df.sort_values(by=['Timestamp'], inplace=True)  # Ensure order
 
-            exit()
+            #exit()
 
             print(' length df before windows ' + str(len(df)))
 
