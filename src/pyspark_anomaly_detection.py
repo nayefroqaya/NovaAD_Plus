@@ -161,17 +161,17 @@ class AnomalyDetector:
         # --------------------------
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
-       #+++ PSEUDO_TRUST = 0.6
-        PSEUDO_TRUST = 0.4
-
-        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        WEIGHT_CAP = 8.0 #4.0
+        #++PSEUDO_TRUST = 0.6
+        PSEUDO_TRUST=0.2
+       #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
+       #++ WEIGHT_CAP = 8.0 #4.0
+        WEIGHT_CAP=3.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
         #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        #+++raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        raw_w1 = float(n0 / max(n1, 1)) * 0.35
+        #++raw_w1 = float(n0 / max(n1, 1)) * 0.7
+        raw_w1 = float(n0 / max(n1, 1)) * 0.25
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
 
@@ -350,10 +350,10 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        #case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-        #        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
 
-        case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
+        #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
