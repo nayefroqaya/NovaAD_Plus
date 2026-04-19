@@ -581,7 +581,7 @@ class LogdataRead:
             df.to_csv(All_dataset_path_as_csv, escapechar='\\', index=False)
 
 
-        elif dataset == 'TH_1G_ratio' or dataset == 'TH_2G_ratio' or dataset == 'TH_3G_ratio' or dataset == 'TH_5G_ratio' or dataset == 'TH_6G_ratio' or dataset == 'TH_9G_ratio'  or dataset == 'TH_15G_ratio':
+        elif dataset == 'TH_1G_ratio' or dataset == 'TH_2G_ratio' or dataset == 'TH_3G_ratio' or dataset == 'TH_5G_ratio' or dataset == 'TH_6G_ratio' or dataset == 'TH_9G_ratio'  or dataset == 'TH_20G_ratio':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
                              "Component": "category", "EventId": "str", "Label": "category"}
@@ -766,6 +766,11 @@ class LogdataRead:
             # -----------------------------------------------
             df = df.rename(columns={'Block': 'Node_block_id', 'Updated_Label': 'Label'})
             df.info()
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            print(f"Original df length: {len(df)}")
+            print(f"Final df_final length: {len(df)}")
             print(' save as csv file ....')
             # Save Processed Dataset Efficiently
             df.to_csv(All_dataset_path_as_csv, escapechar='\\', index=False)

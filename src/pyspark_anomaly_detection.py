@@ -161,17 +161,14 @@ class AnomalyDetector:
         # --------------------------
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
-       #++ PSEUDO_TRUST = 0.6
-        PSEUDO_TRUST=0.15
+        PSEUDO_TRUST = 0.6
        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        #++WEIGHT_CAP = 8.0 #4.0
-        WEIGHT_CAP=2.5
+        WEIGHT_CAP = 8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
         #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        #++raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        raw_w1 = float(n0 / max(n1, 1)) * 0.2
+        raw_w1 = float(n0 / max(n1, 1)) * 0.7
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
 
