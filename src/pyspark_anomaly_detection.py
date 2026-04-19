@@ -350,10 +350,10 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        #case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+        #        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
 
-        #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
+        case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
