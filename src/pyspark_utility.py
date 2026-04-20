@@ -96,7 +96,7 @@ class Utilities:
         # Chronological split by Node_block_id
         # =============================
         #  dataset == 'TH_2G_ratio' or dataset == 'TH_5G_ratio'
-        supported = {'HDFS','BGL','HDO','SP_100MB','SP_150MB','SP_100MB_ratio','SP_150MB_ratio','TH_1G', 'TH_1G_ratio','TH_2G','TH_2G_ratio', 'TH_3G_ratio','TH_5G','TH_5G_ratio', 'TH_6G_ratio','TH_9G_ratio','TH_20G_ratio','S_BGL'}
+        supported = {'HDFS','BGL','HDO','SP_100MB','SP_150MB','SP_100MB_ratio','SP_150MB_ratio','TH_1G', 'TH_1G_ratio','TH_2G','TH_2G_ratio', 'TH_3G_ratio','TH_5G','TH_5G_ratio', 'TH_6G_ratio','TH_9G_ratio','TH_12G_ratio','TH_20G_ratio','S_BGL'}
         if dataset not in supported:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
         # One row per block with its start time (sequence time)
