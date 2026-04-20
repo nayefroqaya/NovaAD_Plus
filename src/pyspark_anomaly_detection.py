@@ -163,12 +163,12 @@ class AnomalyDetector:
         # --------------------------
         PSEUDO_TRUST = 0.6
        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        WEIGHT_CAP = 8.0 #4.0
+        WEIGHT_CAP = 4.0 #8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
         #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
-        raw_w1 = float(n0 / max(n1, 1)) * 0.4
+        raw_w1 = float(n0 / max(n1, 1)) * 0.7
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
 
@@ -290,7 +290,7 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.75 #0.80
+        TARGET_RECALL = 0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
