@@ -293,24 +293,17 @@ class AnomalyDetector:
         TARGET_RECALL = 0.60  #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
-        #*for t in np.arange(0.01, 0.999, 0.005):
-        #*    preds = (p_val >= t).astype(int)
-        #*    r = recall_score(y_val, preds, pos_label=1)
-        #*    if r >= TARGET_RECALL:
-        #*        p = precision_score(y_val, preds, pos_label=1, zero_division=0)
-        #*        if p > best_prec:
-        #*            best_prec, best_threshold = p, float(t)
-        best_threshold, best_f1 = 0.5, -1.0
         for t in np.arange(0.01, 0.999, 0.005):
             preds = (p_val >= t).astype(int)
-            f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
-            if f1 > best_f1:
-                best_f1, best_threshold = f1, float(t)
+            r = recall_score(y_val, preds, pos_label=1)
+            if r >= TARGET_RECALL:
+                p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+                if p > best_prec:
+                    best_prec, best_threshold = p, float(t)
 
 
 
-        #*if best_prec < 0:
-        if best_f1 < 0:
+        if best_prec < 0:
             best_threshold, best_f1 = 0.5, -1.0
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
