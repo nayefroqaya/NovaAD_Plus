@@ -645,7 +645,7 @@ class LogdataRead:
             '''
 
 
-            r = 0.035
+            r = 0.025
 
             a = df[df['Label'] != '-']  # anomaly
             n = df[df['Label'] == '-']  # normal
