@@ -290,7 +290,7 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.72 #0.60 #0.80
+        TARGET_RECALL = 0.80 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
@@ -322,7 +322,8 @@ class AnomalyDetector:
         # --------------------------
         # 3.1) VAL: auto-tune gate offset (deterministic)
         # --------------------------
-        offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
+        #**offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
+        offset_grid = np.arange(0.02, 0.10, 0.01)
         best_offset, best_f1_gate = 0.12, -1.0
 
         for off in offset_grid:
