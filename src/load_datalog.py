@@ -581,7 +581,7 @@ class LogdataRead:
             df.to_csv(All_dataset_path_as_csv, escapechar='\\', index=False)
 
 
-        elif dataset == 'TH_1G_ratio' or dataset == 'TH_2G_ratio' or dataset == 'TH_3G_ratio' or dataset == 'TH_5G_ratio' or dataset == 'TH_Full' or dataset == 'TH_6G_ratio' or dataset == 'TH_9G_ratio' or dataset == 'TH_12G_ratio' or dataset == 'TH_20G_ratio':
+        elif dataset == 'TH_1G_ratio' or dataset == 'TH_2G_ratio' or dataset == 'TH_3G_ratio' or dataset == 'TH_5G_ratio' or dataset == 'TH_Full' or dataset == 'TH_6G_ratio' or dataset == 'TH_9G_ratio' or dataset=='TH_16G_ratio' or dataset == 'TH_12G_ratio' or dataset == 'TH_20G_ratio':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
                              "Component": "category", "EventId": "str", "Label": "category"}
@@ -643,9 +643,9 @@ class LogdataRead:
             df=df_final  # new dataset with the new portion
             print(len(df))
             '''
+            '''
 
-
-            r = 0.025
+            r = 0.043
 
             a = df[df['Label'] != '-']  # anomaly
             n = df[df['Label'] == '-']  # normal
@@ -691,20 +691,20 @@ class LogdataRead:
 
             df = df_final
             print(f"Updated df length: {len(df)}")
+            '''
 
 
+            n_total = len(df)
+            n_anomaly = (df['Label'] != '-').sum()
+            n_normal = (df['Label'] == '-').sum()
 
-           # n_total = len(df)
-           # n_anomaly = (df['Label'] != '-').sum()
-           # n_normal = (df['Label'] == '-').sum()
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            print(f"Original df length: {len(df)}")
+            print(f"Final df_final length: {len(df)}")
 
-            #print(f"Total: {n_total}")
-            #print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
-            #print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
-            #print(f"Original df length: {len(df)}")
-            #print(f"Final df_final length: {len(df)}")
-
-            #df.sort_values(by=['Timestamp'], inplace=True)  # Ensure order
+            df.sort_values(by=['Timestamp'], inplace=True)  # Ensure order
 
             #exit()
 
