@@ -290,20 +290,26 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.80 #0.60 #0.80
+        TARGET_RECALL = 0.50 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
+        #**for t in np.arange(0.01, 0.999, 0.005):
+        #**    preds = (p_val >= t).astype(int)
+        #**    r = recall_score(y_val, preds, pos_label=1)
+        #**    if r >= TARGET_RECALL:
+        #**        p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+        #**        if p > best_prec:
+        #**           best_prec, best_threshold = p, float(t)
+
+        best_threshold, best_f1 = 0.5, -1.0
         for t in np.arange(0.01, 0.999, 0.005):
             preds = (p_val >= t).astype(int)
-            r = recall_score(y_val, preds, pos_label=1)
-            if r >= TARGET_RECALL:
-                p = precision_score(y_val, preds, pos_label=1, zero_division=0)
-                if p > best_prec:
-                    best_prec, best_threshold = p, float(t)
+            f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
+            if f1 > best_f1:
+                best_f1, best_threshold = f1, float(t)
 
-
-
-        if best_prec < 0:
+        #**if best_prec < 0:
+        if best_f1 < 0:
             best_threshold, best_f1 = 0.5, -1.0
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
@@ -327,7 +333,9 @@ class AnomalyDetector:
 
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
-            gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
+            #****gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
+            gated_preds = ((p_val >= gate_t) | ((p_val >= best_threshold) & ((pca_v + gmm_v) >= 1))).astype(int)
+
             f1g = f1_score(y_val, gated_preds, pos_label=1, zero_division=0)
             if f1g > best_f1_gate:
                 best_f1_gate, best_offset = f1g, float(off)
@@ -349,8 +357,11 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        #**case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+        #**        (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+
+        case1_test_pdf["final_pred"] = ((p_test >= gate_t) | ((p_test >= best_threshold) & (
+                    (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)
 
         #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
