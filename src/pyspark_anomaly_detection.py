@@ -250,8 +250,8 @@ class AnomalyDetector:
         #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
 
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-                                 max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-                                  scale_pos_weight=1.5
+                                 max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80
+                                  #**scale_pos_weight=1.5
                                  , eval_metric="logloss", seed=42)
 
 
@@ -328,7 +328,9 @@ class AnomalyDetector:
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
             #** gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
-            gated_preds = (p_val >= best_threshold).astype(int)
+
+            gated_preds = ((p_val >= gate_t) | ((p_val >= best_threshold) & ((pca_v + gmm_v) >= 1))).astype(int)
+
             f1g = f1_score(y_val, gated_preds, pos_label=1, zero_division=0)
             if f1g > best_f1_gate:
                 best_f1_gate, best_offset = f1g, float(off)
