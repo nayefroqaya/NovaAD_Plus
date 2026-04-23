@@ -325,7 +325,7 @@ class AnomalyDetector:
         offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
         best_offset, best_f1_gate = 0.12, -1.0
 
-
+        '''
         # new
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
@@ -336,20 +336,20 @@ class AnomalyDetector:
 
             if f1g > best_f1_gate:
                 best_f1_gate, best_offset = f1g, float(off)
-
-
-
         '''
+
+
+
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
-            #**gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
+            gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
 
             #xxgated_preds = ((p_val >= gate_t) | ((p_val >= best_threshold) & ((pca_v + gmm_v) >= 1))).astype(int)
 
             f1g = f1_score(y_val, gated_preds, pos_label=1, zero_division=0)
             if f1g > best_f1_gate:
                 best_f1_gate, best_offset = f1g, float(off)
-        '''
+
         print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
 
         # --------------------------
