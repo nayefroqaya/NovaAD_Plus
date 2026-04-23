@@ -172,9 +172,9 @@ def main():
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
     df = pd.read_csv(ALL_DATASET_CSV_PATH)
+    x = len(df)
 
     if DATASET== 'HDFS':
-        x = len(df)
         # Normal / Anomaly for HDFS and '-' for others
         df1 = df[df['Label'] == 'Normal']  # Normal logs
         df2 = df[df['Label'] == 'Anomaly']  # Anomalous logs
