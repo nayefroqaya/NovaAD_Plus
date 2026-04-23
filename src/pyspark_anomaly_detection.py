@@ -163,7 +163,7 @@ class AnomalyDetector:
         # --------------------------
         PSEUDO_TRUST = 0.6
        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        WEIGHT_CAP = 8.0 #8.0 #4.0
+        WEIGHT_CAP = 12.0 #8.0 #8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
