@@ -256,19 +256,6 @@ class AnomalyDetector:
 
 
 
-        # gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-        #    numTrees=75, maxDepth=5, seed=SEED, subsamplingRate=0.9, featureSubsetStrategy="all")
-
-        # gbt = FMClassifier(
-        #            featuresCol=features_col,
-        #            labelCol="Final_Label",
-        #            stepSize=0.01,
-        #            factorSize=8,     # dimension of factor vectors
-        #            maxIter=75
-        #        )
-
-
-
         t0 = time.time()
         model = gbt.fit(train_base_df)
         end_t0 = time.time()
@@ -290,30 +277,20 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.85  #0.60 #0.60 #0.80
+        TARGET_RECALL = 0.80  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
-
-        #*for t in np.arange(0.01, 0.999, 0.005):
-         #*   preds = (p_val >= t).astype(int)
-          #*  r = recall_score(y_val, preds, pos_label=1)
-           #* if r >= TARGET_RECALL:
-            #*    p = precision_score(y_val, preds, pos_label=1, zero_division=0)
-             #*   if p > best_prec:
-              #*      best_prec, best_threshold = p, float(t)
-
-        best_threshold, best_f2 = 0.5, -1.0
-        from sklearn.metrics import fbeta_score
 
         for t in np.arange(0.01, 0.999, 0.005):
             preds = (p_val >= t).astype(int)
-            f2 = fbeta_score(y_val, preds, beta=2, pos_label=1, zero_division=0)
-            if f2 > best_f2:
-                best_f2, best_threshold = f2, float(t)
+            r = recall_score(y_val, preds, pos_label=1)
+            if r >= TARGET_RECALL:
+                p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+                if p > best_prec:
+                    best_prec, best_threshold = p, float(t)
 
-        print(f"[INFO] Threshold by best class-1 F2: t={best_threshold:.3f}, F2={best_f2:.4f}")
 
-        #if best_prec < 0:
-        if best_f2 < 0:
+
+        if best_prec < 0:
             best_threshold, best_f1 = 0.5, -1.0
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
@@ -335,18 +312,6 @@ class AnomalyDetector:
         offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
         best_offset, best_f1_gate = 0.12, -1.0
 
-        '''
-        # new
-        for off in offset_grid:
-            gate_t = min(best_threshold + float(off), 0.999)
-
-            gated_preds = ((p_val >= gate_t) | ((p_val >= best_threshold) & ((pca_v + gmm_v) >= 1))).astype(int)
-
-            f1g = f1_score(y_val, gated_preds, pos_label=1, zero_division=0)
-
-            if f1g > best_f1_gate:
-                best_f1_gate, best_offset = f1g, float(off)
-        '''
 
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
