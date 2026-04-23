@@ -171,37 +171,6 @@ def main():
     anomaly_detection_obj = AnomalyDetector()
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
-    df = pd.read_csv(ALL_DATASET_CSV_PATH)
-    x = len(df)
-
-    if DATASET== 'BGL':
-        # Normal / Anomaly for HDFS and '-' for others
-        df1 = df[df['Label'] == 'Normal']  # Normal logs
-        df2 = df[df['Label'] == 'Anomaly']  # Anomalous logs
-
-        #  Extract Unique Node Block IDs
-        df3 = df1.drop_duplicates(subset=['Node_block_id'])  # Unique Normal Blocks
-        df4 = df2.drop_duplicates(subset=['Node_block_id'])  # Unique Anomalous Blocks
-
-        print(f"All logs: {x:,}")
-        print(f"Normal logs: {len(df1):,}")
-        print(f"Anomaly logs: {len(df2):,}")
-        print(f"Unique normal blocks: {len(df3):,}")
-        print(f"Unique anomaly blocks: {len(df4):,}")
-        n_total = len(df)
-        n_anomaly = (df['Label'] != 'Normal').sum()
-        n_normal = (df['Label'] == 'Normal').sum()
-
-        print(f"Total: {n_total}")
-        print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
-        print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
-        print(' ----- Completed ------')
-
-
-
-
-    spark.stop()
-    exit()
 
 
     # ---------------- Data as CSV ----------------
