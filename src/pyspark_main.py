@@ -145,7 +145,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'HDFS'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -174,8 +174,8 @@ def main():
     df = pd.read_csv(ALL_DATASET_CSV_PATH)
     x = len(df)
     # Normal / Anomaly for HDFS and '-' for others
-    df1 = df[df['Label'] == 'Normal']  # Normal logs
-    df2 = df[df['Label'] == 'Anomaly']  # Anomalous logs
+    df1 = df[df['Label'] == '-']  # Normal logs
+    df2 = df[df['Label'] != '-']  # Anomalous logs
 
     #  Extract Unique Node Block IDs
     df3 = df1.drop_duplicates(subset=['Node_block_id'])  # Unique Normal Blocks
