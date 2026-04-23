@@ -174,7 +174,7 @@ def main():
     df = pd.read_csv(ALL_DATASET_CSV_PATH)
     x = len(df)
 
-    if DATASET== 'HDFS':
+    if DATASET== 'BGL':
         # Normal / Anomaly for HDFS and '-' for others
         df1 = df[df['Label'] == 'Normal']  # Normal logs
         df2 = df[df['Label'] == 'Anomaly']  # Anomalous logs
@@ -197,29 +197,7 @@ def main():
         print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
         print(' ----- Completed ------')
 
-    else:
 
-        # Separate Normal & Anomaly Logs
-        df1 = df.query("Label == '-'").reset_index(drop=True)  # Normal logs
-        df2 = df.query("Label != '-'").reset_index(drop=True)  # Anomaly logs
-        df_block = df.drop_duplicates(subset=['Block']).reset_index(drop=True)  # Unique Normal Blocks
-        df3 = df_block.query("Updated_Label == 'Normal'").reset_index(drop=True)
-        df4 = df_block.query("Updated_Label == 'Anomaly'").reset_index(drop=True)
-
-        # Print Dataset Statistics
-        print(f" logs Messages : {x:,}")
-        print(f"Normal logs: {len(df1):,}")  # 4,365,033
-        print(f"Anomaly logs: {len(df2):,}")  # 348,460
-        print(f"Unique normal blocks: {len(df3):,}")  # 49,247
-        print(f"Unique anomaly blocks: {len(df4):,}")  # 36,251
-        print(f"All unique blocks: {len(df_block):,}")
-        n_total = len(df)
-        n_anomaly = (df['Updated_Label'] != '-').sum()
-        n_normal = (df['Updated_Label'] == '-').sum()
-
-        print(f"Total: {n_total}")
-        print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
-        print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
 
 
     spark.stop()
