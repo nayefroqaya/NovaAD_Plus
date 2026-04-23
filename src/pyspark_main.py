@@ -172,6 +172,7 @@ def main():
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
     df = pd.read_csv(ALL_DATASET_CSV_PATH)
+    x = len(df)
     # Normal / Anomaly for HDFS and '-' for others
     df1 = df[df['Label'] == 'Normal']  # Normal logs
     df2 = df[df['Label'] == 'Anomaly']  # Anomalous logs
@@ -181,10 +182,10 @@ def main():
     df4 = df2.drop_duplicates(subset=['Node_block_id'])  # Unique Anomalous Blocks
 
     print(f"All logs: {x:,}")
-    print(f"Normal logs: {len(df1):,}")  # 10,887,379
-    print(f"Anomaly logs: {len(df2):,}")  # 288,250
-    print(f"Unique normal blocks: {len(df3):,}")  # 558,223
-    print(f"Unique anomaly blocks: {len(df4):,}")  # 16,838
+    print(f"Normal logs: {len(df1):,}")
+    print(f"Anomaly logs: {len(df2):,}")
+    print(f"Unique normal blocks: {len(df3):,}")
+    print(f"Unique anomaly blocks: {len(df4):,}")
     n_total = len(df)
     n_anomaly = (df['Label'] != 'Normal').sum()
     n_normal = (df['Label'] == 'Normal').sum()
