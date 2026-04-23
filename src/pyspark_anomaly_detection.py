@@ -293,17 +293,27 @@ class AnomalyDetector:
         TARGET_RECALL = 0.85  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
+        #*for t in np.arange(0.01, 0.999, 0.005):
+         #*   preds = (p_val >= t).astype(int)
+          #*  r = recall_score(y_val, preds, pos_label=1)
+           #* if r >= TARGET_RECALL:
+            #*    p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+             #*   if p > best_prec:
+              #*      best_prec, best_threshold = p, float(t)
+
+        best_threshold, best_f2 = 0.5, -1.0
+        from sklearn.metrics import fbeta_score
+
         for t in np.arange(0.01, 0.999, 0.005):
             preds = (p_val >= t).astype(int)
-            r = recall_score(y_val, preds, pos_label=1)
-            if r >= TARGET_RECALL:
-                p = precision_score(y_val, preds, pos_label=1, zero_division=0)
-                if p > best_prec:
-                    best_prec, best_threshold = p, float(t)
+            f2 = fbeta_score(y_val, preds, beta=2, pos_label=1, zero_division=0)
+            if f2 > best_f2:
+                best_f2, best_threshold = f2, float(t)
 
+        print(f"[INFO] Threshold by best class-1 F2: t={best_threshold:.3f}, F2={best_f2:.4f}")
 
-
-        if best_prec < 0:
+        #if best_prec < 0:
+        if best_f2 < 0:
             best_threshold, best_f1 = 0.5, -1.0
             for t in np.arange(0.01, 0.999, 0.005):
                 preds = (p_val >= t).astype(int)
