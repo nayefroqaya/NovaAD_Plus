@@ -1089,7 +1089,7 @@ class LogdataRead:
 
 
 
-        elif dataset == 'SP_150MB_ratio' or dataset == 'SP_100MB_ratio':
+        elif dataset == 'SP_150MB_ratio' or dataset == 'SP_100MB_ratio' or dataset=='SP_1G_ratio':
             #  Define dtype mapping for efficient memory usage
             dtype_mapping = {"User": "str", "EventTemplate": "category", "Content": "str", "Date": "str", "Time": "str",
                              "Component": "category", "EventId": "str", "Label": "category"}
@@ -1122,8 +1122,16 @@ class LogdataRead:
             df = df[['Timestamp', 'Date', 'Time', 'Content', 'EventId', 'EventTemplate', 'processed_EventTemplate',
                      'Node_block_id', 'Label']]
 
+            n_total = len(df)
+            n_anomaly = (df['Label'] != '-').sum()
+            n_normal = (df['Label'] == '-').sum()
 
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
+            print(len(df))
 
+            '''
             #-------take anomaly ration and normal ration based on original dataset. In Spirit 2.6% Anomaly
             r = 0.026
 
@@ -1152,6 +1160,7 @@ class LogdataRead:
             print(len(df_final))
             df=df_final  # new dataset with the new portion
             print(len(df))
+            '''
 
 
 
