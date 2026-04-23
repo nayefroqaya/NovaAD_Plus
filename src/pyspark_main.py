@@ -214,8 +214,8 @@ def main():
         print(f"Unique anomaly blocks: {len(df4):,}")  # 36,251
         print(f"All unique blocks: {len(df_block):,}")
         n_total = len(df)
-        n_anomaly = (df['Updated_Label'] != 'Normal').sum()
-        n_normal = (df['Updated_Label'] == 'Normal').sum()
+        n_anomaly = (df['Updated_Label'] != '-').sum()
+        n_normal = (df['Updated_Label'] == '-').sum()
 
         print(f"Total: {n_total}")
         print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
