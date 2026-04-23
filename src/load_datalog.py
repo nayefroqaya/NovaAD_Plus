@@ -1139,7 +1139,7 @@ class LogdataRead:
             print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
             print(len(df))
 
-            '''
+
             #-------take anomaly ration and normal ration based on original dataset. In Spirit 2.6% Anomaly
             r = 0.026
 
@@ -1168,7 +1168,7 @@ class LogdataRead:
             print(len(df_final))
             df=df_final  # new dataset with the new portion
             print(len(df))
-            '''
+
 
 
 
