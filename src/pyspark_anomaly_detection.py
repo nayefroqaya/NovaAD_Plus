@@ -342,6 +342,7 @@ class AnomalyDetector:
 
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
+
             gated_preds = ((p_val >= best_threshold) | ((p_val >= gate_t) & ((pca_v + gmm_v) >= 1))).astype(int)
 
             #xxgated_preds = ((p_val >= gate_t) | ((p_val >= best_threshold) & ((pca_v + gmm_v) >= 1))).astype(int)
@@ -364,6 +365,7 @@ class AnomalyDetector:
                                           vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                                           col("pca_flag"), col("gmm_flag")).toPandas()
 
+        '''x
         # new
         p_test = case1_test_pdf["prob_1"].values
         flags_test = (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1
@@ -377,15 +379,15 @@ class AnomalyDetector:
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
 
-        ##**case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
-        ##*       (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
+        case1_test_pdf["final_pred"] = ((p_test >= best_threshold) | ((p_test >= gate_t) & (
+               (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
 
         ##x case1_test_pdf["final_pred"] = ((p_test >= gate_t) | ((p_test >= best_threshold) & (
         ##x             (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)
 
 
         #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
-        '''
+
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
