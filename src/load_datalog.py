@@ -477,7 +477,15 @@ class LogdataRead:
             print(f"Anomaly logs: {len(df2):,}")  # 288,250
             print(f"Unique normal blocks: {len(df3):,}")  # 558,223
             print(f"Unique anomaly blocks: {len(df4):,}")  # 16,838
+            n_total = len(df)
+            n_anomaly = (df['Label'] != 'Normal').sum()
+            n_normal = (df['Label'] == 'Normal').sum()
+
+            print(f"Total: {n_total}")
+            print(f"Normal: {n_normal} ({n_normal / n_total:.2%})")
+            print(f"Anomaly: {n_anomaly} ({n_anomaly / n_total:.2%})")
             print(' ----- Completed ------')
+
 
             #  Check Memory Usage
             df.info()
