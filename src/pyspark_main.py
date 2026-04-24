@@ -145,7 +145,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_12G_ratio'
+    DATASET = 'SP_150MB_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -172,12 +172,13 @@ def main():
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
 
-    '''
+
     # ---------------- Data as CSV ----------------
-    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    print(' Reading the file was done successfully ')
-    spark.stop()
-    exit()
+    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    #print(' Reading the file was done successfully ')
+    #spark.stop()
+    #exit()
+
 
   
     # ---------------- Load CSV into Spark ----------------
@@ -233,17 +234,18 @@ def main():
     test_df.select("Label").distinct().show()
 
     # --------------Read Parquest file and convert to Pandas and save PKL for experiments with baseline
-    # train_pd = train_df.toPandas()
-    # val_pd = val_df.toPandas()
-    # test_pd = test_df.toPandas()
-    # train_pd.to_pickle(os.path.join(save_path, "train_df.pkl"))
-    # val_pd.to_pickle(os.path.join(save_path, "val_df.pkl"))
-    # test_pd.to_pickle(os.path.join(save_path, "test_df.pkl"))
+    train_pd = train_df.toPandas()
+    val_pd = val_df.toPandas()
+    test_pd = test_df.toPandas()
+    train_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "train_df.pkl"))
+    val_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "val_df.pkl"))
+    test_pd.to_pickle(os.path.join(save_path, round_id + '_'+DATASET+ '_'+"test_df.pkl"))
     # ----------------
-    # spark.stop()
-    # train_df.printSchema()
-    # assert train_df.schema == val_df.schema == test_df.schema
-    # exit()
+    train_df.printSchema()
+    assert train_df.schema == val_df.schema == test_df.schema
+    spark.stop()
+
+    exit()
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
@@ -268,7 +270,7 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #spark.stop()
     #exit()
-    '''
+
 
 
 
