@@ -172,15 +172,15 @@ def main():
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
 
-
+    '''
     # ---------------- Data as CSV ----------------
-    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    #print(' Reading the file was done successfully ')
+    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    print(' Reading the file was done successfully ')
     #spark.stop()
     #exit()
 
 
-  
+
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -199,6 +199,7 @@ def main():
     validate_df.count()
     test_df.count()
     # exit()
+    '''
 
 
     # ---------------- Process normal data ----------------
@@ -220,18 +221,20 @@ def main():
     # print("Train count:", train_df.count())
     # print("Validation count:", val_df.count())
     # print("Test count:", test_df.count())
-    # train_df.printSchema()
-    # val_df.printSchema()
-    # test_df.printSchema()
+    train_df.printSchema()
+    val_df.printSchema()
+    test_df.printSchema()
+    spark.stop()
+    exit()
 
-    train_df.select("Original_Label").distinct().show()
-    train_df.select("Label").distinct().show()
+    #train_df.select("Original_Label").distinct().show()
+    #train_df.select("Label").distinct().show()
 
-    val_df.select("Original_Label").distinct().show()
-    val_df.select("Label").distinct().show()
+    #val_df.select("Original_Label").distinct().show()
+    #val_df.select("Label").distinct().show()
 
-    test_df.select("Original_Label").distinct().show()
-    test_df.select("Label").distinct().show()
+    #test_df.select("Original_Label").distinct().show()
+    #test_df.select("Label").distinct().show()
 
     # --------------Read Parquest file and convert to Pandas and save PKL for experiments with baseline
     train_pd = train_df.toPandas()
