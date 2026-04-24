@@ -225,7 +225,7 @@ def main():
     val_df.printSchema()
     test_df.printSchema()
 
-    cols_to_drop = ["Time", "Date", "Type_ds"]
+    cols_to_drop = ["Time", "Date", "Type_ds", "Content", "EventTemplate", "Timestamp_ts"]
 
     train_df = train_df.drop(*cols_to_drop)
     val_df = val_df.drop(*cols_to_drop)
