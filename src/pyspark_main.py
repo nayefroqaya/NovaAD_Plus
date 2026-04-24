@@ -224,8 +224,13 @@ def main():
     train_df.printSchema()
     val_df.printSchema()
     test_df.printSchema()
-    spark.stop()
-    exit()
+
+    cols_to_drop = ["Time", "Date", "Type_ds"]
+
+    train_df = train_df.drop(*cols_to_drop)
+    val_df = val_df.drop(*cols_to_drop)
+    test_df = test_df.drop(*cols_to_drop)
+
 
     #train_df.select("Original_Label").distinct().show()
     #train_df.select("Label").distinct().show()
@@ -247,7 +252,6 @@ def main():
     train_df.printSchema()
     assert train_df.schema == val_df.schema == test_df.schema
     spark.stop()
-
     exit()
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
