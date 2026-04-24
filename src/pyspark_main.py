@@ -147,7 +147,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'SP_150MB_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -225,7 +225,7 @@ def main():
     val_df.printSchema()
     test_df.printSchema()
 
-    cols_to_drop = ["Time", "Date", "Type_ds", "Content", "EventTemplate", "Timestamp_ts"]
+    cols_to_drop = ["Time", "Date", "Type_ds", "Timestamp_ts"]
 
     train_df = train_df.drop(*cols_to_drop)
     val_df = val_df.drop(*cols_to_drop)
