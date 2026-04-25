@@ -147,7 +147,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'SP_150MB_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -199,7 +199,7 @@ def main():
     validate_df.count()
     test_df.count()
     # exit()
-    '''
+   
 
 
     # ---------------- Process normal data ----------------
@@ -277,6 +277,7 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #spark.stop()
     #exit()
+     '''
 
 
 
