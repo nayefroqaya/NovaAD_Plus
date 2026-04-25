@@ -271,7 +271,7 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.88  #0.60 #0.60 #0.80
+        TARGET_RECALL = 0.92  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
