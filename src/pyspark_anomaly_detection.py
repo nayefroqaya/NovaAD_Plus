@@ -439,7 +439,7 @@ class AnomalyDetector:
                                   ).toPandas()
 
         # Threshold tuning
-        best_threshold = 0.5
+        best_threshold = 0.2# 0.5
         best_f1 = -1.0
         for t in np.arange(0.05, 0.96, 0.01):
             preds = (val_pdf["prob_1"].values >= t).astype(int)
