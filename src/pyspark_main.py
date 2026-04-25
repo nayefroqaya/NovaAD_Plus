@@ -147,7 +147,7 @@ def main():
     # ---------------- Project configuration ----------------
     DATASET = 'SP_150MB_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -251,18 +251,17 @@ def main():
     # ----------------
     train_df.printSchema()
     assert train_df.schema == val_df.schema == test_df.schema
-    spark.stop()
-    exit()
+    #spark.stop()
+    #exit()
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
     final_train_with_test_with_val.count()
 
 
+
     # ---------------- Features Extracting ----------------
-    # --- Before Train ---
-    #shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    #os.makedirs(SPILL_DIR, exist_ok=True)
+
 
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
@@ -277,7 +276,8 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #spark.stop()
     #exit()
-     '''
+    '''
+
 
 
 
@@ -293,8 +293,8 @@ def main():
     final_train_with_test_with_val.printSchema()
     final_train_with_test_with_val.select("Label").distinct().show()
 
-    # spark.stop()
-    #exit()
+    spark.stop()
+    exit()
 
     # ---------------- Features Engineering ----------------
     #print(f"{GRAY}Aggregating and transforming features...{RESET}")
@@ -334,12 +334,12 @@ def main():
 
     # ---------------- Anomaly Detection ----------------
 
-    case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time = anomaly_detection_obj.anomaly_detector(
+    model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time = anomaly_detection_obj.anomaly_detector(
         df_full_train_labeled_features, sequences_df)
 
     # ---------------- Evaluation----------------
 
-    model_evaluation_obj.evaluation_pyspark(case1_test_pdf, case2_test_pdf, case1_classification_time,
+    model_evaluation_obj.evaluation_pyspark(model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                                             case1_Classification_pred_time, case2_Classification_time,
                                             case2_Classification_pred_time)
 

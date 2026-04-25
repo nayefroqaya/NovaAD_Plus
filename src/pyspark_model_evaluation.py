@@ -42,7 +42,7 @@ class ModelEvaluation:
 
     @staticmethod
 
-    def  evaluation_pyspark(case1_test_pdf, case2_test_pdf, case1_classification_time,
+    def  evaluation_pyspark(model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                             case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time):
         # ======================================
         # 5) Classification report
@@ -89,6 +89,26 @@ class ModelEvaluation:
                 final_case = "case1" if case1_metrics["pred_time"] <= case2_metrics["pred_time"] else "case2"
 
 
+        # -------features importance
+        if final_case == "case1":
+            final_model = model_case1
+        else:
+            final_model = model_case2
+
+        booster = final_model.get_booster()
+        importance = booster.get_score(importance_type="gain")
+
+        feature_importance = []
+
+        for k, v in importance.items():
+            idx = int(k.replace("f", ""))
+            feature_importance.append((idx, f"features_vec_final[{idx}]", float(v)))
+
+        feature_importance = sorted(feature_importance, key=lambda x: x[2], reverse=True)
+
+
+
+
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
@@ -105,5 +125,9 @@ class ModelEvaluation:
         print("\n================Final decision ================")
 
         print(f"\n[FINAL DECISION] Use {final_case}")
+        print(f"\n================ FEATURE IMPORTANCE FOR {final_case.upper()} ================")
+
+        for idx, name, score in feature_importance:
+            print(f"{name}: {score:.6f}")
 
 

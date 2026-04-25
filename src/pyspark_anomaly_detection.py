@@ -243,7 +243,7 @@ class AnomalyDetector:
         from xgboost.spark import SparkXGBClassifier
 
 
-        gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
+        gbt_case1 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
                                  max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
                                  scale_pos_weight=1.5
                                  , eval_metric="logloss", seed=42)
@@ -251,14 +251,14 @@ class AnomalyDetector:
 
 
         t0 = time.time()
-        model = gbt.fit(train_base_df)
+        model_case1 = gbt_case1.fit(train_base_df)
         end_t0 = time.time()
         print(f"[INFO] case1 :  GBT fit time: {(end_t0 - t0) / 60:.2f} minutes")
 
         # --------------------------
         # 3) VAL: tune threshold
         # --------------------------
-        val_pred = model.transform(val_df)
+        val_pred = model_case1.transform(val_df)
         val_pdf = val_pred.select(col("Final_Label").alias("y"),
                                   vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                                   col("pca_flag") if "pca_flag" in val_pred.columns else lit(0).alias("pca_flag"),
@@ -324,7 +324,7 @@ class AnomalyDetector:
         # 4) TEST: gated ensemble using tuned offset
         # --------------------------
         t1 = time.time()
-        test_pred = model.transform(test_df)
+        test_pred = model_case1.transform(test_df)
         end_t1 = time.time()
         print(f"[INFO] case1 : GBT predict time: {(end_t1 - t1) / 60:.2f} minutes")
 
@@ -413,13 +413,13 @@ class AnomalyDetector:
         # 2) Train GBT Classifier
         # ======================================
 
-        gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", max_depth=4, eta=0.05,
+        gbt_case2 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", max_depth=4, eta=0.05,
                                  n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
                                  eval_metric="logloss", seed=42)
 
 
         start_fit_classification = time.time()
-        model = gbt.fit(train_base_df)
+        model_case2 = gbt_case2.fit(train_base_df)
         end_fit_classification = time.time()
         case2_Classification_time = (end_fit_classification - start_fit_classification) / 60
         print(f"final Model classification  completed in {case2_Classification_time:.2f} minutes")
@@ -431,7 +431,7 @@ class AnomalyDetector:
         # ================================
         # Validation predictions
         # ================================
-        val_pred = model.transform(val_df)
+        val_pred = model_case2.transform(val_df)
 
         # Convert probability vector to array
         val_pdf = val_pred.select(col("Final_Label").alias("y"),
@@ -457,7 +457,7 @@ class AnomalyDetector:
 
         start_predict_classification = time.time()
 
-        test_pred = model.transform(test_df)
+        test_pred = model_case2.transform(test_df)
         end_predict_classification = time.time()
         case2_Classification_pred_time = (end_predict_classification - start_predict_classification) / 60
         print(f"final Model predicts  completed in {case2_Classification_pred_time:.2f} minutes")
@@ -477,7 +477,7 @@ class AnomalyDetector:
 
         case1_classification_time =(end_t0 - t0)
         case1_Classification_pred_time =(end_t1 - t1)
-        return case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time
+        return model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time
 
         #spark.stop()
         #exit()
