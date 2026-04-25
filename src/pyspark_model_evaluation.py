@@ -34,6 +34,8 @@ from pyspark.ml.classification import (
     RandomForestClassifier as SparkRandomForestClassifier,
     GBTClassifier as SparkGBTClassifier,
 )
+from sklearn.metrics import f1_score, recall_score, precision_score, balanced_accuracy_score
+
 
 class ModelEvaluation:
     """Class for evaluating model performance and feature importance."""
@@ -45,6 +47,49 @@ class ModelEvaluation:
         # ======================================
         # 5) Classification report
         # ======================================
+        # --------------------------
+        # FINAL DECISION: case1 vs case2
+        # --------------------------
+
+        y1 = case1_test_pdf["y"].astype(int).values
+        p1 = case1_test_pdf["final_pred"].astype(int).values
+
+        y2 = case2_test_pdf["y"].astype(int).values
+        p2 = case2_test_pdf["final_pred"].astype(int).values
+
+        case1_metrics = {"f1_class1": f1_score(y1, p1, pos_label=1, zero_division=0),
+            "recall_class1": recall_score(y1, p1, pos_label=1, zero_division=0),
+            "precision_class1": precision_score(y1, p1, pos_label=1, zero_division=0),
+            "balanced_acc": balanced_accuracy_score(y1, p1), "fit_time": case1_classification_time,
+            "pred_time": case1_Classification_pred_time}
+
+        case2_metrics = {"f1_class1": f1_score(y2, p2, pos_label=1, zero_division=0),
+            "recall_class1": recall_score(y2, p2, pos_label=1, zero_division=0),
+            "precision_class1": precision_score(y2, p2, pos_label=1, zero_division=0),
+            "balanced_acc": balanced_accuracy_score(y2, p2), "fit_time": case2_Classification_time * 60,
+            "pred_time": case2_Classification_pred_time * 60}
+
+        print("\n================ FINAL CASE COMPARISON ================")
+        print("Case1:", case1_metrics)
+        print("Case2:", case2_metrics)
+
+        # Main decision rule: choose better anomaly F1
+        if case1_metrics["f1_class1"] > case2_metrics["f1_class1"]:
+            final_case = "case1"
+        elif case2_metrics["f1_class1"] > case1_metrics["f1_class1"]:
+            final_case = "case2"
+        else:
+            # Tie-breaker 1: higher recall for anomalies
+            if case1_metrics["recall_class1"] > case2_metrics["recall_class1"]:
+                final_case = "case1"
+            elif case2_metrics["recall_class1"] > case1_metrics["recall_class1"]:
+                final_case = "case2"
+            else:
+                # Tie-breaker 2: faster prediction
+                final_case = "case1" if case1_metrics["pred_time"] <= case2_metrics["pred_time"] else "case2"
+
+
+
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
         # print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
@@ -56,5 +101,9 @@ class ModelEvaluation:
         print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
         print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
         print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
+
+        print("\n================Final decision ================")
+
+        print(f"\n[FINAL DECISION] Use {final_case}")
 
 

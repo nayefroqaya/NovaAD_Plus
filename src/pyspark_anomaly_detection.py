@@ -238,16 +238,10 @@ class AnomalyDetector:
         # --------------------------
         # 2) Train deterministic GBT (reduce internal randomness)
         # --------------------------
-        # maxIter=50, maxDepth=6 , stepSize=0.1
-        # gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label", weightCol="classWeight",
-        #    maxIter=50, maxDepth=6, stepSize=0.1, seed=42, subsamplingRate= 1.0 ,  # 1.0
-        #                    featureSubsetStrategy="all")
+
 
         from xgboost.spark import SparkXGBClassifier
 
-        # gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-        #    #num_workers=4,  # tune to your cluster
-        #    max_depth=6, eta=0.1, n_estimators=200, subsample=1.0, colsample_bytree=1.0, seed=42)
 
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
                                  max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
@@ -338,16 +332,7 @@ class AnomalyDetector:
                                           vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                                           col("pca_flag"), col("gmm_flag")).toPandas()
 
-        '''x
-        # new
-        p_test = case1_test_pdf["prob_1"].values
-        flags_test = (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1
 
-        gate_t = min(best_threshold + best_offset, 0.999)
-
-        case1_test_pdf["final_pred"] = ((p_test >= gate_t) | ((p_test >= best_threshold) & flags_test)).astype(int)
-
-        '''
 
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
@@ -427,42 +412,11 @@ class AnomalyDetector:
         # ======================================
         # 2) Train GBT Classifier
         # ======================================
-        # gbt = GBTClassifier(featuresCol=features_col, labelCol="Final_Label",
-        #                    maxIter=75,  # 100
-        #                    maxDepth=5, #6
-        #    stepSize=0.1, # 0.05
-        #                    seed=123)
-        # maxIter=50, maxDepth=6 , stepSize=0.1
-
-        # gbt = RandomForestClassifier(featuresCol=features_col, labelCol="Final_Label", numTrees=50, maxDepth=6,
-        #    seed=42, subsamplingRate= 1.0,  #1.0
-        #                             featureSubsetStrategy="all")
 
         gbt = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", max_depth=4, eta=0.05,
                                  n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
                                  eval_metric="logloss", seed=42)
 
-        # gbt = FMClassifier(featuresCol=features_col, labelCol="Final_Label", stepSize=0.01,
-        #                   factorSize=8,
-        #    # dimension of factor vectors
-        #    maxIter=75)
-
-        # gbt = FMClassifier(
-        #    featuresCol=features_col,
-        #    labelCol="Final_Label",
-        #    factorSize=32,
-        #    regParam=0.001,
-        #    stepSize=0.03,
-        #    maxIter=150,
-        #    miniBatchFraction=1.0,
-        #    fitLinear=True,
-        #    fitIntercept=True,
-        #    solver="adamW",
-        #    seed=42,                      # important
-        #    probabilityCol="probability",
-        #    rawPredictionCol="rawPrediction",
-        #    predictionCol="prediction"
-        # )
 
         start_fit_classification = time.time()
         model = gbt.fit(train_base_df)
