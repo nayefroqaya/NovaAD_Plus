@@ -565,7 +565,7 @@ class FeaturesEngineering:
         # ======================================
         # 8) Thresholds for hybrid labeling
         # ======================================
-        TARGET_FPR = 0.05  # higher FPR to improve anomaly recall
+        TARGET_FPR = 0.10 #0.05  # higher FPR to improve anomaly recall
         thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
         thr_pca = train_normal_pca.approxQuantile("anomaly_score_pca", [1 - TARGET_FPR], 1e-6)[0]
 
