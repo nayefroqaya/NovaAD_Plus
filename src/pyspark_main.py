@@ -159,10 +159,6 @@ def main():
     SENTIMENT_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_sentiment_df.pkl'
     PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_pre_final_global_features.pkl'
 
-    # ---------------- Spark session ----------------
-    # spark = SparkSession.builder \
-    #    .appName("LogAnomalyPipeline") \
-    #    .getOrCreate()
 
     # ---------------- Initialize classes ----------------
     logdata_read_obj = LogdataRead()
@@ -172,10 +168,10 @@ def main():
     model_evaluation_obj = ModelEvaluation()
     utilities_obj = Utilities()
 
-    '''
+
     # ---------------- Data as CSV ----------------
-    logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    print(' Reading the file was done successfully ')
+    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    #print(' Reading the file was done successfully ')
     #spark.stop()
     #exit()
 
@@ -185,8 +181,7 @@ def main():
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
     print('✅ Loaded CSV into Spark DataFrame')
-    #df1 = all_data_df.query("Label == '-'").reset_index(drop=True)  # Normal logs
-    #df2 = all_data_df.query("Label != '-'").reset_index(drop=True)  # Anomaly logs
+
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
@@ -201,7 +196,6 @@ def main():
     # exit()
    
 
-
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
         save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
@@ -215,12 +209,11 @@ def main():
     os.makedirs(save_path, exist_ok=True)
 
     # ---------------- Load PKL splits into Spark ----------------
+
     train_df = spark.read.parquet(os.path.join(save_path, "train_df")).cache()
     val_df = spark.read.parquet(os.path.join(save_path, "val_df")).cache()
     test_df = spark.read.parquet(os.path.join(save_path, "test_df")).cache()
-    # print("Train count:", train_df.count())
-    # print("Validation count:", val_df.count())
-    # print("Test count:", test_df.count())
+
     train_df.printSchema()
     val_df.printSchema()
     test_df.printSchema()
@@ -232,27 +225,19 @@ def main():
     test_df = test_df.drop(*cols_to_drop)
 
 
-    #train_df.select("Original_Label").distinct().show()
-    #train_df.select("Label").distinct().show()
-
-    #val_df.select("Original_Label").distinct().show()
-    #val_df.select("Label").distinct().show()
-
-    #test_df.select("Original_Label").distinct().show()
-    #test_df.select("Label").distinct().show()
-
     # --------------Read Parquest file and convert to Pandas and save PKL for experiments with baseline
-    train_pd = train_df.toPandas()
-    val_pd = val_df.toPandas()
-    test_pd = test_df.toPandas()
-    train_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "train_df.pkl"))
-    val_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "val_df.pkl"))
-    test_pd.to_pickle(os.path.join(save_path, round_id + '_'+DATASET+ '_'+"test_df.pkl"))
+    #train_pd = train_df.toPandas()
+    #val_pd = val_df.toPandas()
+    #test_pd = test_df.toPandas()
+    #train_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "train_df.pkl"))
+    #val_pd.to_pickle(os.path.join(save_path,round_id + '_'+DATASET+ '_'+ "val_df.pkl"))
+    #test_pd.to_pickle(os.path.join(save_path, round_id + '_'+DATASET+ '_'+"test_df.pkl"))
     # ----------------
     train_df.printSchema()
     assert train_df.schema == val_df.schema == test_df.schema
     #spark.stop()
     #exit()
+
 
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
@@ -276,7 +261,7 @@ def main():
     #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #spark.stop()
     #exit()
-    '''
+
 
 
 
