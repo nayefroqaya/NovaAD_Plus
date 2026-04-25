@@ -128,7 +128,7 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesEngineering:
 
     @staticmethod
-    def features_aggregation_transformation(final_train_with_test_with_val, dataset):
+    def features_aggregation_transformation(bert_component,final_train_with_test_with_val, dataset):
 
         print("---- Starting feature aggregation and transformation ----")
         final_train_with_test_with_val.printSchema()
@@ -302,7 +302,7 @@ class FeaturesEngineering:
         X_sequences_df = summ_train_test_val_combine_scaled.select("features_vec_final")
         y_sequences_df = summ_train_test_val_combine_scaled.select("Label")
 
-        return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
+        return bert_component, summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
 
         '''
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
@@ -432,19 +432,19 @@ class FeaturesEngineering:
         train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
         train_normal_df = train_seq_df.filter(col("Label") == 0)
         train_unlabeled_df = train_seq_df.filter(col("Temp_label") == 999)
-        test_df = train_seq_df.filter(col("Temp_label") == 888)
 
         feature_col = "features_vec_final"
         id_col = "Node_block_id"
 
         # ======================================
-        # 3) StandardScaler
+        # 3) StandardScaler : we do not need scaling becuase we scaled after aggregation
         # ======================================
-        scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
-        scaler_model = scaler.fit(train_normal_df)
-        train_normal_scaled = scaler_model.transform(train_normal_df)
-        train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
-
+        #scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
+        #scaler_model = scaler.fit(train_normal_df)
+        #train_normal_scaled = scaler_model.transform(train_normal_df)
+        #train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
+        train_normal_scaled =train_normal_df
+        train_unlabeled_scaled =train_unlabeled_df
         # ======================================
         # 4) PCA for dimensionality reduction
         # ======================================
@@ -453,7 +453,8 @@ class FeaturesEngineering:
         best_k = None
 
         for k in candidate_ks:
-            pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
+            #pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
+            pca_tmp = SparkPCA(k=k, inputCol="features_vec_final", outputCol=f"pca_features_k{k}")
             pca_tmp_model = pca_tmp.fit(train_normal_scaled)
             explained_variance = float(sum(pca_tmp_model.explainedVariance))
             if explained_variance >= target_variance:
@@ -462,7 +463,8 @@ class FeaturesEngineering:
         if best_k is None:
             best_k = candidate_ks[-1]
 
-        pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
+        #pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
+        pca = SparkPCA(k=best_k, inputCol="features_vec_final", outputCol="pca_features")
         pca_model = pca.fit(train_normal_scaled)
 
         train_normal_pca = pca_model.transform(train_normal_scaled)
@@ -472,7 +474,9 @@ class FeaturesEngineering:
         # 5) PCA reconstruction error (optional hybrid score)
         # ======================================
         pc = pca_model.pc.toArray()
-        d = len(train_normal_scaled.select("features_scaled").head()[0])
+        #d = len(train_normal_scaled.select("features_scaled").head()[0])
+        d = len(train_normal_scaled.select("features_vec_final").head()[0])
+
         pc_b = spark.sparkContext.broadcast(pc)
         use_pc_dk_b = spark.sparkContext.broadcast(pc.shape[0] == d)
 
@@ -485,11 +489,14 @@ class FeaturesEngineering:
             return float(np.linalg.norm(x - x_hat))
 
         train_normal_pca = train_normal_pca.withColumn("anomaly_score_pca",
-                                                       reconstruction_error(col("features_scaled"),
-                                                                            col("pca_features")))
+                                                      # reconstruction_error(col("features_scaled"),
+                                                       reconstruction_error(col("features_vec_final"),
+                                                                                col("pca_features")))
+
         train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
-                                                             reconstruction_error(col("features_scaled"),
-                                                                                  col("pca_features")))
+                                                            # reconstruction_error(col("features_scaled"),
+                                                            reconstruction_error(col("features_vec_final"),
+                                                                                      col("pca_features")))
 
         # ======================================
         # 6) Fit GMM on normal PCA space

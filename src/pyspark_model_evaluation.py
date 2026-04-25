@@ -42,7 +42,7 @@ class ModelEvaluation:
 
     @staticmethod
 
-    def  evaluation_pyspark(model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
+    def  evaluation_pyspark(bert_component, model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                             case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time):
         # ======================================
         # 5) Classification report
@@ -90,21 +90,83 @@ class ModelEvaluation:
 
 
         # -------features importance
+        # ============================================================
+        # FINAL FEATURE IMPORTANCE
+        # Output:
+        # - importance of each original feature
+        # - one semantic feature score = average importance of 70 BERT components
+        # ============================================================
+
+        import numpy as np
+        import pandas as pd
+
+        # --------------------------
+        # 1) Select final model
+        # --------------------------
         if final_case == "case1":
             final_model = model_case1
         else:
             final_model = model_case2
 
+        # --------------------------
+        # 2) Feature order inside features_vec_final
+        # IMPORTANT:
+        # This must match the exact order used when creating features_vec_final
+        # --------------------------
+        feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
+            "month", "day", "hour", "minute", "second"]
+
+        bert_component = 70
+
+        # Vector layout:
+        # index 0-9   = original features
+        # index 10-79 = semantic/BERT reduced components
+        n_base = len(feature_columns)
+        semantic_start = n_base
+        semantic_end = n_base + bert_component
+
+        # --------------------------
+        # 3) Get XGBoost importance
+        # --------------------------
         booster = final_model.get_booster()
+
+        # You can also use: "weight", "cover", "total_gain"
         importance = booster.get_score(importance_type="gain")
 
-        feature_importance = []
+        # Convert XGBoost names f0, f1, ... to numeric indexes
+        idx_gain = {}
 
         for k, v in importance.items():
             idx = int(k.replace("f", ""))
-            feature_importance.append((idx, f"features_vec_final[{idx}]", float(v)))
+            idx_gain[idx] = float(v)
 
-        feature_importance = sorted(feature_importance, key=lambda x: x[2], reverse=True)
+        # --------------------------
+        # 4) Original feature importance
+        # --------------------------
+        rows = []
+
+        for i, feature_name in enumerate(feature_columns):
+            rows.append({"feature": feature_name, "importance_gain": idx_gain.get(i, 0.0)})
+
+        # --------------------------
+        # 5) Semantic feature importance
+        # Average importance over 70 BERT components
+        # --------------------------
+        semantic_gains = [idx_gain.get(i, 0.0) for i in range(semantic_start, semantic_end)]
+
+        semantic_avg_gain = float(np.mean(semantic_gains))
+
+        rows.append({"feature": "semantic_feature_avg_70_components", "importance_gain": semantic_avg_gain})
+
+        # --------------------------
+        # 6) Final importance table
+        # --------------------------
+        feature_importance_df = pd.DataFrame(rows)
+
+        feature_importance_df = feature_importance_df.sort_values(by="importance_gain", ascending=False).reset_index(
+            drop=True)
+
+
 
 
 
@@ -127,7 +189,8 @@ class ModelEvaluation:
         print(f"\n[FINAL DECISION] Use {final_case}")
         print(f"\n================ FEATURE IMPORTANCE FOR {final_case.upper()} ================")
 
-        for idx, name, score in feature_importance:
-            print(f"{name}: {score:.6f}")
+        print(f"\n================ FINAL FEATURE IMPORTANCE FOR {final_case.upper()} ================")
+        print(feature_importance_df.to_string(index=False))
+
 
 

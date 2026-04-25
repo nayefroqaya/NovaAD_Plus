@@ -281,10 +281,6 @@ def main():
 
 
 
-
-
-    
-
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
@@ -293,26 +289,22 @@ def main():
     final_train_with_test_with_val.printSchema()
     final_train_with_test_with_val.select("Label").distinct().show()
 
-    spark.stop()
-    exit()
+    #spark.stop()
+    #exit()
 
     # ---------------- Features Engineering ----------------
-    #print(f"{GRAY}Aggregating and transforming features...{RESET}")
-    #shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    #os.makedirs(SPILL_DIR, exist_ok=True)
+
 
     start_agree_trans = time.time()
 
-    sequences_df, x_sequences_df, y_sequences_df = features_engineering_obj.features_aggregation_transformation(
-        final_train_with_test_with_val, DATASET)
-    print(
-        sequences_df.columns)  # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+    bert_component =70  # based on  all our experiments, the all datasets take 70 after we tunned the reduce dim.
+    bert_component, sequences_df, x_sequences_df, y_sequences_df = features_engineering_obj.features_aggregation_transformation(
+        bert_component, final_train_with_test_with_val, DATASET)
 
-    # exit()
 
-    aggregation_features_spill_gb = get_spill_size_gb(SPILL_DIR)
-    print(f"Shuffle Spill during aggregation: {aggregation_features_spill_gb:.2f} GB")
-    # exit()
+    print(sequences_df.columns)
+    # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+
 
     end_agree_trans = time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
@@ -324,8 +316,6 @@ def main():
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
 
-    shutil.rmtree(SPILL_DIR, ignore_errors=True)
-    os.makedirs(SPILL_DIR, exist_ok=True)
 
     # start_Novelty = time.time()
 
@@ -339,7 +329,7 @@ def main():
 
     # ---------------- Evaluation----------------
 
-    model_evaluation_obj.evaluation_pyspark(model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
+    model_evaluation_obj.evaluation_pyspark(bert_component, model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                                             case1_Classification_pred_time, case2_Classification_time,
                                             case2_Classification_pred_time)
 
