@@ -155,15 +155,15 @@ class AnomalyDetector:
         # --------------------------
         train_df = train_df.withColumn("split_key", pmod(ps_abs(ps_hash(col("Node_block_id"))), lit(100)))
 
-        train_base_df = train_df.filter(col("split_key") < 90).drop("split_key")
-        val_df = train_df.filter(col("split_key") >= 90).drop("split_key")
+        train_base_df = train_df.filter(col("split_key") < 80).drop("split_key")
+        val_df = train_df.filter(col("split_key") >= 80).drop("split_key")
 
         # --------------------------
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
         PSEUDO_TRUST = 0.6
        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        WEIGHT_CAP = 5.0 #8.0 #8.0 #4.0
+        WEIGHT_CAP = 8.0 #8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
