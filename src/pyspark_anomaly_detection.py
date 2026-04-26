@@ -161,7 +161,7 @@ class AnomalyDetector:
         # --------------------------
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
-        PSEUDO_TRUST =0.6 # 0.4 #0.6
+        PSEUDO_TRUST =0.4 # 0.4 #0.6
        #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
         WEIGHT_CAP = 8.0 #8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
@@ -271,7 +271,7 @@ class AnomalyDetector:
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.95 #0.80  #0.60 #0.60 #0.80
+        TARGET_RECALL = 0.80 #0.80  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
@@ -306,7 +306,7 @@ class AnomalyDetector:
         offset_grid = np.arange(0.06, 0.21, 0.02)  # stable, not too wide
         best_offset, best_f1_gate = 0.12, -1.0
 
-
+        '''
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
 
@@ -319,10 +319,10 @@ class AnomalyDetector:
                 best_f1_gate, best_offset = f1g, float(off)
 
         print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
-
-
         '''
-        # new --------
+
+
+        # new good --------
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
 
@@ -338,7 +338,7 @@ class AnomalyDetector:
             best_offset = 0.0
             best_f1_gate = f1_score(y_val, (p_val >= best_threshold).astype(int), pos_label=1, zero_division=0)
         #-------
-        '''
+
 
 
         # --------------------------
