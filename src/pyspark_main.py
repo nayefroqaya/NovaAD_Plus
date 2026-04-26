@@ -145,7 +145,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_12G_ratio'
+    DATASET = 'TH_9G_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -309,7 +309,7 @@ def main():
 
     # ---------------- Anomaly Detection ----------------
 
-    model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time = anomaly_detection_obj.anomaly_detector(
+    best_target_recall, model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time = anomaly_detection_obj.anomaly_detector(
         df_full_train_labeled_features, sequences_df)
 
     # ---------------- Evaluation----------------
@@ -317,6 +317,7 @@ def main():
     model_evaluation_obj.evaluation_pyspark(bert_component, model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                                             case1_Classification_pred_time, case2_Classification_time,
                                             case2_Classification_pred_time)
+    print('best target recall ' + str(best_target_recall))
 
     spark.stop()
 

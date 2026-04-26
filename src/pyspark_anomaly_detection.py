@@ -533,7 +533,7 @@ class AnomalyDetector:
 
         case1_classification_time =(end_t0 - t0)
         case1_Classification_pred_time =(end_t1 - t1)
-        return model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time
+        return best_target_recall, model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time
 
         #spark.stop()
         #exit()
