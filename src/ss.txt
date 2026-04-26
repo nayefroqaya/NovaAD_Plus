@@ -1,0 +1,18 @@
+[nltk_data] Downloading package punkt_tab to
+[nltk_data]     /app/home/roqaya/nltk_data...
+[nltk_data]   Package punkt_tab is already up-to-date!
+[nltk_data] Downloading package stopwords to
+[nltk_data]     /app/home/roqaya/nltk_data...
+[nltk_data]   Package stopwords is already up-to-date!
+Detected CPU cores: 64
+Detected RAM: 251 GB
+Spark initialized
+Traceback (most recent call last):
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 327, in <module>
+    main()
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 272, in main
+    final_train_with_test_with_val = spark.read.parquet(output_path)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/sql/readwriter.py", line 642, in parquet
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1362, in __call__
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 288, in deco
+pyspark.errors.exceptions.captured.AnalysisException: [PATH_NOT_FOUND] Path does not exist: file:/storage/home/roqaya/NovaAD_Plus/datasets/TH_15G_ratio/1_TH_15G_ratio_Topic_sentiment_diff_semantic_df.parquet. SQLSTATE: 42K03
