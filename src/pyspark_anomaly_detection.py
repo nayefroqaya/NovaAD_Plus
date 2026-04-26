@@ -270,8 +270,43 @@ class AnomalyDetector:
         pca_v = val_pdf["pca_flag"].values.astype(int) if "pca_flag" in val_pdf.columns else np.zeros_like(y_val)
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
+
+
+        #-------- try tune Target recall :
+        target_recall_grid = [0.60, 0.80, 0.85, 0.90]
+
+        best_global_f1 = -1
+        best_target_recall = None
+        best_threshold = 0.5
+        best_prec = -1
+
+        for target_recall in target_recall_grid:
+            local_best_threshold = 0.5
+            local_best_prec = -1
+
+            for t in np.arange(0.01, 0.999, 0.005):
+                preds = (p_val >= t).astype(int)
+
+                r = recall_score(y_val, preds, pos_label=1, zero_division=0)
+                p = precision_score(y_val, preds, pos_label=1, zero_division=0)
+                f1 = f1_score(y_val, preds, pos_label=1, zero_division=0)
+
+                if r >= target_recall:
+                    if f1 > best_global_f1:
+                        best_global_f1 = f1
+                        best_target_recall = target_recall
+                        best_threshold = float(t)
+                        best_prec = p
+
+        print(f"[INFO] Auto TARGET_RECALL={best_target_recall}, "
+              f"threshold={best_threshold:.3f}, "
+              f"VAL precision={best_prec:.4f}, "
+              f"VAL F1={best_global_f1:.4f}")
+
+
+        #-------------
        #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = 0.80 #0.80  #0.60 #0.60 #0.80
+        TARGET_RECALL = best_target_recall # 0.60 #0.80  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
