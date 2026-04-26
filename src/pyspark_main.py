@@ -176,7 +176,7 @@ def main():
     #exit()
 
 
-    '''
+
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
@@ -257,11 +257,9 @@ def main():
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
     print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
 
-    #extract_features_spill_gb = get_spill_size_gb(SPILL_DIR)
-    #print(f"Shuffle Spill during features extracting : {extract_features_spill_gb:.2f} GB")
     #spark.stop()
     #exit()
-    '''
+
 
 
 
