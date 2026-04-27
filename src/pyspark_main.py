@@ -1,9 +1,9 @@
 import os
 import os
-import nltk
+#import nltk
 
-os.system("gcloud storage cp --recursive gs://sparkadls/Nova_Plus/nltk_data ./nltk_data")
-nltk.data.path.append("./nltk_data")
+#os.system("gcloud storage cp --recursive gs://sparkadls/Nova_Plus/nltk_data ./nltk_data")
+#nltk.data.path.append("./nltk_data")
 import time
 import warnings
 
@@ -20,12 +20,12 @@ from pyspark.sql.functions import col
 from pyspark.sql.functions import col
 from pyspark.storagelevel import StorageLevel
 
-from load_datalog import LogdataRead
+#from load_datalog import LogdataRead
 from pyspark_anomaly_detection import AnomalyDetector
 from pyspark_features_engineering import FeaturesEngineering
-from pyspark_features_extracting import FeaturesExtractor
+#from pyspark_features_extracting import FeaturesExtractor
 from pyspark_model_evaluation import ModelEvaluation
-from pyspark_utility import Utilities
+#from pyspark_utility import Utilities
 
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
@@ -166,12 +166,12 @@ def main():
 
 
     # ---------------- Initialize classes ----------------
-    logdata_read_obj = LogdataRead()
-    features_extracting_obj = FeaturesExtractor()
+    #xxlogdata_read_obj = LogdataRead()
+    #xxfeatures_extracting_obj = FeaturesExtractor()
     features_engineering_obj = FeaturesEngineering()
     anomaly_detection_obj = AnomalyDetector()
     model_evaluation_obj = ModelEvaluation()
-    utilities_obj = Utilities()
+    #xxutilities_obj = Utilities()
 
 
     # ---------------- Data as CSV ----------------
