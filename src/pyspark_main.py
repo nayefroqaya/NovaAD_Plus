@@ -1,4 +1,9 @@
 import os
+import os
+import nltk
+
+os.system("gcloud storage cp --recursive gs://sparkadls/Nova_Plus/nltk_data ./nltk_data")
+nltk.data.path.append("./nltk_data")
 import time
 import warnings
 
