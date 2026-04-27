@@ -76,7 +76,7 @@ os.makedirs(eventlog_dir, exist_ok=True)
 # ============================================================
 # Start Spark
 # ============================================================
-
+'''
 spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
          .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
@@ -111,7 +111,10 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
-
+'''
+spark = SparkSession.builder \
+    .appName("NovaPlus") \
+    .getOrCreate()
 
 
 # ===================== ======================
