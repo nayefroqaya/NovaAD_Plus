@@ -276,7 +276,7 @@ def main():
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     #output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    output_path = "gs://sparkadls/datasets/TH_1G/1_TH_1G_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
