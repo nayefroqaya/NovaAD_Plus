@@ -145,9 +145,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'BGL'
+    DATASET = 'TH_1G'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -175,7 +175,7 @@ def main():
     #spark.stop()
     #exit()
 
-
+    '''
 
     # ---------------- Load CSV into Spark ----------------
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
@@ -259,6 +259,7 @@ def main():
 
     #spark.stop()
     #exit()
+    '''
 
 
 
