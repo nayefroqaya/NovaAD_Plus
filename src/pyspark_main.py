@@ -259,7 +259,7 @@ def main():
     #exit()
     '''
 
-    '''
+
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
@@ -309,7 +309,7 @@ def main():
     
     type(df_full_train_labeled_features)
     type(sequences_df)
-    '''
+
     # local server
     df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
     sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
@@ -319,8 +319,8 @@ def main():
     #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
 
     # save df to path:
-    #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
-    #sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
 
     #Read from Path :
