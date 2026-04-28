@@ -319,8 +319,8 @@ def main():
     #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
 
     # save df to path:
-    #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
-    #sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
 
     #Read from Path :
