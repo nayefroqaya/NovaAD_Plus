@@ -195,6 +195,12 @@ class ModelEvaluation:
         print(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes")
         print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
         print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
+        with open("output.txt", "w") as f:
+            f.write(feature_importance_df.to_string(index=False) + "\n")
+            f.write(f"[INFO] Case1 :  GBT fit time: {case1_classification_time / 60:.6f} minutes\n")
+            f.write(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes\n")
+            f.write(f"Case2 : final Model classification completed in {case2_Classification_time:.6f} minutes\n")
+            f.write(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.6f} minutes\n")
 
 
 
