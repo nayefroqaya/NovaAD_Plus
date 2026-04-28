@@ -245,8 +245,8 @@ class AnomalyDetector:
 
         gbt_case1 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
                                  max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-                                 scale_pos_weight=1.5
-                                       #num_workers=2
+                                 scale_pos_weight=1.5 ,
+                                   num_workers=2
 
                                  , eval_metric="logloss", seed=42)
 
@@ -474,7 +474,7 @@ class AnomalyDetector:
 
         gbt_case2 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", max_depth=4, eta=0.05,
                                  n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
-                                    #   num_workers=2,
+                                 num_workers=2,
                                  eval_metric="logloss", seed=42)
 
 
