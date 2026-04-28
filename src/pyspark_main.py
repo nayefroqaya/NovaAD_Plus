@@ -316,8 +316,8 @@ def main():
     #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_sequences_df.parquet"
 
     # save df to path:
     #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
