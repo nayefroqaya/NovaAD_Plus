@@ -259,10 +259,7 @@ def main():
     #exit()
     '''
 
-
-
-
-
+    '''
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
@@ -309,20 +306,22 @@ def main():
 
 
     #-----for redsuce computation in cloud :
+    
     type(df_full_train_labeled_features)
     type(sequences_df)
-
+    '''
     df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.pkl'
     sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.pkl'
 
     # save df to path:
-    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
-    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+    #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    #sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
 
     #Read from Path :
     df_full_train_labeled_features = spark.read.parquet(df_full_train_labeled_features_path)
     sequences_df = spark.read.parquet(sequences_df_path)
+
     #----------------------
 
 
@@ -334,7 +333,7 @@ def main():
         df_full_train_labeled_features, sequences_df)
 
     # ---------------- Evaluation----------------
-
+    bert_component = 70
     model_evaluation_obj.evaluation_pyspark(bert_component, model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
                                             case1_Classification_pred_time, case2_Classification_time,
                                             case2_Classification_pred_time)
