@@ -5,6 +5,7 @@ from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import classification_report
 from sklearn.metrics import classification_report
 from pyspark.sql.functions import col
+import os
 
 import warnings
 import colorama
@@ -195,12 +196,20 @@ class ModelEvaluation:
         print(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes")
         print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
         print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
-        with open("output.txt", "w") as f:
+
+        import subprocess
+
+        local_path = "output.txt"
+        gcs_path = "gs://sparkadls/Nova_Plus/src/output.txt"
+
+        with open(local_path, "w") as f:
             f.write(feature_importance_df.to_string(index=False) + "\n")
             f.write(f"[INFO] Case1 :  GBT fit time: {case1_classification_time / 60:.6f} minutes\n")
             f.write(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes\n")
             f.write(f"Case2 : final Model classification completed in {case2_Classification_time:.6f} minutes\n")
             f.write(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.6f} minutes\n")
+
+        os.system(f"gsutil cp {local_path} {gcs_path}")
 
 
 
