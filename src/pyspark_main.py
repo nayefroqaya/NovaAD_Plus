@@ -310,8 +310,13 @@ def main():
     type(df_full_train_labeled_features)
     type(sequences_df)
     '''
-    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.pkl'
-    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.pkl'
+    # local server
+    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
+    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
+
+    # Cloud server
+    #df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_df_full_train_labeled_features.parquet"
+    #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
 
     # save df to path:
     #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
