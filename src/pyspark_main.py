@@ -1,9 +1,5 @@
 import os
 import os
-#import nltk
-
-#os.system("gcloud storage cp --recursive gs://sparkadls/Nova_Plus/nltk_data ./nltk_data")
-#nltk.data.path.append("./nltk_data")
 import time
 import warnings
 
@@ -76,7 +72,7 @@ os.makedirs(eventlog_dir, exist_ok=True)
 # ============================================================
 # Start Spark
 # ============================================================
-'''
+
 spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
          .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
@@ -111,11 +107,13 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
+
 '''
+#--- google cloud experiments 
 spark = SparkSession.builder \
     .appName("NovaPlus") \
     .getOrCreate()
-
+'''
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
@@ -131,14 +129,6 @@ import shutil
 
 SPILL_DIR = "/storage/home/roqaya/NovaAD_Plus/spark-spill"
 os.makedirs(SPILL_DIR, exist_ok=True)
-
-
-def get_spill_size_gb(spill_dir):
-    total_bytes = 0
-    for root, dirs, files in os.walk(spill_dir):
-        for f in files:
-            total_bytes += os.path.getsize(os.path.join(root, f))
-    return total_bytes / (1024 ** 3)
 
 
 def main():
@@ -315,6 +305,28 @@ def main():
 
     df_full_train_labeled_features, sequences_df = features_engineering_obj.novelty_detection_label_establishment(
         DATASET, sequences_df, spark)
+
+
+
+    #-----for redsuce computation in cloud :
+    type(df_full_train_labeled_features)
+    type(sequences_df)
+
+    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.pkl'
+    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.pkl'
+
+    # save df to path:
+    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+
+
+    #Read from Path :
+    df_full_train_labeled_features = spark.read.parquet(df_full_train_labeled_features_path)
+    sequences_df = spark.read.parquet(sequences_df_path)
+    #----------------------
+
+
+
 
     # ---------------- Anomaly Detection ----------------
 
