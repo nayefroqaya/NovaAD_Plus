@@ -21,7 +21,7 @@ from pyspark.ml.classification import LinearSVC
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.functions import vector_to_array
-# ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
+# âœ… Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
 from pyspark.ml.classification import (
     LogisticRegression as SparkLogisticRegression,
     RandomForestClassifier as SparkRandomForestClassifier,
@@ -276,7 +276,7 @@ class AnomalyDetector:
 
         #-------- try tune Target recall :
         #target_recall_grid = [0.60, 0.80, 0.85, 0.90]
-        target_recall_grid = [ 0.60, 0.80, 0.90]
+        target_recall_grid = [ 0.60, 0.80, 0.90, 0.95]
 
         best_global_f1 = -1
         best_target_recall = None
@@ -541,7 +541,6 @@ class AnomalyDetector:
 
         #spark.stop()
         #exit()
-
 
 
 

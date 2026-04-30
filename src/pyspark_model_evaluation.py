@@ -29,7 +29,7 @@ from pyspark.ml.classification import LinearSVC
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml.functions import vector_to_array
-# ✅ Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
+# âœ… Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
 from pyspark.ml.classification import (
     LogisticRegression as SparkLogisticRegression,
     RandomForestClassifier as SparkRandomForestClassifier,
@@ -115,7 +115,7 @@ class ModelEvaluation:
         # This must match the exact order used when creating features_vec_final
         # --------------------------
         feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
-                         "month", "day", "hour", "minute", "second"]
+            "month", "day", "hour", "minute", "second"]
 
         bert_component = 70
 
@@ -233,6 +233,5 @@ class ModelEvaluation:
 
         # Upload to GCS
         os.system(f"gsutil cp {local_path} {gcs_path}")
-
 
 
