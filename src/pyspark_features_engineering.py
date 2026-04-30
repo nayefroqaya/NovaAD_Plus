@@ -131,7 +131,8 @@ class FeaturesEngineering:
 
         print("---- Starting feature aggregation and transformation ----")
         final_train_with_test_with_val.printSchema()
-        #        exit()
+
+        exit()
         # 2️⃣ Drop rows that are fully null
         final_train_with_test_with_val = final_train_with_test_with_val.na.drop(how='all')
         # Sentiment features : -------------------------------------------------
