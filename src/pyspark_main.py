@@ -50,8 +50,8 @@ print("Detected RAM:", total_ram_gb, "GB")
 
 num_workers = 8  # defualt =8
 cores_per_worker =4   # defaul =4  # cores_per_worker = spark_cores // num_workers
-executor_memory_gb =20 # executor_memory_gb = spark_ram_gb // num_workers
-driver_memory_gb = 20  # driver_memory_gb = executor_memory_gb
+executor_memory_gb =28 # executor_memory_gb = spark_ram_gb // num_workers
+driver_memory_gb = 28  # driver_memory_gb = executor_memory_gb
 worker_memory_mib = executor_memory_gb * 1024  # worker_memory_mib = executor_memory_gb * 1024
 
 total_executor_cores = num_workers * cores_per_worker
@@ -148,7 +148,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_1G_ratio'
+    DATASET = 'TH_1G'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -321,8 +321,8 @@ def main():
     #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G_ratio/1_TH_1G_ratio_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G_ratio/1_TH_1G_ratio_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G_ratio/1_TH_1G_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G_ratio/1_TH_1G_sequences_df.parquet"
 
     # save df to path:
     #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
