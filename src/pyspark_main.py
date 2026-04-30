@@ -142,7 +142,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'SP_150MB_ratio'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -268,11 +268,11 @@ def main():
     final_train_with_test_with_val.count()
     final_train_with_test_with_val.printSchema()
     final_train_with_test_with_val.select("Label").distinct().show()
-    final_train_with_test_with_val.select("year").distinct().show()
+    #final_train_with_test_with_val.select("year").distinct().show()
 
 
-    spark.stop()
-    exit()
+    #spark.stop()
+    #exit()
 
     # ---------------- Features Engineering ----------------
 
