@@ -71,7 +71,7 @@ os.makedirs(eventlog_dir, exist_ok=True)
 # ============================================================
 # Start Spark
 # ============================================================
-
+'''
 spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
          .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
@@ -106,13 +106,13 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
-
 '''
+
 #--- google cloud experiments 
 spark = SparkSession.builder \
     .appName("NovaPlus") \
     .getOrCreate()
-'''
+
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
@@ -258,11 +258,11 @@ def main():
     #exit()
     '''
 
-
+    '''
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
-    output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    #output_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    #output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
@@ -308,19 +308,20 @@ def main():
     
     type(df_full_train_labeled_features)
     type(sequences_df)
+    '''
 
 
     # local server path
-    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
-    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
+    #df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
+    #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    #df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_df_full_train_labeled_features.parquet"
-    #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_sequences_df.parquet"
 
     # save df to path:
-    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
-    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+    #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    #sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
 
     #Read from Path :
