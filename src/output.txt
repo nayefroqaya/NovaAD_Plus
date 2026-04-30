@@ -1,41 +1,41 @@
 ===== CASE 1 CLASSIFICATION REPORT =====
               precision    recall  f1-score   support
 
-           0     1.0000    0.9960    0.9980    168796
-           1     0.8458    0.9992    0.9161      3723
+           0     0.9998    1.0000    0.9999     12435
+           1     1.0000    0.9994    0.9997      3266
 
-    accuracy                         0.9961    172519
-   macro avg     0.9229    0.9976    0.9571    172519
-weighted avg     0.9967    0.9961    0.9962    172519
+    accuracy                         0.9999     15701
+   macro avg     0.9999    0.9997    0.9998     15701
+weighted avg     0.9999    0.9999    0.9999     15701
 
-[INFO] Case1 : GBT fit time: 0.473966 minutes
-[INFO] Case1 : GBT predict time: 0.000870 minutes
+[INFO] Case1 : GBT fit time: 0.185227 minutes
+[INFO] Case1 : GBT predict time: 0.000894 minutes
 
 ===== CASE 2 CLASSIFICATION REPORT =====
               precision    recall  f1-score   support
 
-           0     0.9999    0.9994    0.9997    168796
-           1     0.9745    0.9960    0.9851      3723
+           0     0.9999    0.6726    0.8042     12435
+           1     0.4451    0.9997    0.6159      3266
 
-    accuracy                         0.9994    172519
-   macro avg     0.9872    0.9977    0.9924    172519
-weighted avg     0.9994    0.9994    0.9994    172519
+    accuracy                         0.7407     15701
+   macro avg     0.7225    0.8362    0.7101     15701
+weighted avg     0.8845    0.7407    0.7651     15701
 
-Case2 : final Model classification completed in 0.317950 minutes
-Case2 : final Model predicts completed in 0.000927 minutes
+Case2 : final Model classification completed in 0.138347 minutes
+Case2 : final Model predicts completed in 0.000867 minutes
 
-[FINAL DECISION] Use case2
+[FINAL DECISION] Use case1
 
 ===== FEATURE IMPORTANCE =====
                            feature  importance_gain
-semantic_feature_avg_70_components      1032.771872
-                              hour       384.013428
-                           entropy       306.871307
-                               day       174.120087
-                         num_words       136.628159
-                   Character_Count       131.326080
-                    Dominant_Topic       119.163200
-                            minute        25.955580
-                            second        19.916073
+                    Dominant_Topic       232.700439
+                               day       125.604538
+semantic_feature_avg_70_components        56.863541
+                            minute        50.262627
+                              hour        35.992504
+                            second        27.020863
+                           entropy        15.512488
+                         num_words        14.303747
+                   Character_Count         9.670484
            sentiment_label_indexed         0.000000
                              month         0.000000
