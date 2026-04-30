@@ -131,8 +131,7 @@ class FeaturesEngineering:
 
         print("---- Starting feature aggregation and transformation ----")
         final_train_with_test_with_val.printSchema()
-
-        exit()
+        #exit()
         # 2️⃣ Drop rows that are fully null
         final_train_with_test_with_val = final_train_with_test_with_val.na.drop(how='all')
         # Sentiment features : -------------------------------------------------
@@ -161,7 +160,7 @@ class FeaturesEngineering:
             col("sentiment_label") == "positive", 1).otherwise(0))
 
         feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
-                           "month", "day", "hour", "minute", "second"]
+                           "year", "month", "day", "hour", "minute", "second"]
 
         df_cached = final_train_with_test_with_val
         print(' preparing the numeric array ----')
