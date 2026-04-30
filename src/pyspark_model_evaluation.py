@@ -115,7 +115,7 @@ class ModelEvaluation:
         # This must match the exact order used when creating features_vec_final
         # --------------------------
         feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
-                           "year", "month", "day", "hour", "minute", "second"]
+                         "month", "day", "hour", "minute", "second"]
 
         bert_component = 70
 
