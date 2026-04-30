@@ -276,7 +276,7 @@ class AnomalyDetector:
 
         #-------- try tune Target recall :
         #target_recall_grid = [0.60, 0.80, 0.85, 0.90]
-        target_recall_grid = [ 0.60, 0.80, 0.90, 0.95]
+        target_recall_grid = [ 0.60, 0.80, 0.90]
 
         best_global_f1 = -1
         best_target_recall = None
