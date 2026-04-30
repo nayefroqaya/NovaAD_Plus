@@ -148,7 +148,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_9G_ratio'
+    DATASET = 'TH_3G_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -321,8 +321,8 @@ def main():
     #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_sequences_df.parquet"
 
     # save df to path:
     #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
