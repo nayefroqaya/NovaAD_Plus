@@ -42,6 +42,11 @@ print("Detected RAM:", total_ram_gb, "GB")
 # Spark cluster sizing
 # ============================================================
 
+#num_workers = 8
+#cores_per_worker = 4
+#executor_memory_gb = 28   # 8 × 28 = 224 GB
+#driver_memory_gb = 28
+#worker_memory_mib = executor_memory_gb * 1024
 
 num_workers = 8  # defualt =8
 cores_per_worker =4   # defaul =4  # cores_per_worker = spark_cores // num_workers
