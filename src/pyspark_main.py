@@ -42,12 +42,6 @@ print("Detected RAM:", total_ram_gb, "GB")
 # Spark cluster sizing
 # ============================================================
 
-#num_workers = 8
-#cores_per_worker = 4
-#executor_memory_gb = 28   # 8 × 28 = 224 GB
-#driver_memory_gb = 28
-#worker_memory_mib = executor_memory_gb * 1024
-
 num_workers = 8  # defualt =8
 cores_per_worker =4   # defaul =4  # cores_per_worker = spark_cores // num_workers
 executor_memory_gb =28 # executor_memory_gb = spark_ram_gb // num_workers
@@ -77,7 +71,7 @@ os.makedirs(eventlog_dir, exist_ok=True)
 # ============================================================
 # Start Spark
 # ============================================================
-'''
+
 spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
          .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
@@ -112,13 +106,13 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
-'''
 
+'''
 #--- google cloud experiments 
 spark = SparkSession.builder \
     .appName("NovaPlus") \
     .getOrCreate()
-
+'''
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
@@ -148,7 +142,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_1G'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -264,7 +258,7 @@ def main():
     #exit()
     '''
 
-    '''
+
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
@@ -314,19 +308,19 @@ def main():
     
     type(df_full_train_labeled_features)
     type(sequences_df)
-    '''
+
 
     # local server path
-    #df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
-    #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
+    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
+    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
+    #df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_df_full_train_labeled_features.parquet"
+    #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
 
     # save df to path:
-    #df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
-    #sequences_df.write.mode("overwrite").parquet(sequences_df_path)
+    df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
+    sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
 
     #Read from Path :
