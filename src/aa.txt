@@ -1,0 +1,136 @@
+Detected CPU cores: 64
+Detected RAM: 251 GB
+Spark initialized
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+
++-------+
+|  Label|
++-------+
+|Anomaly|
+| Normal|
++-------+
+
+---- Starting feature aggregation and transformation ----
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+
+Columns: ['processed_EventTemplate', 'Node_block_id', 'Timestamp', 'Label', 'Temp_label', 'sentiment_label', 'Dominant_Topic', 'year', 'month', 'day', 'hour', 'minute', 'second', 'Character_Count', 'num_words', 'entropy', 'reduced_embedding']
+root
+ |-- sentiment_label: string (nullable = true)
+
+ preparing the numeric array ----
+preparing  full vector by concating 
+root
+ |-- processed_EventTemplate: string (nullable = true)
+ |-- Node_block_id: string (nullable = true)
+ |-- Timestamp: timestamp (nullable = true)
+ |-- Label: string (nullable = true)
+ |-- Temp_label: integer (nullable = true)
+ |-- sentiment_label: string (nullable = true)
+ |-- Dominant_Topic: double (nullable = true)
+ |-- year: integer (nullable = true)
+ |-- month: integer (nullable = true)
+ |-- day: integer (nullable = true)
+ |-- hour: integer (nullable = true)
+ |-- minute: integer (nullable = true)
+ |-- second: integer (nullable = true)
+ |-- Character_Count: integer (nullable = true)
+ |-- num_words: integer (nullable = true)
+ |-- entropy: double (nullable = true)
+ |-- reduced_embedding: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- sentiment_label_indexed: integer (nullable = false)
+ |-- numeric_array: array (nullable = false)
+ |    |-- element: double (containsNull = true)
+ |-- features_array: array (nullable = true)
+ |    |-- element: double (containsNull = true)
+ |-- features: vector (nullable = true)
+
+xxxx-------------------
++----------+--------+
+|Temp_label|   count|
++----------+--------+
+|         0|19405955|
+|       888|21685096|
+|       777| 7212160|
+|       999|24216930|
++----------+--------+
+
++-------+--------+
+|  Label|   count|
++-------+--------+
+|Anomaly| 5584970|
+| Normal|66935171|
++-------+--------+
+
+root
+ |-- Node_block_id: string (nullable = true)
+ |-- features: array (nullable = true)
+ |    |-- element: float (containsNull = true)
+ |-- Label: string (nullable = false)
+ |-- Temp_label: integer (nullable = false)
+
+Feature aggregation completed successfully
+# 3️⃣ Apply RobustScaler-------
+✅ StandardScaler fit on TRAIN only, applied to train/test/val (no leakage)
+scaling done finally -------
+['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
+aggregation and transform completed in 1.75 minutes
+Preparing training and evaluation datasets...
+Performing novelty detection and establishing labels...
+[GMM] Selected k=12 by BIC
+
+===Novelty Detection  Classification_report on FULL TRAIN ===
+              precision    recall  f1-score   support
+
+           0      1.000     0.970     0.985    491094
+           1      0.727     0.999     0.841     39303
+
+    accuracy                          0.972    530397
+   macro avg      0.863     0.984     0.913    530397
+weighted avg      0.980     0.972     0.974    530397
+
+Traceback (most recent call last):
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 352, in <module>
+    main()
+  File "/storage/home/roqaya/NovaAD_Plus/src/pyspark_main.py", line 327, in main
+    df_full_train_labeled_features = spark.read.parquet(df_full_train_labeled_features_path)
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/sql/readwriter.py", line 642, in parquet
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/py4j-0.10.9.9-src.zip/py4j/java_gateway.py", line 1362, in __call__
+  File "/storage/home/roqaya/conda_envs/AD/lib/python3.10/site-packages/pyspark/python/lib/pyspark.zip/pyspark/errors/exceptions/captured.py", line 288, in deco
+pyspark.errors.exceptions.captured.AnalysisException: [PATH_NOT_FOUND] Path does not exist: file:/storage/home/roqaya/NovaAD_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet. SQLSTATE: 42K03

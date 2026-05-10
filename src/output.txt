@@ -1,0 +1,41 @@
+===== CASE 1 CLASSIFICATION REPORT =====
+              precision    recall  f1-score   support
+
+           0     0.9787    0.9878    0.9832      1722
+           1     0.9610    0.9333    0.9470       555
+
+    accuracy                         0.9745      2277
+   macro avg     0.9699    0.9606    0.9651      2277
+weighted avg     0.9744    0.9745    0.9744      2277
+
+[INFO] Case1 : GBT fit time: 0.135606 minutes
+[INFO] Case1 : GBT predict time: 0.000865 minutes
+
+===== CASE 2 CLASSIFICATION REPORT =====
+              precision    recall  f1-score   support
+
+           0     0.9987    0.8810    0.9361      1722
+           1     0.7296    0.9964    0.8423       555
+
+    accuracy                         0.9091      2277
+   macro avg     0.8641    0.9387    0.8892      2277
+weighted avg     0.9331    0.9091    0.9133      2277
+
+Case2 : final Model classification completed in 0.122197 minutes
+Case2 : final Model predicts completed in 0.000833 minutes
+
+[FINAL DECISION] Use case1
+
+===== FEATURE IMPORTANCE =====
+                           feature  importance_gain
+                    Dominant_Topic        17.662930
+                           entropy        13.124960
+semantic_feature_avg_70_components        13.026709
+                            minute         7.195755
+                               day         4.445214
+                         num_words         3.109964
+                   Character_Count         2.197774
+                            second         1.685997
+                              hour         1.645810
+           sentiment_label_indexed         0.000000
+                             month         0.000000
