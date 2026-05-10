@@ -10,53 +10,24 @@ import pandas as pd
 import time
 import torch
 import warnings
-# import sparknlp
-# from pyspark.ml import Pipeline
-# from pyspark.ml import Pipeline
-# from pyspark.ml import Pipeline
-# from pyspark.ml import Pipeline
-# from pyspark.ml import Pipeline
-# from pyspark.ml.feature import CountVectorizer, Tokenizer
+
 from pyspark.ml.clustering import LDA
 from pyspark.ml.clustering import LDA
 from pyspark.ml.clustering import LDA
 from pyspark.ml.feature import CountVectorizer
-# from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF
 from pyspark.ml.feature import CountVectorizer
 from pyspark.ml.feature import CountVectorizer, IDF, Tokenizer
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.functions import vector_to_array
-# from pyspark.sql.types import VectorUDT
 from pyspark.ml.linalg import Vectors, VectorUDT
 from pyspark.sql import DataFrame
-from pyspark.sql import DataFrame
-from pyspark.sql import DataFrame
-# from transformers import pipeline
 from pyspark.sql import DataFrame, functions as F
 from pyspark.sql import functions as F
-from pyspark.sql import functions as F
 from pyspark.sql.functions import array_max, col, lit
-from pyspark.sql.functions import col
-from pyspark.sql.functions import col, array_max
 from pyspark.sql.functions import col, array_max, coalesce
 from pyspark.sql.functions import col, count
-# from sparknlp.annotator import Tokenizer, Normalizer, LemmatizerModel, StopWordsCleaner
-# from sparknlp.annotator import Tokenizer, Normalizer, StopWordsCleaner, BertEmbeddings
-# from sparknlp.annotator import Tokenizer, SentimentDLModel
-# from sparknlp.annotator import Tokenizer, ViveknSentimentApproach
-# from sparknlp.annotator import Tokenizer, WordEmbeddingsModel, SentenceEmbeddings, SentimentDLModel
-# from sparknlp.annotator import Tokenizer, WordEmbeddingsModel, SentenceEmbeddings, SentimentDLModel
-# from sparknlp.annotator import UniversalSentenceEncoder, SentimentDLModel
-# from sparknlp.base import DocumentAssembler, Tokenizer
-# from sparknlp.annotator import WordEmbeddingsModel, SentenceEmbeddings, SentimentDLModel
-# from sparknlp.annotator import WordEmbeddingsModel, SentimentDLModel
-# from sparknlp.base import DocumentAssembler
-# from sparknlp.base import DocumentAssembler
-# from sparknlp.base import DocumentAssembler, Finisher
-# from sparknlp.base import DocumentAssembler, Finisher
-# from sparknlp.base import LightPipeline
 from pyspark.sql.functions import col, when, trim, lower, isnan, lit
 from pyspark.sql.functions import expr, when, size, lit
 from pyspark.sql.functions import lit, col, coalesce, udf, when, size
@@ -67,7 +38,6 @@ from pyspark.sql.functions import year, month, dayofmonth, hour, minute, second
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.types import ArrayType, FloatType
 from pyspark.sql.types import DoubleType
-# from pyspark.sql.functions import col, udf
 from pyspark.sql.types import StringType
 from pyspark.sql.types import StringType
 from pyspark.sql.types import (StructType, StructField, StringType)
@@ -81,8 +51,6 @@ GREEN = colorama.Fore.GREEN
 GRAY = colorama.Fore.LIGHTBLACK_EX
 RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
-
-
 
 # cache model once per worker process
 _ST_MODEL = None
@@ -363,7 +331,7 @@ class FeaturesExtractor:
         return best_k, df_features_with_sentiment_topic
 
     def features_extracted_different_features(self, Dataset_name, best_topic_number, mapped_df_topics_sentiment,
-                                               pre_final_global_features_pkl_path, spark):
+                                              pre_final_global_features_pkl_path, spark):
         """
         Extract additional features including temporal, statistical, and entropy features
 

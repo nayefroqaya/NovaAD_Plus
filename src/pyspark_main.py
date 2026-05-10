@@ -1,5 +1,4 @@
 import os
-import os
 import time
 import warnings
 
@@ -16,19 +15,19 @@ from pyspark.sql.functions import col
 from pyspark.sql.functions import col
 from pyspark.storagelevel import StorageLevel
 
-#from load_datalog import LogdataRead
+# from load_datalog import LogdataRead
 from pyspark_anomaly_detection import AnomalyDetector
 from pyspark_features_engineering import FeaturesEngineering
-#from pyspark_features_extracting import FeaturesExtractor
+# from pyspark_features_extracting import FeaturesExtractor
 from pyspark_model_evaluation import ModelEvaluation
-#from pyspark_utility import Utilities
+
+# from pyspark_utility import Utilities
 
 if not hasattr(np, "string_"):
     np.string_ = np.bytes_
 if not hasattr(np, "unicode_"):
     np.unicode_ = str
 
-    # ============================================================  # Detect system resources  # ============================================================
 logical_cores = psutil.cpu_count(logical=True)
 physical_cores = psutil.cpu_count(logical=False)
 
@@ -43,8 +42,8 @@ print("Detected RAM:", total_ram_gb, "GB")
 # ============================================================
 
 num_workers = 8  # defualt =8
-cores_per_worker =4   # defaul =4  # cores_per_worker = spark_cores // num_workers
-executor_memory_gb =28 # executor_memory_gb = spark_ram_gb // num_workers
+cores_per_worker = 4  # defaul =4  # cores_per_worker = spark_cores // num_workers
+executor_memory_gb = 28  # executor_memory_gb = spark_ram_gb // num_workers
 driver_memory_gb = 28  # driver_memory_gb = executor_memory_gb
 worker_memory_mib = executor_memory_gb * 1024  # worker_memory_mib = executor_memory_gb * 1024
 
@@ -71,7 +70,7 @@ os.makedirs(eventlog_dir, exist_ok=True)
 # ============================================================
 # Start Spark
 # ============================================================
-
+# Local server Experiments
 spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
          .master(f"local-cluster[{num_workers},{cores_per_worker},{worker_memory_mib}]")
@@ -101,12 +100,12 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
          # serialization
          .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
 
-
          .getOrCreate())
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
 
+# Cloud experiment
 '''
 #--- google cloud experiments 
 spark = SparkSession.builder \
@@ -124,7 +123,6 @@ GRAY = colorama.Fore.LIGHTBLACK_EX
 RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
 import os
-import shutil
 
 SPILL_DIR = "/storage/home/roqaya/NovaAD_Plus/spark-spill"
 os.makedirs(SPILL_DIR, exist_ok=True)
@@ -156,21 +154,19 @@ def main():
     SENTIMENT_DF_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_sentiment_df.pkl'
     PRE_FINAL_GLOBAL_FEATURES_PKL_PATH = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_All_pre_final_global_features.pkl'
 
-
     # ---------------- Initialize classes ----------------
-    #xxlogdata_read_obj = LogdataRead()
-    #xxfeatures_extracting_obj = FeaturesExtractor()
+    # logdata_read_obj = LogdataRead()
+    # features_extracting_obj = FeaturesExtractor()
     features_engineering_obj = FeaturesEngineering()
     anomaly_detection_obj = AnomalyDetector()
     model_evaluation_obj = ModelEvaluation()
-    #xxutilities_obj = Utilities()
-
+    # utilities_obj = Utilities()
 
     # ---------------- Data as CSV ----------------
-    #logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
-    #print(' Reading the file was done successfully ')
-    #spark.stop()
-    #exit()
+    # logdata_read_obj.read_original_data_log_from_log_to_csv(DATASET, ALL_DATASET_CSV_PATH)
+    # print(' Reading the file was done successfully ')
+    # spark.stop()
+    # exit()
 
     '''
 
@@ -178,7 +174,6 @@ def main():
     all_data_df = spark.read.csv(ALL_DATASET_CSV_PATH, header=True, inferSchema=True).cache()
     all_data_df.count()  # Materialize cache
     print('✅ Loaded CSV into Spark DataFrame')
-
 
     # ---------------- Dataset Splitting ----------------
     print(f"{GRAY}Splitting dataset into training, validation, and test sets...{RESET}")
@@ -192,7 +187,6 @@ def main():
     test_df.count()
     # exit()
    
-
     # ---------------- Process normal data ----------------
     if Mix_or_stable == '0' and DATASET == 'S_BGL':
         save_path = f"../datasets/{DATASET}/{round_id}_{DATASET}_Stable_Splitted_Datasets"
@@ -221,7 +215,6 @@ def main():
     val_df = val_df.drop(*cols_to_drop)
     test_df = test_df.drop(*cols_to_drop)
 
-
     # --------------Read Parquest file and convert to Pandas and save PKL for experiments with baseline
     #train_pd = train_df.toPandas()
     #val_pd = val_df.toPandas()
@@ -235,15 +228,11 @@ def main():
     #spark.stop()
     #exit()
 
-
     final_train_with_test_with_val = utilities_obj.processing_data_portion(train_df, val_df, test_df).persist(
         StorageLevel.MEMORY_AND_DISK)
     final_train_with_test_with_val.count()
 
-
-
     # ---------------- Features Extracting ----------------
-
 
     print(f"{GRAY}Extracting features for training and test datasets...{RESET}")
     start_features_extracting = time.time()
@@ -253,87 +242,65 @@ def main():
     end_features_extracting = time.time()
     feature_extract_time = (end_features_extracting - start_features_extracting) / 60
     print(f"Model Features extracting completed in {feature_extract_time:.2f} minutes")
-
     #spark.stop()
     #exit()
     '''
 
-
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
-    output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  #round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    #output_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  # round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    # output_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
     final_train_with_test_with_val.printSchema()
     final_train_with_test_with_val.select("Label").distinct().show()
-    #final_train_with_test_with_val.select("year").distinct().show()
-
-
-    #spark.stop()
-    #exit()
-
+    # final_train_with_test_with_val.select("year").distinct().show()
+    # spark.stop()
+    # exit()
     # ---------------- Features Engineering ----------------
 
-
     start_agree_trans = time.time()
-
-    bert_component =70  # based on  all our experiments, the all datasets take 70 after we tunned the reduce dim.
+    bert_component = 70  # based on  all our experiments, the all datasets take 70 after we tunned the reduce dim.
     bert_component, sequences_df, x_sequences_df, y_sequences_df = features_engineering_obj.features_aggregation_transformation(
         bert_component, final_train_with_test_with_val, DATASET)
-
 
     print(sequences_df.columns)
     # ['Node_block_id', 'features', 'Label', 'Temp_label', 'features_vec', 'features_vec_final']
 
-
     end_agree_trans = time.time()
     start_agree_trans_time = (end_agree_trans - start_agree_trans) / 60
     print(f"aggregation and transform completed in {start_agree_trans_time:.2f} minutes")
-
-
     # ---------------- Prepare datasets ----------------
     print(f"{GRAY}Preparing training and evaluation datasets...{RESET}")
     # ---------------- Novelty detection ----------------
     print(f"{GRAY}Performing novelty detection and establishing labels...{RESET}")
-
 
     # start_Novelty = time.time()
 
     df_full_train_labeled_features, sequences_df = features_engineering_obj.novelty_detection_label_establishment(
         DATASET, sequences_df, spark)
 
+    # -----for computation in cloud :
 
-
-    #-----for redsuce computation in cloud :
-    
     type(df_full_train_labeled_features)
     type(sequences_df)
-
-
 
     # local server path
     df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
     sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    #df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet"
-    #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_sequences_df.parquet"
+    # df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet"
+    # sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_sequences_df.parquet"
 
     # save df to path:
     df_full_train_labeled_features.write.mode("overwrite").parquet(df_full_train_labeled_features_path)
     sequences_df.write.mode("overwrite").parquet(sequences_df_path)
 
-
-    #Read from Path :
+    # Read from Path :
     df_full_train_labeled_features = spark.read.parquet(df_full_train_labeled_features_path)
     sequences_df = spark.read.parquet(sequences_df_path)
-
-    #----------------------
-
-
-
 
     # ---------------- Anomaly Detection ----------------
 
@@ -342,13 +309,11 @@ def main():
 
     # ---------------- Evaluation----------------
     bert_component = 70
-    model_evaluation_obj.evaluation_pyspark(bert_component, model_case1, model_case2,case1_test_pdf, case2_test_pdf, case1_classification_time,
-                                            case1_Classification_pred_time, case2_Classification_time,
-                                            case2_Classification_pred_time)
+    model_evaluation_obj.evaluation_pyspark(bert_component, model_case1, model_case2, case1_test_pdf, case2_test_pdf,
+                                            case1_classification_time, case1_Classification_pred_time,
+                                            case2_Classification_time, case2_Classification_pred_time)
     print('best target recall ' + str(best_target_recall))
-
     spark.stop()
-
 
 
 if __name__ == "__main__":

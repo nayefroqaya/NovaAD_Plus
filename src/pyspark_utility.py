@@ -1,19 +1,19 @@
+import os
+import warnings
+
 import colorama
 import numpy as np
-import warnings
-from datetime import datetime
+import numpy as np
+import pandas as pd
+from pyspark.sql import DataFrame
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType, StructField, StringType
-from pyspark.sql import DataFrame
 from pyspark.sql.functions import col, to_timestamp
-from pyspark.storagelevel import StorageLevel
 from pyspark.sql.functions import col, to_timestamp, lit
-import pandas as pd
+from pyspark.sql.types import StructType, StructField, StringType
+from pyspark.storagelevel import StorageLevel
 
-import os
-import numpy as np
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
@@ -42,10 +42,6 @@ class Utilities:
         print(f"[INFO] Total rows after cleanup: {df_features.count()}")
         return df_features
 
-
-
-
-
     @staticmethod
     def dataset_splitting(all_data_df, dataset, round, Mix_or_stable, spark):
 
@@ -73,7 +69,7 @@ class Utilities:
         # Timestamp parsing (Spark-native, handles with/without microseconds)
         # =============================
         ts_micro = F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS")
-        ts_sec   = F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss")
+        ts_sec = F.to_timestamp("Timestamp", "yyyy-MM-dd HH:mm:ss")
         df_features = df_features.withColumn("Timestamp_ts", F.coalesce(ts_micro, ts_sec))
 
         bad_ts = df_features.filter(F.col("Timestamp_ts").isNull()).count()
@@ -81,11 +77,8 @@ class Utilities:
             print(YELLOW + f"[WARN] {bad_ts} rows have unparsed Timestamp_ts (NULL)." + RESET)
 
         # Keep only the columns you want (keep Timestamp_ts for ordering/splitting)
-        df_features = df_features.select(
-            'Timestamp', 'Timestamp_ts', 'Date', 'Time', 'Content', 'Original_Label',
-            'EventId', 'EventTemplate', 'processed_EventTemplate',
-            'Node_block_id', 'Label'
-        )
+        df_features = df_features.select('Timestamp', 'Timestamp_ts', 'Date', 'Time', 'Content', 'Original_Label',
+            'EventId', 'EventTemplate', 'processed_EventTemplate', 'Node_block_id', 'Label')
 
         # Order logs inside each block by time (sequence correctness)
         df_features = df_features.orderBy(F.col("Node_block_id"), F.col("Timestamp_ts"))
@@ -96,15 +89,13 @@ class Utilities:
         # Chronological split by Node_block_id
         # =============================
         #  dataset == 'TH_2G_ratio' or dataset == 'TH_5G_ratio'
-        supported = {'HDFS','BGL','HDO','SP_100MB','SP_150MB','SP_100MB_ratio', 'SP_1G_ratio','SP_150MB_ratio','TH_1G', 'TH_1G_ratio','TH_2G','TH_2G_ratio', 'TH_3G_ratio','TH_5G','TH_5G_ratio', 'TH_6G_ratio','TH_Full','TH_9G_ratio','TH_12G_ratio','TH_16G_ratio','TH_20G_ratio','S_BGL'}
+        supported = {'HDFS', 'BGL', 'HDO', 'SP_100MB', 'SP_150MB', 'SP_100MB_ratio', 'SP_1G_ratio', 'SP_150MB_ratio',
+                     'TH_1G', 'TH_1G_ratio', 'TH_2G', 'TH_2G_ratio', 'TH_3G_ratio', 'TH_5G', 'TH_5G_ratio',
+                     'TH_6G_ratio', 'TH_Full', 'TH_9G_ratio', 'TH_12G_ratio', 'TH_16G_ratio', 'TH_20G_ratio', 'S_BGL'}
         if dataset not in supported:
             raise ValueError(f"[ERROR] Unsupported dataset type: {dataset}")
         # One row per block with its start time (sequence time)
-        block_time_df = (
-            df_features
-            .groupBy("Node_block_id")
-            .agg(F.min("Timestamp_ts").alias("block_start_ts"))
-        )
+        block_time_df = (df_features.groupBy("Node_block_id").agg(F.min("Timestamp_ts").alias("block_start_ts")))
 
         # Deterministic chronological ordering (tie-break by id)
         w = Window.orderBy(F.col("block_start_ts").asc(), F.col("Node_block_id").asc())
@@ -112,49 +103,46 @@ class Utilities:
         total_blocks = ordered_blocks.count()  # materialize
 
         train_size = int(0.6 * total_blocks)
-        val_size   = int(0.1 * total_blocks)
+        val_size = int(0.1 * total_blocks)
 
         train_ids = ordered_blocks.filter(F.col("rn") <= train_size).select("Node_block_id").cache()
-        val_ids   = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select("Node_block_id").cache()
-        test_ids  = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
+        val_ids = ordered_blocks.filter((F.col("rn") > train_size) & (F.col("rn") <= train_size + val_size)).select(
+            "Node_block_id").cache()
+        test_ids = ordered_blocks.filter(F.col("rn") > train_size + val_size).select("Node_block_id").cache()
 
-        _ = train_ids.count(); _ = val_ids.count(); _ = test_ids.count()
+        _ = train_ids.count();
+        _ = val_ids.count();
+        _ = test_ids.count()
 
         # =============================
         # Overlap checks (no collect)
         # =============================
-        if (train_ids.join(val_ids, "Node_block_id").limit(1).count() > 0 or
-            train_ids.join(test_ids, "Node_block_id").limit(1).count() > 0 or
-            val_ids.join(test_ids, "Node_block_id").limit(1).count() > 0):
+        if (train_ids.join(val_ids, "Node_block_id").limit(1).count() > 0 or train_ids.join(test_ids,
+                                                                                            "Node_block_id").limit(
+            1).count() > 0 or val_ids.join(test_ids, "Node_block_id").limit(1).count() > 0):
             raise ValueError("[ERROR] Overlaps detected between dataset splits!")
         else:
             print(GREEN + "[INFO] No overlaps found between train, validation, and test sets." + RESET)
 
         # Optional: verify chronological guarantee
         max_train_start = ordered_blocks.filter(F.col("rn") <= train_size).agg(F.max("block_start_ts")).first()[0]
-        min_test_start  = ordered_blocks.filter(F.col("rn") > train_size + val_size).agg(F.min("block_start_ts")).first()[0]
-        print(YELLOW + f"[CHECK] max(train block start)={max_train_start}, min(test block start)={min_test_start}" + RESET)
+        min_test_start = \
+        ordered_blocks.filter(F.col("rn") > train_size + val_size).agg(F.min("block_start_ts")).first()[0]
+        print(
+            YELLOW + f"[CHECK] max(train block start)={max_train_start}, min(test block start)={min_test_start}" + RESET)
 
         # =============================
         # Create split DataFrames (and keep ordered)
         # =============================
-        train_df = (
-            df_features.join(train_ids, "Node_block_id", "inner")
-            .withColumn("Type_ds", F.lit("Train"))
-            .orderBy("Node_block_id", "Timestamp_ts")
-        )
+        train_df = (df_features.join(train_ids, "Node_block_id", "inner").withColumn("Type_ds", F.lit("Train")).orderBy(
+            "Node_block_id", "Timestamp_ts"))
 
         val_df = (
-            df_features.join(val_ids, "Node_block_id", "inner")
-            .withColumn("Type_ds", F.lit("Validation"))
-            .orderBy("Node_block_id", "Timestamp_ts")
-        )
+            df_features.join(val_ids, "Node_block_id", "inner").withColumn("Type_ds", F.lit("Validation")).orderBy(
+                "Node_block_id", "Timestamp_ts"))
 
-        test_df = (
-            df_features.join(test_ids, "Node_block_id", "inner")
-            .withColumn("Type_ds", F.lit("Test"))
-            .orderBy("Node_block_id", "Timestamp_ts")
-        )
+        test_df = (df_features.join(test_ids, "Node_block_id", "inner").withColumn("Type_ds", F.lit("Test")).orderBy(
+            "Node_block_id", "Timestamp_ts"))
 
         # =============================
         # Save datasets
@@ -175,14 +163,10 @@ class Utilities:
         # =============================
         # Display split info
         # =============================
-        print(
-            GREEN +
-            f"[INFO] Dataset split complete. Sizes -> "
-            f"Train: {train_df.count()}, "
-            f"Validation: {val_df.count()}, "
-            f"Test: {test_df.count()}" +
-            RESET
-        )
+        print(GREEN + f"[INFO] Dataset split complete. Sizes -> "
+                      f"Train: {train_df.count()}, "
+                      f"Validation: {val_df.count()}, "
+                      f"Test: {test_df.count()}" + RESET)
 
         # =============================
         # Block-level statistics
@@ -195,9 +179,7 @@ class Utilities:
         print(' Normal seq Test : ' + str(df_block_test.filter(F.col("Label") == "Normal").count()))
         print(' Anomaly seq Test : ' + str(df_block_test.filter(F.col("Label") == "Anomaly").count()))
 
-
         return train_df, val_df, test_df, df_features
-
 
     @staticmethod
     def processing_data_portion(train_df: DataFrame, validate_df: DataFrame, test_df: DataFrame):
@@ -247,8 +229,8 @@ class Utilities:
 
         validate_df_labeled = validate_df.withColumn("Temp_label", F.lit(777))
 
-
         # 7️⃣ Combine all
-        final_dataset = df_train_normal_50.unionByName(df_train_unlabeled).unionByName(df_test_labeled).unionByName(validate_df_labeled)
+        final_dataset = df_train_normal_50.unionByName(df_train_unlabeled).unionByName(df_test_labeled).unionByName(
+            validate_df_labeled)
         final_dataset.printSchema()
         return final_dataset

@@ -2,119 +2,50 @@ import warnings
 
 import colorama
 import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
 import pandas as pd
-#from kneed import KneeLocator
-#from kneed import KneeLocator
-#from kneed import KneeLocator
-#from kneed import KneeLocator
 from pyspark.ml.classification import GBTClassifier
 from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.clustering import BisectingKMeans
-from pyspark.ml.clustering import BisectingKMeans
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.clustering import GaussianMixture
 from pyspark.ml.clustering import GaussianMixture
 from pyspark.ml.clustering import KMeans
 from pyspark.ml.feature import PCA
-from pyspark.ml.feature import PCA
-from pyspark.ml.feature import PCA as SparkPCA
-from pyspark.ml.feature import PCA as SparkPCA
-from pyspark.ml.feature import PCA as SparkPCA
-from pyspark.ml.feature import PCA as SparkPCA
-from pyspark.ml.feature import PCA as SparkPCA
 from pyspark.ml.feature import PCA as SparkPCA
 from pyspark.ml.feature import RobustScaler
 from pyspark.ml.feature import StandardScaler, VectorAssembler
 from pyspark.ml.feature import StringIndexer
 from pyspark.ml.feature import VectorAssembler
-# Optional classifier stage (recommended to rescue TH_1G)
-from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml.feature import VectorSizeHint, VectorAssembler
 from pyspark.ml.functions import array_to_vector
 from pyspark.ml.functions import vector_to_array
-from pyspark.ml.linalg import Vectors
 from pyspark.ml.linalg import Vectors, DenseVector
-from pyspark.ml.linalg import Vectors, VectorUDT
-from pyspark.sql import DataFrame
 from pyspark.sql import DataFrame
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import functions as F
-from pyspark.sql import functions as F
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.functions import abs as Fabs
 from pyspark.sql.functions import array, col, concat
 from pyspark.sql.functions import array_max, col, when
 from pyspark.sql.functions import col, avg, when
 from pyspark.sql.functions import col, lit, when, array_max, udf
-from pyspark.sql.functions import col, lit, when, array_max, udf
 from pyspark.sql.functions import col, size, max as spark_max
 from pyspark.sql.functions import col, sum as spark_sum
-from pyspark.sql.functions import col, udf
-from pyspark.sql.functions import col, when
 from pyspark.sql.functions import col, when, array
 from pyspark.sql.functions import col, when, array_max
 from pyspark.sql.functions import col, when, avg, udf
 from pyspark.sql.functions import col, when, count, trim
 from pyspark.sql.functions import col, when, lit, array_max
-from pyspark.sql.functions import col, when, lit, array_max
-from pyspark.sql.functions import col, when, lit, array_max
-from pyspark.sql.functions import col, when, lit, array_max
-from pyspark.sql.functions import col, when, udf
-from pyspark.sql.functions import col, when, udf
-from pyspark.sql.functions import col, when, udf
 from pyspark.sql.functions import col, when, udf, avg, stddev, lit
 from pyspark.sql.functions import pandas_udf
 from pyspark.sql.functions import pandas_udf, PandasUDFType
 from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import udf
 from pyspark.sql.functions import udf, col, when
 from pyspark.sql.types import *
 from pyspark.sql.types import ArrayType, DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
-from pyspark.sql.types import DoubleType
 from pyspark.sql.types import DoubleType
 from pyspark.sql.types import FloatType
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, ArrayType, DoubleType
 from pyspark.storagelevel import StorageLevel
 from scipy.stats import chi2
 from sklearn.metrics import classification_report  # (optional, for debugging only)
-from sklearn.metrics import classification_report
-from sklearn.metrics import classification_report
-from sklearn.metrics import classification_report
-from sklearn.metrics import classification_report
 
 warnings.filterwarnings('ignore')
 colorama.init()
@@ -127,7 +58,7 @@ YELLOW = colorama.Fore.YELLOW
 class FeaturesEngineering:
 
     @staticmethod
-    def features_aggregation_transformation(bert_component,final_train_with_test_with_val, dataset):
+    def features_aggregation_transformation(bert_component, final_train_with_test_with_val, dataset):
 
         print("---- Starting feature aggregation and transformation ----")
         final_train_with_test_with_val.printSchema()
@@ -160,7 +91,7 @@ class FeaturesEngineering:
             col("sentiment_label") == "positive", 1).otherwise(0))
 
         feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
-                            "month", "day", "hour", "minute", "second"]
+                           "month", "day", "hour", "minute", "second"]
 
         df_cached = final_train_with_test_with_val
         print(' preparing the numeric array ----')
@@ -192,8 +123,8 @@ class FeaturesEngineering:
             return arr.mean(axis=0).tolist()
 
         # ------------------ (1) Train - Normal logs labelled :Temp_label =0 -------------------------
-        summed_df_normal_labelled_train = (
-        log_normal_labelled.groupby("Node_block_id").agg(avg_vector_udf(F.collect_list("features")).alias("features")))
+        summed_df_normal_labelled_train = (log_normal_labelled.groupby("Node_block_id").agg(
+            avg_vector_udf(F.collect_list("features")).alias("features")))
 
         sequence_labels_normal_labelled = (log_normal_labelled.groupby("Node_block_id").agg(
             F.when(F.sum(F.when(F.col("Label") != "Normal", 1).otherwise(0)) > 0, "anomaly").otherwise("normal").alias(
@@ -235,8 +166,8 @@ class FeaturesEngineering:
         summed_df_train = summed_df_normal_labelled_train.unionByName(summed_df_combine_unlabelled_train)
 
         # ------------------ (3) Test dataset (Temp_label = 888) -----------------------
-        summed_df_combine_unlabelled_test = (
-        log_test_unlabelled.groupby("Node_block_id").agg(avg_vector_udf(F.collect_list("features")).alias("features")))
+        summed_df_combine_unlabelled_test = (log_test_unlabelled.groupby("Node_block_id").agg(
+            avg_vector_udf(F.collect_list("features")).alias("features")))
 
         sequence_labels_combine_unlabelled_test = (log_test_unlabelled.groupby("Node_block_id").agg(
             F.when(F.sum(F.when(F.col("Label") != "Normal", 1).otherwise(0)) > 0, "anomaly").otherwise("normal").alias(
@@ -250,7 +181,7 @@ class FeaturesEngineering:
 
         # ------------------ (4) validate dataset (Temp_label = 777) -----------------------
         summed_df_combine_labelled_val = (
-        log_val_labelled.groupby("Node_block_id").agg(avg_vector_udf(F.collect_list("features")).alias("features")))
+            log_val_labelled.groupby("Node_block_id").agg(avg_vector_udf(F.collect_list("features")).alias("features")))
 
         sequence_labels_combine_labelled_val = (log_val_labelled.groupby("Node_block_id").agg(
             F.when(F.sum(F.when(F.col("Label") != "Normal", 1).otherwise(0)) > 0, "anomaly").otherwise("normal").alias(
@@ -275,7 +206,7 @@ class FeaturesEngineering:
 
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
         summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
-            array_to_vector_udf(col("features")))
+                                                                             array_to_vector_udf(col("features")))
 
         # --- split (use your Temp_label) ---
         train_df = summ_train_test_val_combine.filter(F.col("Temp_label").isin([0, 999]))
@@ -320,9 +251,6 @@ class FeaturesEngineering:
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
         '''
 
-
-
-
     @staticmethod
     def novelty_detection_label_establishment(DATASET, sequences_df, spark):
 
@@ -343,8 +271,6 @@ class FeaturesEngineering:
         from sklearn.metrics import classification_report, recall_score, precision_score, f1_score
 
         from pyspark.sql.functions import hash as ps_hash, abs as ps_abs
-
-
 
         import numpy as np
         from pyspark.sql import functions as F
@@ -407,19 +333,19 @@ class FeaturesEngineering:
         import numpy as np
         from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
-
-
         # ======================================Good ND and classification AD
         # 1) Prepare y_true and Label
         # ======================================
         GT_COL = "Label"
         sequences_df = sequences_df.withColumn("y_true",
-            when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
-                lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(
-                col(GT_COL).cast("int")))
+                                               when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"),
+                                                    lit(1)).when(
+                                                   lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"),
+                                                   lit(0)).otherwise(col(GT_COL).cast("int")))
 
         sequences_df = sequences_df.withColumn("Label",
-            when(col("Label") == "normal", 0).when(col("Label") == "anomaly", 1).otherwise(None))
+                                               when(col("Label") == "normal", 0).when(col("Label") == "anomaly",
+                                                                                      1).otherwise(None))
 
         # ======================================
         # 2) Split TRAIN (Temp_label 0 or 999)
@@ -434,12 +360,12 @@ class FeaturesEngineering:
         # ======================================
         # 3) StandardScaler : we do not need scaling becuase we scaled after aggregation
         # ======================================
-        #scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
-        #scaler_model = scaler.fit(train_normal_df)
-        #train_normal_scaled = scaler_model.transform(train_normal_df)
-        #train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
-        train_normal_scaled =train_normal_df
-        train_unlabeled_scaled =train_unlabeled_df
+        # scaler = StandardScaler(inputCol=feature_col, outputCol="features_scaled", withMean=True, withStd=True)
+        # scaler_model = scaler.fit(train_normal_df)
+        # train_normal_scaled = scaler_model.transform(train_normal_df)
+        # train_unlabeled_scaled = scaler_model.transform(train_unlabeled_df)
+        train_normal_scaled = train_normal_df
+        train_unlabeled_scaled = train_unlabeled_df
         # ======================================
         # 4) PCA for dimensionality reduction
         # ======================================
@@ -448,7 +374,7 @@ class FeaturesEngineering:
         best_k = None
 
         for k in candidate_ks:
-            #pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
+            # pca_tmp = SparkPCA(k=k, inputCol="features_scaled", outputCol=f"pca_features_k{k}")
             pca_tmp = SparkPCA(k=k, inputCol="features_vec_final", outputCol=f"pca_features_k{k}")
             pca_tmp_model = pca_tmp.fit(train_normal_scaled)
             explained_variance = float(sum(pca_tmp_model.explainedVariance))
@@ -458,7 +384,7 @@ class FeaturesEngineering:
         if best_k is None:
             best_k = candidate_ks[-1]
 
-        #pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
+        # pca = SparkPCA(k=best_k, inputCol="features_scaled", outputCol="pca_features")
         pca = SparkPCA(k=best_k, inputCol="features_vec_final", outputCol="pca_features")
         pca_model = pca.fit(train_normal_scaled)
 
@@ -469,7 +395,7 @@ class FeaturesEngineering:
         # 5) PCA reconstruction error (optional hybrid score)
         # ======================================
         pc = pca_model.pc.toArray()
-        #d = len(train_normal_scaled.select("features_scaled").head()[0])
+        # d = len(train_normal_scaled.select("features_scaled").head()[0])
         d = len(train_normal_scaled.select("features_vec_final").head()[0])
 
         pc_b = spark.sparkContext.broadcast(pc)
@@ -484,14 +410,14 @@ class FeaturesEngineering:
             return float(np.linalg.norm(x - x_hat))
 
         train_normal_pca = train_normal_pca.withColumn("anomaly_score_pca",
-                                                      # reconstruction_error(col("features_scaled"),
+                                                       # reconstruction_error(col("features_scaled"),
                                                        reconstruction_error(col("features_vec_final"),
-                                                                                col("pca_features")))
+                                                                            col("pca_features")))
 
         train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
-                                                            # reconstruction_error(col("features_scaled"),
-                                                            reconstruction_error(col("features_vec_final"),
-                                                                                      col("pca_features")))
+                                                             # reconstruction_error(col("features_scaled"),
+                                                             reconstruction_error(col("features_vec_final"),
+                                                                                  col("pca_features")))
 
         # ======================================
         # 6) Fit GMM on normal PCA space
@@ -564,15 +490,15 @@ class FeaturesEngineering:
         thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
         thr_pca = train_normal_pca.approxQuantile("anomaly_score_pca", [1 - TARGET_FPR], 1e-6)[0]
 
-        train_unlabeled_pca = train_unlabeled_pca.withColumn("Final_Label",
-            when((col("anomaly_score_gmm") > lit(thr_gmm)) | (col("anomaly_score_pca") > lit(thr_pca)),
-                 1).otherwise(0))
+        train_unlabeled_pca = train_unlabeled_pca.withColumn("Final_Label", when(
+            (col("anomaly_score_gmm") > lit(thr_gmm)) | (col("anomaly_score_pca") > lit(thr_pca)), 1).otherwise(0))
 
         # ======================================
         # 9) Build full labeled train dataset
         # ======================================
-        df_normal_labeled_features = train_normal_df.select(col(id_col), col(feature_col).alias(
-            "features_vec_final")).withColumn("Final_Label", lit(0).cast("int"))
+        df_normal_labeled_features = train_normal_df.select(col(id_col),
+                                                            col(feature_col).alias("features_vec_final")).withColumn(
+            "Final_Label", lit(0).cast("int"))
         df_unlabeled_labeled_features = train_unlabeled_pca.select(col(id_col),
                                                                    col(feature_col).alias("features_vec_final"),
                                                                    col("Final_Label"))
@@ -591,25 +517,4 @@ class FeaturesEngineering:
         print("\n===Novelty Detection  Classification_report on FULL TRAIN ===")
         print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
-
-        return df_full_train_labeled_features , sequences_df
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return df_full_train_labeled_features, sequences_df

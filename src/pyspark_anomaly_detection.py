@@ -1,114 +1,53 @@
-
+import time
 import warnings
+
 import colorama
-from pyspark.sql import functions as F
-from pyspark.storagelevel import StorageLevel
-from pyspark.sql.functions import col, when, lit, udf
+import numpy as np
+import pandas as pd
+from pyspark.ml.classification import GBTClassifier
+from pyspark.ml.classification import (LogisticRegression as SparkLogisticRegression,
+                                       RandomForestClassifier as SparkRandomForestClassifier,
+                                       GBTClassifier as SparkGBTClassifier, )
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.clustering import GaussianMixture
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.feature import PCA as SparkPCA
+from pyspark.ml.feature import PCA as SparkPCA, StandardScaler
+from pyspark.ml.feature import StandardScaler, PCA as SparkPCA, VectorAssembler
+from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.ml.linalg import Vectors, VectorUDT
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.sql.functions import col, when, lit
-from pyspark.ml.classification import LinearSVC
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.mllib.evaluation import MulticlassMetrics
-import time
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, lit, when
-from pyspark.ml.classification import LinearSVC
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.functions import vector_to_array
-# âœ… Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
-from pyspark.ml.classification import (
-    LogisticRegression as SparkLogisticRegression,
-    RandomForestClassifier as SparkRandomForestClassifier,
-    GBTClassifier as SparkGBTClassifier,
-)
-
-from pyspark.sql.functions import col
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, lit, when
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.classification import LogisticRegression
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from sklearn.metrics import precision_recall_curve
-from pyspark.sql.functions import when, lower, trim, col
-
-import time
-import numpy as np
-from pyspark.sql.functions import col, lit, when, pmod
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.functions import vector_to_array
-from sklearn.metrics import classification_report, recall_score, precision_score, f1_score
-
-from pyspark.sql.functions import hash as ps_hash, abs as ps_abs
-
-import numpy as np
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, lit, when, lower, trim, udf
-from pyspark.sql.types import DoubleType
-from pyspark.ml.feature import PCA as SparkPCA
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.functions import vector_to_array
-from sklearn.metrics import classification_report
-
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col, when, lit, lower, trim, udf
-from pyspark.sql.types import DoubleType
-from pyspark.ml.feature import PCA as SparkPCA, StandardScaler
-from pyspark.ml.clustering import GaussianMixture
 from pyspark.ml.stat import Summarizer
-import numpy as np
-from sklearn.metrics import classification_report
-from pyspark.sql import functions as F
-from pyspark.ml.classification import LogisticRegression
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.functions import vector_to_array
-from sklearn.metrics import classification_report, f1_score
-import numpy as np
-
-from pyspark.sql.functions import col, when, lit
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from sklearn.metrics import classification_report
-import pandas as pd
-
-from pyspark.sql.functions import col, when, lit
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from sklearn.metrics import classification_report, precision_score, recall_score, f1_score, accuracy_score
-from pyspark.sql.functions import when
-
-from pyspark.sql.functions import col, lit, explode, array_repeat
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.functions import vector_to_array
-from sklearn.metrics import f1_score, classification_report
-import numpy as np
-import time
-
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, when, lower, trim, udf
-from pyspark.sql.types import DoubleType
-from pyspark.ml.feature import StandardScaler, PCA as SparkPCA, VectorAssembler
-from pyspark.ml.clustering import GaussianMixture
-from pyspark.ml.classification import GBTClassifier
-from sklearn.metrics import classification_report, f1_score
-import numpy as np
-import time
+from pyspark.sql import functions as F
+from pyspark.sql.functions import col
+from pyspark.sql.functions import col, lit, explode, array_repeat
+from pyspark.sql.functions import col, lit, when
 from pyspark.sql.functions import col, lit, when, abs as ps_abs, hash as ps_hash, pmod
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.classification import FMClassifier
-
-import numpy as np
-import time
+from pyspark.sql.functions import col, lit, when, lower, trim, udf
+from pyspark.sql.functions import col, lit, when, pmod
+from pyspark.sql.functions import col, when, lit
+from pyspark.sql.functions import col, when, lit, lower, trim, udf
+from pyspark.sql.functions import hash as ps_hash, abs as ps_abs
+from pyspark.sql.functions import when, lower, trim, col
+from pyspark.sql.types import DoubleType
+from pyspark.storagelevel import StorageLevel
+from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report, precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import classification_report, recall_score, precision_score, f1_score
+from sklearn.metrics import f1_score, classification_report
+from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
 warnings.filterwarnings("ignore")
@@ -120,7 +59,6 @@ YELLOW = colorama.Fore.YELLOW
 
 
 class AnomalyDetector:
-
 
     @staticmethod
     def anomaly_detector(df_full_train_labeled_features, sequences_df):
@@ -161,13 +99,13 @@ class AnomalyDetector:
         # --------------------------
         # 0.2) Weighting (cap weights to reduce swings)
         # --------------------------
-        PSEUDO_TRUST =0.4 # 0.4 #0.6
-       #** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
-        WEIGHT_CAP = 8.0 #8.0 #4.0
+        PSEUDO_TRUST = 0.4  # 0.4 #0.6
+        # ** WEIGHT_CAP = 8.0  # smaller cap = more stable, fewer crazy shifts
+        WEIGHT_CAP = 8.0  # 8.0 #4.0
         n0 = train_df.filter(col("Final_Label") == 0).count()
         n1 = train_df.filter(col("Final_Label") == 1).count()
 
-        #**raw_w1 = float(n0 / max(n1, 1)) * 0.7
+        # **raw_w1 = float(n0 / max(n1, 1)) * 0.7
         raw_w1 = float(n0 / max(n1, 1)) * 0.7
         w1 = float(min(raw_w1, WEIGHT_CAP))
         w0 = 1.0
@@ -239,23 +177,18 @@ class AnomalyDetector:
         # 2) Train deterministic GBT (reduce internal randomness)
         # --------------------------
 
-
         from xgboost.spark import SparkXGBClassifier
 
-
         gbt_case1 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", weight_col="classWeight",
-                                 max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
-                                 scale_pos_weight=1.5 ,
-                                   num_workers=2
+                                       max_depth=4, eta=0.05, n_estimators=500, subsample=0.85, colsample_bytree=0.80,
+                                       scale_pos_weight=1.5, num_workers=2
 
-                                 , eval_metric="logloss", seed=42)
-
-
+                                       , eval_metric="logloss", seed=42)
 
         t0 = time.time()
         model_case1 = gbt_case1.fit(train_base_df)
         end_t0 = time.time()
-        print(f"[INFO] case1 :  GBT fit time: {(end_t0 - t0) / 60:.2f} minutes")
+        print(f"[INFO] case1 :  XGB fit time: {(end_t0 - t0) / 60:.2f} minutes")
 
         # --------------------------
         # 3) VAL: tune threshold
@@ -272,11 +205,9 @@ class AnomalyDetector:
         pca_v = val_pdf["pca_flag"].values.astype(int) if "pca_flag" in val_pdf.columns else np.zeros_like(y_val)
         gmm_v = val_pdf["gmm_flag"].values.astype(int) if "gmm_flag" in val_pdf.columns else np.zeros_like(y_val)
 
-
-
-        #-------- try tune Target recall :
-        #target_recall_grid = [0.60, 0.80, 0.85, 0.90]
-        target_recall_grid = [ 0.60, 0.80, 0.90, 0.95]
+        # -------- try tune Target recall :
+        # target_recall_grid = [0.60, 0.80, 0.85, 0.90]
+        target_recall_grid = [0.60, 0.80, 0.90, 0.95]
 
         best_global_f1 = -1
         best_target_recall = None
@@ -306,10 +237,9 @@ class AnomalyDetector:
               f"VAL precision={best_prec:.4f}, "
               f"VAL F1={best_global_f1:.4f}")
 
-
-        #-------------
-       #** TARGET_RECALL = 0.95  # 94 0.95
-        TARGET_RECALL = best_target_recall # 0.60 #0.80  #0.60 #0.60 #0.80
+        # -------------
+        # ** TARGET_RECALL = 0.95  # 94 0.95
+        TARGET_RECALL = best_target_recall  # 0.60 #0.80  #0.60 #0.60 #0.80
         best_threshold, best_prec = 0.5, -1.0  # 0.5
 
         for t in np.arange(0.01, 0.999, 0.005):
@@ -319,8 +249,6 @@ class AnomalyDetector:
                 p = precision_score(y_val, preds, pos_label=1, zero_division=0)
                 if p > best_prec:
                     best_prec, best_threshold = p, float(t)
-
-
 
         if best_prec < 0:
             best_threshold, best_f1 = 0.5, -1.0
@@ -359,7 +287,6 @@ class AnomalyDetector:
         print(f"[INFO] Best offset on VAL: {best_offset:.3f} (VAL class-1 F1={best_f1_gate:.4f})")
         '''
 
-
         # new good --------
         for off in offset_grid:
             gate_t = min(best_threshold + float(off), 0.999)
@@ -375,9 +302,7 @@ class AnomalyDetector:
         if best_f1_gate < 0:
             best_offset = 0.0
             best_f1_gate = f1_score(y_val, (p_val >= best_threshold).astype(int), pos_label=1, zero_division=0)
-        #-------
-
-
+        # -------
 
         # --------------------------
         # 4) TEST: gated ensemble using tuned offset
@@ -385,13 +310,11 @@ class AnomalyDetector:
         t1 = time.time()
         test_pred = model_case1.transform(test_df)
         end_t1 = time.time()
-        print(f"[INFO] case1 : GBT predict time: {(end_t1 - t1) / 60:.2f} minutes")
+        print(f"[INFO] case1 : XGB predict time: {(end_t1 - t1) / 60:.2f} minutes")
 
         case1_test_pdf = test_pred.select(col("Final_Label").alias("y"),
                                           vector_to_array(col("probability")).getItem(1).alias("prob_1"),
                                           col("pca_flag"), col("gmm_flag")).toPandas()
-
-
 
         p_test = case1_test_pdf["prob_1"].values
         gate_t = min(best_threshold + best_offset, 0.999)
@@ -400,11 +323,9 @@ class AnomalyDetector:
         ##*       (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)  # 1
 
         case1_test_pdf["final_pred"] = ((p_test >= gate_t) | ((p_test >= best_threshold) & (
-                     (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)
+                (case1_test_pdf["pca_flag"].values + case1_test_pdf["gmm_flag"].values) >= 1))).astype(int)
 
-
-        #case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
-
+        # case1_test_pdf["final_pred"] = (p_test >= best_threshold).astype(int)
 
         print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
         print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
@@ -473,10 +394,8 @@ class AnomalyDetector:
         # ======================================
 
         gbt_case2 = SparkXGBClassifier(features_col=features_col, label_col="Final_Label", max_depth=4, eta=0.05,
-                                 n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
-                                 num_workers=2,
-                                 eval_metric="logloss", seed=42)
-
+                                       n_estimators=500, subsample=0.85, colsample_bytree=0.80, scale_pos_weight=1.5,
+                                       num_workers=2, eval_metric="logloss", seed=42)
 
         start_fit_classification = time.time()
         model_case2 = gbt_case2.fit(train_base_df)
@@ -532,20 +451,10 @@ class AnomalyDetector:
 
         # Optional ensemble: predict anomaly if >=1 signal
         case2_test_pdf["final_pred"] = (
-                    (case2_test_pdf["pred_gbt"] + case2_test_pdf["pca_flag"] + case2_test_pdf["gmm_flag"]) >= 1).astype(
-            int)
+                (case2_test_pdf["pred_gbt"] + case2_test_pdf["pca_flag"] + case2_test_pdf["gmm_flag"]) >= 1).astype(int)
 
-        case1_classification_time =(end_t0 - t0)
-        case1_Classification_pred_time =(end_t1 - t1)
+        case1_classification_time = (end_t0 - t0)
+        case1_Classification_pred_time = (end_t1 - t1)
         return best_target_recall, model_case1, model_case2, case1_test_pdf, case2_test_pdf, case1_classification_time, case1_Classification_pred_time, case2_Classification_time, case2_Classification_pred_time
 
-        #spark.stop()
-        #exit()
-
-
-
-
-
-
-
-
+        # spark.stop()  # exit()
