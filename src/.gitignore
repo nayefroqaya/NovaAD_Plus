@@ -60,3 +60,4 @@ datasets/TH_2G_ratio/
 datasets/TH_3G_ratio/
 datasets/TH_5G_ratio/
 datasets/*_ratio/
+src/*.parquet/
