@@ -587,7 +587,7 @@ class AnomalyDetector:
         pca_v = val_pdf["pca_flag"].values.astype(int)
         gmm_v = val_pdf["gmm_flag"].values.astype(int)
 
-        target_recall_grid = [0.60, 0.80, 0.90, 0.95]
+        target_recall_grid = [0.55,0.60, 0.80, 0.90, 0.95]
 
         best_global_f1 = -1
         best_target_recall = None
