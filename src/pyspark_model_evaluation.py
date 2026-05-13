@@ -1,221 +1,309 @@
 import os
 
-import colorama
 import pandas as pd
+import numpy as np
+
 from pyspark.ml.classification import LinearSVC
-from pyspark.ml.classification import LinearSVC
-# âœ… Alias Spark ML classes to avoid ANY shadowing / UnboundLocalError
-from pyspark.ml.classification import (LogisticRegression as SparkLogisticRegression,
-                                       RandomForestClassifier as SparkRandomForestClassifier,
-                                       GBTClassifier as SparkGBTClassifier, )
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.classification import (
+    LogisticRegression as SparkLogisticRegression,
+    RandomForestClassifier as SparkRandomForestClassifier,
+    GBTClassifier as SparkGBTClassifier,
+)
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.feature import UnivariateFeatureSelector
 from pyspark.ml.functions import vector_to_array
-from pyspark.ml.functions import vector_to_array
-from pyspark.ml.linalg import Vectors
 from pyspark.ml.linalg import Vectors, VectorUDT
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.sql import functions as F
-from pyspark.sql import functions as F
-from pyspark.sql.functions import col
-from pyspark.sql.functions import col, lit, when
-from pyspark.sql.functions import col, when, lit
-from pyspark.sql.functions import col, when, lit, udf
+from pyspark.sql.functions import col, lit, when, udf
+
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.metrics import classification_report
-from sklearn.metrics import classification_report
-from sklearn.metrics import f1_score, recall_score, precision_score, balanced_accuracy_score
+from sklearn.metrics import (
+    f1_score,
+    recall_score,
+    precision_score,
+    balanced_accuracy_score,
+)
 
 
 class ModelEvaluation:
     """Class for evaluating model performance and feature importance."""
 
     @staticmethod
-    def evaluation_pyspark(bert_component, model_case1, model_case2, case1_test_pdf, case2_test_pdf,
-                           case1_classification_time, case1_Classification_pred_time, case2_Classification_time,
-                           case2_Classification_pred_time):
-        # ======================================
-        # 5) Classification report
-        # ======================================
-        # --------------------------
-        # FINAL DECISION: case1 vs case2
-        # --------------------------
+    def evaluation_pyspark(
+        bert_component,
+        model_case1,
+        model_case2,
+        case1_test_pdf,
+        case2_test_pdf,
+        case1_classification_time,
+        case1_Classification_pred_time,
+        case2_Classification_time,
+        case2_Classification_pred_time,
+    ):
 
+        # ======================================
+        # 1) Classification reports and metrics
+        # ======================================
         y1 = case1_test_pdf["y"].astype(int).values
         p1 = case1_test_pdf["final_pred"].astype(int).values
 
         y2 = case2_test_pdf["y"].astype(int).values
         p2 = case2_test_pdf["final_pred"].astype(int).values
 
-        case1_metrics = {"f1_class1": f1_score(y1, p1, pos_label=1, zero_division=0),
-                         "recall_class1": recall_score(y1, p1, pos_label=1, zero_division=0),
-                         "precision_class1": precision_score(y1, p1, pos_label=1, zero_division=0),
-                         "balanced_acc": balanced_accuracy_score(y1, p1), "fit_time": case1_classification_time,
-                         "pred_time": case1_Classification_pred_time}
+        case1_metrics = {
+            "f1_class1": f1_score(y1, p1, pos_label=1, zero_division=0),
+            "recall_class1": recall_score(y1, p1, pos_label=1, zero_division=0),
+            "precision_class1": precision_score(y1, p1, pos_label=1, zero_division=0),
+            "balanced_acc": balanced_accuracy_score(y1, p1),
+            "fit_time": case1_classification_time,
+            "pred_time": case1_Classification_pred_time,
+        }
 
-        case2_metrics = {"f1_class1": f1_score(y2, p2, pos_label=1, zero_division=0),
-                         "recall_class1": recall_score(y2, p2, pos_label=1, zero_division=0),
-                         "precision_class1": precision_score(y2, p2, pos_label=1, zero_division=0),
-                         "balanced_acc": balanced_accuracy_score(y2, p2), "fit_time": case2_Classification_time * 60,
-                         "pred_time": case2_Classification_pred_time * 60}
+        case2_metrics = {
+            "f1_class1": f1_score(y2, p2, pos_label=1, zero_division=0),
+            "recall_class1": recall_score(y2, p2, pos_label=1, zero_division=0),
+            "precision_class1": precision_score(y2, p2, pos_label=1, zero_division=0),
+            "balanced_acc": balanced_accuracy_score(y2, p2),
+            "fit_time": case2_Classification_time * 60,
+            "pred_time": case2_Classification_pred_time * 60,
+        }
 
         print("\n================ FINAL CASE COMPARISON ================")
         print("Case1:", case1_metrics)
         print("Case2:", case2_metrics)
 
-        # Main decision rule: choose better anomaly F1
+        # ======================================
+        # 2) Final case decision
+        # ======================================
+        # Main decision rule: choose better anomaly F1.
         if case1_metrics["f1_class1"] > case2_metrics["f1_class1"]:
             final_case = "case1"
         elif case2_metrics["f1_class1"] > case1_metrics["f1_class1"]:
             final_case = "case2"
         else:
-            # Tie-breaker 1: higher recall for anomalies
+            # Tie-breaker 1: higher anomaly recall.
             if case1_metrics["recall_class1"] > case2_metrics["recall_class1"]:
                 final_case = "case1"
             elif case2_metrics["recall_class1"] > case1_metrics["recall_class1"]:
                 final_case = "case2"
             else:
-                # Tie-breaker 2: faster prediction
-                final_case = "case1" if case1_metrics["pred_time"] <= case2_metrics["pred_time"] else "case2"
+                # Tie-breaker 2: faster prediction.
+                final_case = (
+                    "case1"
+                    if case1_metrics["pred_time"] <= case2_metrics["pred_time"]
+                    else "case2"
+                )
 
-        # -------features importance
-        # ============================================================
-        # FINAL FEATURE IMPORTANCE
-        # Output:
-        # - importance of each original feature
-        # - one semantic feature score = average importance of 70 BERT components
-        # ============================================================
-
-        import numpy as np
-        import pandas as pd
-
-        # --------------------------
-        # 1) Select final model
-        # --------------------------
         if final_case == "case1":
             final_model = model_case1
         else:
             final_model = model_case2
 
-        # --------------------------
-        # 2) Feature order inside features_vec_final
+        # ======================================
+        # 3) Feature importance
+        # ======================================
         # IMPORTANT:
-        # This must match the exact order used when creating features_vec_final
-        # --------------------------
-        feature_columns = ["sentiment_label_indexed", "Dominant_Topic", "num_words", "Character_Count", "entropy",
-                           "month", "day", "hour", "minute", "second"]
+        # This order must match the exact order used when creating features_vec_final.
+        feature_columns = [
+            "sentiment_label_indexed",
+            "Dominant_Topic",
+            "num_words",
+            "Character_Count",
+            "entropy",
+            "month",
+            "day",
+            "hour",
+            "minute",
+            "second",
+        ]
 
-        bert_component = 70
+        # Vector layout inside features_augmented:
+        #
+        # features_augmented =
+        # [
+        #   features_vec_final components,
+        #   anomaly_score_pca,
+        #   anomaly_score_gmm
+        # ]
+        #
+        # features_vec_final layout:
+        # index 0-9   = handcrafted/original features
+        # index 10-79 = semantic/BERT reduced components, if bert_component = 70
+        #
+        # Then:
+        # index 80 = anomaly_score_pca
+        # index 81 = anomaly_score_gmm
 
-        # Vector layout:
-        # index 0-9   = original features
-        # index 10-79 = semantic/BERT reduced components
         n_base = len(feature_columns)
+
         semantic_start = n_base
         semantic_end = n_base + bert_component
 
-        # --------------------------
-        # 3) Get XGBoost importance
-        # --------------------------
+        anomaly_score_pca_index = semantic_end
+        anomaly_score_gmm_index = semantic_end + 1
+
+        # ======================================
+        # 4) Get XGBoost importance
+        # ======================================
         booster = final_model.get_booster()
 
-        # You can also use: "weight", "cover", "total_gain"
+        # You can also use: "weight", "cover", or "total_gain".
         importance = booster.get_score(importance_type="gain")
 
-        # Convert XGBoost names f0, f1, ... to numeric indexes
+        # Convert XGBoost feature names f0, f1, ... to numeric indexes.
         idx_gain = {}
 
         for k, v in importance.items():
             idx = int(k.replace("f", ""))
             idx_gain[idx] = float(v)
 
-        # --------------------------
-        # 4) Original feature importance
-        # --------------------------
+        # ======================================
+        # 5) Build importance table
+        # ======================================
         rows = []
 
+        # Original handcrafted features.
         for i, feature_name in enumerate(feature_columns):
-            rows.append({"feature": feature_name, "importance_gain": idx_gain.get(i, 0.0)})
+            rows.append(
+                {
+                    "feature": feature_name,
+                    "importance_gain": idx_gain.get(i, 0.0),
+                }
+            )
 
-        # --------------------------
-        # 5) Semantic feature importance
-        # Average importance over 70 BERT components
-        # --------------------------
-        semantic_gains = [idx_gain.get(i, 0.0) for i in range(semantic_start, semantic_end)]
+        # Semantic/BERT feature importance.
+        semantic_gains = [
+            idx_gain.get(i, 0.0)
+            for i in range(semantic_start, semantic_end)
+        ]
 
-        semantic_avg_gain = float(np.mean(semantic_gains))
+        semantic_avg_gain = float(np.mean(semantic_gains)) if len(semantic_gains) > 0 else 0.0
+        semantic_sum_gain = float(np.sum(semantic_gains)) if len(semantic_gains) > 0 else 0.0
 
-        rows.append({"feature": "semantic_feature_avg_70_components", "importance_gain": semantic_avg_gain})
+        rows.append(
+            {
+                "feature": f"semantic_feature_avg_{bert_component}_components",
+                "importance_gain": semantic_avg_gain,
+            }
+        )
 
-        # --------------------------
-        # 6) Final importance table
-        # --------------------------
+        rows.append(
+            {
+                "feature": f"semantic_feature_sum_{bert_component}_components",
+                "importance_gain": semantic_sum_gain,
+            }
+        )
+
+        # New novelty-score features.
+        rows.append(
+            {
+                "feature": "anomaly_score_pca",
+                "importance_gain": idx_gain.get(anomaly_score_pca_index, 0.0),
+            }
+        )
+
+        rows.append(
+            {
+                "feature": "anomaly_score_gmm",
+                "importance_gain": idx_gain.get(anomaly_score_gmm_index, 0.0),
+            }
+        )
+
         feature_importance_df = pd.DataFrame(rows)
 
-        feature_importance_df = feature_importance_df.sort_values(by="importance_gain", ascending=False).reset_index(
-            drop=True)
+        feature_importance_df = feature_importance_df.sort_values(
+            by="importance_gain",
+            ascending=False,
+        ).reset_index(drop=True)
 
-        print("\n================Case1:  TEST CLASSIFICATION REPORT (HASH-split stable) ================")
-        print(classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4))
-        # print(f"[INFO] best_threshold={best_threshold:.4f}, best_offset={best_offset:.3f}, gate_t={gate_t:.4f}")
+        # ======================================
+        # 6) Print reports
+        # ======================================
+        print("\n================Case1: TEST CLASSIFICATION REPORT (HASH-split stable) ================")
+        print(
+            classification_report(
+                case1_test_pdf["y"].astype(int),
+                case1_test_pdf["final_pred"],
+                digits=4,
+            )
+        )
 
-        print(f"[INFO] Case1 :  XGB fit time: {case1_classification_time / 60:.6f} minutes")
+        print(f"[INFO] Case1 : XGB fit time: {case1_classification_time / 60:.6f} minutes")
         print(f"[INFO] Case1 : XGB predict time: {case1_Classification_pred_time / 60:.6f} minutes")
 
-        print("\n================Case2:  TEST CLASSIFICATION REPORT ================")
-        print(classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4))
-        print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
-        print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
+        print("\n================Case2: TEST CLASSIFICATION REPORT ================")
+        print(
+            classification_report(
+                case2_test_pdf["y"].astype(int),
+                case2_test_pdf["final_pred"],
+                digits=4,
+            )
+        )
+
+        print(f"Case2 : final Model classification completed in {case2_Classification_time:.6f} minutes")
+        print(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.6f} minutes")
 
         print("\n================Final decision ================")
-
         print(f"\n[FINAL DECISION] Use {final_case}")
+
         print(f"\n================ FEATURE IMPORTANCE FOR {final_case.upper()} ================")
-
-        print(f"\n================ FINAL FEATURE IMPORTANCE FOR {final_case.upper()} ================")
         print(feature_importance_df.to_string(index=False))
-        print(f"[INFO] Case1 :  XGB fit time: {case1_classification_time / 60:.6f} minutes")
-        print(f"[INFO] Case1 : XGB predict time: {case1_Classification_pred_time / 60:.6f} minutes")
-        print(f"Case2 : final Model classification  completed in {case2_Classification_time:.6f} minutes")
-        print(f"Case2 : final Model predicts  completed in {case2_Classification_pred_time:.6f} minutes")
 
+        print(f"[INFO] Case1 : XGB fit time: {case1_classification_time / 60:.6f} minutes")
+        print(f"[INFO] Case1 : XGB predict time: {case1_Classification_pred_time / 60:.6f} minutes")
+        print(f"Case2 : final Model classification completed in {case2_Classification_time:.6f} minutes")
+        print(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.6f} minutes")
+
+        # ======================================
+        # 7) Save output
+        # ======================================
         local_path = "output.txt"
         gcs_path = "gs://sparkadls/Nova_Plus/src/output.txt"
 
-        case1_report = classification_report(case1_test_pdf["y"].astype(int), case1_test_pdf["final_pred"], digits=4)
+        case1_report = classification_report(
+            case1_test_pdf["y"].astype(int),
+            case1_test_pdf["final_pred"],
+            digits=4,
+        )
 
-        case2_report = classification_report(case2_test_pdf["y"].astype(int), case2_test_pdf["final_pred"], digits=4)
+        case2_report = classification_report(
+            case2_test_pdf["y"].astype(int),
+            case2_test_pdf["final_pred"],
+            digits=4,
+        )
 
         with open(local_path, "w") as f:
 
-            # Case 1 report
+            # Case 1 report.
             f.write("===== CASE 1 CLASSIFICATION REPORT =====\n")
             f.write(case1_report + "\n")
 
-            # Case 1 times
-            f.write(f"[INFO] Case1 : GBT fit time: {case1_classification_time / 60:.6f} minutes\n")
-            f.write(f"[INFO] Case1 : GBT predict time: {case1_Classification_pred_time / 60:.6f} minutes\n\n")
+            # Case 1 times.
+            f.write(f"[INFO] Case1 : XGB fit time: {case1_classification_time / 60:.6f} minutes\n")
+            f.write(f"[INFO] Case1 : XGB predict time: {case1_Classification_pred_time / 60:.6f} minutes\n\n")
 
-            # Case 2 report
+            # Case 2 report.
             f.write("===== CASE 2 CLASSIFICATION REPORT =====\n")
             f.write(case2_report + "\n")
 
-            # Case 2 times
+            # Case 2 times.
             f.write(f"Case2 : final Model classification completed in {case2_Classification_time:.6f} minutes\n")
             f.write(f"Case2 : final Model predicts completed in {case2_Classification_pred_time:.6f} minutes\n\n")
 
-            # Final decision
+            # Final decision.
+            f.write("===== FINAL CASE COMPARISON =====\n")
+            f.write(f"Case1: {case1_metrics}\n")
+            f.write(f"Case2: {case2_metrics}\n\n")
             f.write(f"[FINAL DECISION] Use {final_case}\n\n")
 
-            # Feature importance
-            f.write("===== FEATURE IMPORTANCE =====\n")
+            # Feature importance.
+            f.write(f"===== FEATURE IMPORTANCE FOR {final_case.upper()} =====\n")
             f.write(feature_importance_df.to_string(index=False) + "\n")
 
-        # Upload to GCS
+        # Upload to GCS.
         os.system(f"gsutil cp {local_path} {gcs_path}")
+
+        return final_case, feature_importance_df
