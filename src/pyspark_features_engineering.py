@@ -203,6 +203,7 @@ class FeaturesEngineering:
         # =============================
         print('# 3️⃣ Apply RobustScaler-------')
         # =============================
+        from pyspark.ml.linalg import VectorUDT
 
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
         summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
