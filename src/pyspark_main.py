@@ -140,9 +140,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_3G_ratio'
+    DATASET = 'TH_9G_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
