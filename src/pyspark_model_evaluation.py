@@ -175,25 +175,22 @@ class ModelEvaluation:
             )
 
         # Semantic/BERT feature importance.
+        # Average importance over the semantic components only.
         semantic_gains = [
             idx_gain.get(i, 0.0)
             for i in range(semantic_start, semantic_end)
         ]
 
-        semantic_avg_gain = float(np.mean(semantic_gains)) if len(semantic_gains) > 0 else 0.0
-        semantic_sum_gain = float(np.sum(semantic_gains)) if len(semantic_gains) > 0 else 0.0
+        semantic_avg_gain = (
+            float(np.mean(semantic_gains))
+            if len(semantic_gains) > 0
+            else 0.0
+        )
 
         rows.append(
             {
                 "feature": f"semantic_feature_avg_{bert_component}_components",
                 "importance_gain": semantic_avg_gain,
-            }
-        )
-
-        rows.append(
-            {
-                "feature": f"semantic_feature_sum_{bert_component}_components",
-                "importance_gain": semantic_sum_gain,
             }
         )
 
