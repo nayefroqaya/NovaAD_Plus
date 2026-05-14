@@ -60,7 +60,7 @@ ter in the europe-west1 region, with one master and one to three worker nodes.
 Each node uses an n4-standard-8 machine (8 vCPUs, 32 GB RAM) with 100 GB
 boot disks, running Dataproc image version 2.2 (Debian 12). This configuration
 enables scalable distributed processing using Spark’s resource management.
----
+
 
 ## 🛠️ Preparation
 Steps to run SparkADLS:
