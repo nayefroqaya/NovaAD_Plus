@@ -39,6 +39,25 @@ We used 4 open-source log datasets (BGL, HDFS, Thunderbird, Spirit):
 All libraries are specified with their versions in the requirements file (e.g., Main folder/requirements.txt).
 
 ---
+## Single-Node Configurations:
+Only one server evaluates anomaly detection ac-
+curacy and runtime efficiency on all datasets. Baselines and experiments run
+on a single-node AMD EPYC 7513 server with 32 CPU cores and ∼251 GB
+RAM. The PySpark environment uses eight workers, each with four CPU cores.
+Each worker has 28 GB of memory (224 GB total for all executors), while the
+remaining memory is reserved for the OS and Spark overhead. The driver is also
+assigned 28 GB for stable coordination. This setup provides balanced compute
+and memory resources for efficient parallel processing.
+
+
+## Multi-Node Configurations:
+The multi-node setup evaluates the anomaly de-
+tection accuracy, runtime efficiency, and scalability on the Thunderbird datasets
+(3G, 9G, 12G). All experiments are executed on a Google Cloud Dataproc clus-
+ter in the europe-west1 region, with one master and one to three worker nodes.
+Each node uses an n4-standard-8 machine (8 vCPUs, 32 GB RAM) with 100 GB
+boot disks, running Dataproc image version 2.2 (Debian 12). This configuration
+enables scalable distributed processing using Spark’s resource management.
 ---
 
 ## 🛠️ Preparation
