@@ -40,6 +40,7 @@ All libraries are specified with their versions in the requirements file (e.g., 
 
 ---
 ## Single-Node Configurations:
+
 Only one server evaluates anomaly detection ac-
 curacy and runtime efficiency on all datasets. Baselines and experiments run
 on a single-node AMD EPYC 7513 server with 32 CPU cores and ∼251 GB
@@ -51,6 +52,7 @@ and memory resources for efficient parallel processing.
 
 
 ## Multi-Node Configurations:
+
 The multi-node setup evaluates the anomaly de-
 tection accuracy, runtime efficiency, and scalability on the Thunderbird datasets
 (3G, 9G, 12G). All experiments are executed on a Google Cloud Dataproc clus-
