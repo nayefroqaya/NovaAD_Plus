@@ -6,7 +6,7 @@ In this paper, we present SparkADLS, a semi-supervised and scalable log anomaly 
 
 ## Project Structure
 <pre>
-├─ datasets/               # Main entry point for NovaADLS datasets  
+├─ datasets/               # Main entry point for SparkADLS datasets  
 ├─ drain_parser/           # Configuration and parser scripts for Drain  with its references
 ├─ src/  
 │  ├─ pyspark_main.py              # Main script to trigger the full pipeline  
