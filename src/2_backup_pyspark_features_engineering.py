@@ -252,6 +252,8 @@ class FeaturesEngineering:
         return summ_train_test_val_combine_scaled, X_sequences_df, y_sequences_df
         '''
 
+
+    '''
     @staticmethod
     def novelty_detection_label_establishment(DATASET, sequences_df, spark):
 
@@ -330,7 +332,7 @@ class FeaturesEngineering:
         from pyspark.ml.classification import GBTClassifier
         from pyspark.ml.functions import vector_to_array
         from pyspark.ml.classification import FMClassifier
-        from pyspark.ml.linalg import VectorUDT
+
         import numpy as np
         from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 
@@ -519,3 +521,253 @@ class FeaturesEngineering:
         print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
 
         return df_full_train_labeled_features, sequences_df
+        '''
+
+    @staticmethod
+    def novelty_detection_label_establishment(DATASET, sequences_df, spark):
+
+        import numpy as np
+        import pandas as pd
+
+        from pyspark.sql.functions import (col, lit, when, lower, trim, udf)
+        from pyspark.sql.types import DoubleType
+        from pyspark.ml.feature import PCA as SparkPCA
+        from pyspark.ml.clustering import GaussianMixture
+        from sklearn.metrics import classification_report
+
+        # ======================================
+        # 1) Prepare y_true and Label
+        # ======================================
+        GT_COL = "Label"
+
+        sequences_df = sequences_df.withColumn("y_true",
+            when(lower(trim(col(GT_COL))).isin("anomaly", "1", "true", "yes"), lit(1)).when(
+                lower(trim(col(GT_COL))).isin("normal", "0", "false", "no"), lit(0)).otherwise(col(GT_COL).cast("int")))
+
+        sequences_df = sequences_df.withColumn("Label",
+            when(lower(trim(col("Label"))) == "normal", lit(0)).when(lower(trim(col("Label"))) == "anomaly",
+                                                                     lit(1)).otherwise(col("Label").cast("int")))
+
+        # ======================================
+        # 2) Split TRAIN: real normal + unlabeled
+        # ======================================
+        train_seq_df = sequences_df.filter(col("Temp_label").isin([0, 999])).cache()
+
+        train_normal_df = train_seq_df.filter(col("Label") == 0)
+        train_unlabeled_df = train_seq_df.filter(col("Temp_label") == 999)
+
+        feature_col = "features_vec_final"
+        id_col = "Node_block_id"
+
+        # ======================================
+        # 3) No additional scaling
+        # Features are assumed already scaled after aggregation
+        # ======================================
+        train_normal_scaled = train_normal_df
+        train_unlabeled_scaled = train_unlabeled_df
+
+        # ======================================
+        # 4) PCA for dimensionality reduction
+        # Fit PCA only on real normal training sequences
+        # ======================================
+        candidate_ks = [10, 20, 40, 50, 60]
+        target_variance = 0.999
+        best_k = None
+
+        for k in candidate_ks:
+            pca_tmp = SparkPCA(k=k, inputCol=feature_col, outputCol=f"pca_features_k{k}")
+            pca_tmp_model = pca_tmp.fit(train_normal_scaled)
+
+            explained_variance = float(sum(pca_tmp_model.explainedVariance))
+
+            if explained_variance >= target_variance:
+                best_k = k
+                break
+
+        if best_k is None:
+            best_k = candidate_ks[-1]
+
+        print(f"[PCA] Selected k={best_k}")
+
+        pca = SparkPCA(k=best_k, inputCol=feature_col, outputCol="pca_features")
+
+        pca_model = pca.fit(train_normal_scaled)
+
+        train_normal_pca = pca_model.transform(train_normal_scaled)
+        train_unlabeled_pca = pca_model.transform(train_unlabeled_scaled)
+
+        # ======================================
+        # 5) PCA reconstruction error
+        # ======================================
+        pc = pca_model.pc.toArray()
+        d = len(train_normal_scaled.select(feature_col).head()[0])
+
+        pc_b = spark.sparkContext.broadcast(pc)
+        use_pc_dk_b = spark.sparkContext.broadcast(pc.shape[0] == d)
+
+        @udf(DoubleType())
+        def reconstruction_error(orig_vec, pca_vec):
+            x = np.array(orig_vec.toArray(), dtype=float)
+            z = np.array(pca_vec.toArray(), dtype=float)
+
+            pc_local = pc_b.value
+
+            if use_pc_dk_b.value:
+                x_hat = pc_local @ z
+            else:
+                x_hat = z @ pc_local
+
+            return float(np.linalg.norm(x - x_hat))
+
+        train_normal_pca = train_normal_pca.withColumn("anomaly_score_pca",
+            reconstruction_error(col(feature_col), col("pca_features")))
+
+        train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_pca",
+            reconstruction_error(col(feature_col), col("pca_features")))
+
+        # ======================================
+        # 6) Fit GMM on normal PCA space
+        # ======================================
+        gmm_candidates = [2, 4, 6, 8, 10, 12]
+
+        best_gmm_model = None
+        best_bic = float("inf")
+        best_k_gmm = None
+
+        def bic(model, df, k, d_pca):
+            try:
+                ll = float(model.summary.logLikelihood)
+            except Exception:
+                return float("inf")
+
+            n = df.count()
+            p = (k - 1) + k * d_pca + k * (d_pca * (d_pca + 1) // 2)
+
+            return -2.0 * ll + p * np.log(max(n, 1))
+
+        d_pca = best_k
+        feat_df = train_normal_pca.select("pca_features")
+
+        for k in gmm_candidates:
+            gmm = GaussianMixture(k=k, seed=123, featuresCol="pca_features", predictionCol="cluster")
+
+            model = gmm.fit(feat_df)
+            score = bic(model, feat_df, k, d_pca)
+
+            if score < best_bic:
+                best_bic = score
+                best_gmm_model = model
+                best_k_gmm = k
+
+        print(f"[GMM] Selected k={best_k_gmm} by BIC")
+
+        # ======================================
+        # 7) Compute GMM negative log-likelihood
+        # ======================================
+        weights = np.array(best_gmm_model.weights)
+        means = np.stack([np.array(g.mean.toArray()) for g in best_gmm_model.gaussians], axis=0)
+        covs = np.stack([np.array(g.cov.toArray()) for g in best_gmm_model.gaussians], axis=0)
+
+        JITTER = 1e-6
+        covs += np.eye(d_pca)[None, :, :] * JITTER
+
+        inv_covs = np.linalg.inv(covs)
+        sign, logdets = np.linalg.slogdet(covs)
+        const = d_pca * np.log(2 * np.pi)
+
+        bc_params = spark.sparkContext.broadcast(
+            {"weights": weights, "means": means, "inv_covs": inv_covs, "logdets": logdets, "const": const})
+
+        @udf(DoubleType())
+        def gmm_nll(pca_vec):
+            z = np.array(pca_vec.toArray(), dtype=float)
+
+            P = bc_params.value
+            w = P["weights"]
+            m = P["means"]
+            ic = P["inv_covs"]
+            ld = P["logdets"]
+            cst = P["const"]
+
+            logps = []
+
+            for i in range(len(w)):
+                diff = z - m[i]
+                quad = float(diff.T @ ic[i] @ diff)
+                logN = -0.5 * (quad + float(ld[i]) + cst)
+                logps.append(np.log(max(float(w[i]), 1e-300)) + logN)
+
+            a = float(np.max(logps))
+            logp = a + float(np.log(np.sum(np.exp(np.array(logps) - a))))
+
+            return float(-logp)
+
+        train_normal_pca = train_normal_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+
+        train_unlabeled_pca = train_unlabeled_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+
+        # ======================================
+        # 8) Thresholds for PCA/GMM novelty flags
+        # ======================================
+        TARGET_FPR = 0.05
+
+        thr_gmm = train_normal_pca.approxQuantile("anomaly_score_gmm", [1 - TARGET_FPR], 1e-6)[0]
+
+        thr_pca = train_normal_pca.approxQuantile("anomaly_score_pca", [1 - TARGET_FPR], 1e-6)[0]
+
+        print(f"[PCA] threshold={thr_pca:.6f}")
+        print(f"[GMM] threshold={thr_gmm:.6f}")
+
+        # ======================================
+        # 8.1) Score ALL sequences
+        # This makes anomaly_score_pca, anomaly_score_gmm,
+        # pca_flag, and gmm_flag available later in case1/case2.
+        # ======================================
+        sequences_pca = pca_model.transform(sequences_df)
+
+        sequences_pca = sequences_pca.withColumn("anomaly_score_pca",
+            reconstruction_error(col(feature_col), col("pca_features")))
+
+        sequences_pca = sequences_pca.withColumn("anomaly_score_gmm", gmm_nll(col("pca_features")))
+
+        sequences_pca = sequences_pca.withColumn("pca_flag",
+            when(col("anomaly_score_pca") > lit(thr_pca), lit(1)).otherwise(lit(0)))
+
+        sequences_pca = sequences_pca.withColumn("gmm_flag",
+            when(col("anomaly_score_gmm") > lit(thr_gmm), lit(1)).otherwise(lit(0)))
+
+        # Update returned sequences_df with novelty scores and flags
+        sequences_df = sequences_pca
+
+        # ======================================
+        # 9) Build full labeled train dataset
+        # ======================================
+        # Temp_label = 0   : real normal
+        # Temp_label = 999 : unlabeled, pseudo-labeled by PCA/GMM novelty flags
+        # Temp_label = 888 : test, not included in pseudo-training dataframe
+        # ======================================
+        df_full_train_labeled_features = sequences_df.filter(col("Temp_label").isin([0, 999])).withColumn("Final_Label",
+            when(col("Temp_label") == 0, lit(0).cast("int")).otherwise(
+                when((col("pca_flag") == 1) | (col("gmm_flag") == 1), lit(1)).otherwise(lit(0)))).select(col(id_col),
+            col(feature_col).alias("features_vec_final"), col("anomaly_score_pca"), col("anomaly_score_gmm"),
+            col("pca_flag"), col("gmm_flag"), col("Final_Label"))
+
+        # ======================================
+        # 10) Classification report on full training
+        # ======================================
+        df_full_eval = df_full_train_labeled_features.join(
+            sequences_df.select(col(id_col), col("y_true").alias("true_label")), on=id_col, how="inner").select(
+            "true_label", "Final_Label").dropna()
+
+        pdf_full = df_full_eval.toPandas()
+
+        pdf_full["true_label"] = pdf_full["true_label"].astype(int)
+        pdf_full["Final_Label"] = pdf_full["Final_Label"].astype(int)
+
+        print("\n=== Novelty Detection Classification Report on FULL TRAIN ===")
+        print(classification_report(pdf_full["true_label"], pdf_full["Final_Label"], digits=3))
+
+        return df_full_train_labeled_features, sequences_df
+
+
+

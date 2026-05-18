@@ -203,7 +203,6 @@ class FeaturesEngineering:
         # =============================
         print('# 3️⃣ Apply RobustScaler-------')
         # =============================
-        from pyspark.ml.linalg import VectorUDT
 
         array_to_vector_udf = udf(lambda arr: Vectors.dense(arr), VectorUDT())
         summ_train_test_val_combine = summ_train_test_val_combine.withColumn("features_vec",
@@ -330,7 +329,7 @@ class FeaturesEngineering:
         from pyspark.ml.classification import GBTClassifier
         from pyspark.ml.functions import vector_to_array
         from pyspark.ml.classification import FMClassifier
-        from pyspark.ml.linalg import VectorUDT
+
         import numpy as np
         from sklearn.metrics import precision_score, recall_score, f1_score, classification_report
 

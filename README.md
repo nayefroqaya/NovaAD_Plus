@@ -1,12 +1,12 @@
 ## SparkADLS
 ## 📌 Description
-In this paper, we present SparkADLS, a semi-supervised and scalable log anomaly detection system that translates the sequential pipeline of the known NovaADLS algorithm into a PySpark-based parallel execution environment. SparkADLS reduces computational runtime, demonstrates effective scalability to large-scale datasets, and improves anomaly detection accuracy.
+In this paper, we present SparkADLS, a semi-supervised and scalable log anomaly detection system that translates the sequential pipeline of the known [NovaADLS](https://github.com/nayefroqaya/NovaAD) algorithm into a PySpark-based parallel execution environment. SparkADLS reduces computational runtime, demonstrates effective scalability to large-scale datasets, and improves anomaly detection accuracy.
 
 ---
 
 ## Project Structure
 <pre>
-├─ datasets/               # Main entry point for NovaADLS datasets  
+├─ datasets/               # Main entry point for SparkADLS datasets  
 ├─ drain_parser/           # Configuration and parser scripts for Drain  with its references
 ├─ src/  
 │  ├─ pyspark_main.py              # Main script to trigger the full pipeline  
@@ -39,7 +39,28 @@ We used 4 open-source log datasets (BGL, HDFS, Thunderbird, Spirit):
 All libraries are specified with their versions in the requirements file (e.g., Main folder/requirements.txt).
 
 ---
----
+## Single-Node Configurations:
+
+Only one server evaluates anomaly detection ac-
+curacy and runtime efficiency on all datasets. Baselines and experiments run
+on a single-node AMD EPYC 7513 server with 32 CPU cores and ∼251 GB
+RAM. The PySpark environment uses eight workers, each with four CPU cores.
+Each worker has 28 GB of memory (224 GB total for all executors), while the
+remaining memory is reserved for the OS and Spark overhead. The driver is also
+assigned 28 GB for stable coordination. This setup provides balanced compute
+and memory resources for efficient parallel processing.
+
+
+## Multi-Node Configurations:
+
+The multi-node setup evaluates the anomaly de-
+tection accuracy, runtime efficiency, and scalability on the Thunderbird datasets
+(3G, 9G, 12G). All experiments are executed on a Google Cloud Dataproc clus-
+ter in the europe-west1 region, with one master and one to three worker nodes.
+Each node uses an n4-standard-8 machine (8 vCPUs, 32 GB RAM) with 100 GB
+boot disks, running Dataproc image version 2.2 (Debian 12). This configuration
+enables scalable distributed processing using Spark’s resource management.
+
 
 ## 🛠️ Preparation
 Steps to run SparkADLS:
@@ -69,3 +90,10 @@ To apply the SparkADLS pipeline on log data. Before start running, you must spec
 -  Run the main function (`src/main.py`).
 -  The main function executes all stages as one pipeline: data preprocessing, anomaly detection, and evaluation.
 
+## 📬 Contact
+We are happy to answer your questions:   
+
+| Name               | Email Address                             |
+|--------------------|-------------------------------------------|
+| Nayef Roqaya       | roqaya@staff.uni-marburg.de               |
+| Thorsten Papenbrock| papenbrock@informatik.uni-marburg.de      |
