@@ -1,7 +1,14 @@
 ## SparkADLS
 ## 📌 Description
-In this paper, we present SparkADLS, a semi-supervised and scalable log anomaly detection system that translates the sequential pipeline of the known [NovaADLS](https://github.com/nayefroqaya/NovaAD) algorithm into a PySpark-based parallel execution environment. SparkADLS reduces computational runtime, demonstrates effective scalability to large-scale datasets, and improves anomaly detection accuracy.
-
+In this paper, we present SparkADLS, a semi-supervised
+and scalable log anomaly detection system that translates the sequential
+pipeline of the known [NovaADLS](https://github.com/nayefroqaya/NovaAD) algorithm into a PySpark-based paral-
+lel execution environment. While preserving the high-level architectural
+principles of NovaADLS, SparkADLS redesigns all core components by
+introducing a probabilistic modeling of normal behavior, reconstruction-
+based anomaly scoring with a hybrid novelty decision mechanism, hybrid
+training layer with real and pseudo labels, principled pseudo-anomaly
+training layer, and a unified decision rule for multi-layer anomaly scoring. SparkADLS reduces computational runtime, demonstrates effective scalability to large-scale datasets, and improves anomaly detection accuracy.
 ---
 
 ## Project Structure
