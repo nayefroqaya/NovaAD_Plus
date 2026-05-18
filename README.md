@@ -90,3 +90,10 @@ To apply the SparkADLS pipeline on log data. Before start running, you must spec
 -  Run the main function (`src/main.py`).
 -  The main function executes all stages as one pipeline: data preprocessing, anomaly detection, and evaluation.
 
+## 📬 Contact
+We are happy to answer your questions:   
+
+| Name               | Email Address                             |
+|--------------------|-------------------------------------------|
+| Nayef Roqaya       | roqaya@staff.uni-marburg.de               |
+| Thorsten Papenbrock| papenbrock@informatik.uni-marburg.de      |
