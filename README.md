@@ -1,4 +1,4 @@
-## SparkADLS
+## SparkADLS (Submitted : The 30th European Conference on Advances in Databases and Information Systems 2026)
 ## 📌 Description
 
 
