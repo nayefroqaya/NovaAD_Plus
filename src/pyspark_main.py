@@ -66,7 +66,7 @@ eventlog_dir = "/tmp/spark-events"
 
 os.makedirs(spill_dir, exist_ok=True)
 os.makedirs(eventlog_dir, exist_ok=True)
-
+'''
 # ============================================================
 # Start Spark
 # ============================================================
@@ -104,14 +104,14 @@ spark = (SparkSession.builder.appName("Distributed_Log_AD")
 
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark initialized")
-
-# Cloud experiment
 '''
+# Cloud experiment
+
 #--- google cloud experiments 
 spark = SparkSession.builder \
     .appName("NovaPlus") \
     .getOrCreate()
-'''
+
 
 # ===================== ======================
 warnings.filterwarnings('ignore')
