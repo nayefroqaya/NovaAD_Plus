@@ -140,9 +140,9 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'SP_150MB_ratio'
+    DATASET = 'TH_9G_ratio'
     DATASETS_FOLDER = 'datasets'
-    round_id = '3'
+    round_id = '1'
     mode = 'X'
     Mix_or_stable = '0'
 
@@ -248,8 +248,8 @@ def main():
 
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
-    output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  # round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    # output_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    #output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  # round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
+    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
@@ -282,17 +282,16 @@ def main():
         DATASET, sequences_df, spark)
 
     # -----for computation in cloud :
-
     type(df_full_train_labeled_features)
     type(sequences_df)
 
     # local server path
-    df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
-    sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
+    #df_full_train_labeled_features_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_df_full_train_labeled_features.parquet'
+    #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    # df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_df_full_train_labeled_features.parquet"
-    # sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_12G_ratio/1_TH_12G_ratio_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_sequences_df.parquet"
 
 
     # save df to path:
