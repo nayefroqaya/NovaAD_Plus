@@ -272,10 +272,10 @@ def main():
     #final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 20)
 
     # Scale factor
-    scale = 10
+    scale = 20
 
     # Choose enough partitions for the larger dataset
-    num_partitions = scale * 30  # for 30x => 1200 partitions
+    num_partitions = scale * 40  # for 30x => 1200 partitions
 
     # Small DataFrame: 0, 1, 2, ..., 29
     multiplier = spark.range(scale).selectExpr("id as repeat_id")
