@@ -15,6 +15,7 @@ from pyspark.sql.functions import col
 from pyspark.sql.functions import col
 from pyspark.storagelevel import StorageLevel
 from functools import reduce
+from pyspark.sql.functions import broadcast
 
 
 # from load_datalog import LogdataRead
@@ -265,10 +266,23 @@ def main():
     # exit()
 
     # duplicating the dataset for scalability experiments :
-    def repeat_df(df, n):
-        return reduce(lambda a, b: a.unionByName(b), [df] * n)
+    #def repeat_df(df, n):
+    #    return reduce(lambda a, b: a.unionByName(b), [df] * n)
 
-    final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 20)
+    #final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 20)
+
+    # Scale factor
+    scale = 30
+
+    # Choose enough partitions for the larger dataset
+    num_partitions = scale * 40  # for 30x => 1200 partitions
+
+    # Small DataFrame: 0, 1, 2, ..., 29
+    multiplier = spark.range(scale).selectExpr("id as repeat_id")
+
+    # Repeat each row 30 times, remove helper column, repartition
+    final_train_with_test_with_val = (
+        final_train_with_test_with_val.crossJoin(broadcast(multiplier)).drop("repeat_id").repartition(num_partitions))
     # ---------------- Features Engineering ----------------
 
     start_agree_trans = time.time()
