@@ -14,6 +14,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.functions import col
 from pyspark.storagelevel import StorageLevel
+from functools import reduce
+
 
 # from load_datalog import LogdataRead
 from pyspark_anomaly_detection import AnomalyDetector
@@ -140,7 +142,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_9G_ratio'
+    DATASET = 'BGL'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -249,7 +251,7 @@ def main():
     # ---------------- Load feature PKL → Spark ----------------
     # ✅ Load from Parquet
     #output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  # round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
-    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    output_path = "gs://sparkadls/Nova_Plus/datasets/BGL/1_BGL_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
@@ -258,6 +260,12 @@ def main():
     # final_train_with_test_with_val.select("year").distinct().show()
     # spark.stop()
     # exit()
+
+    # duplicating the dataset for scalability experiments :
+    def repeat_df(df, n):
+        return reduce(lambda a, b: a.unionByName(b), [df] * n)
+
+    final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 2)
     # ---------------- Features Engineering ----------------
 
     start_agree_trans = time.time()
@@ -290,8 +298,8 @@ def main():
     #sequences_df_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_sequences_df.parquet'
 
     # Cloud server path
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_9G_ratio/1_TH_9G_ratio_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/BGL/1_BGL_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/BGL/1_BGL_sequences_df.parquet"
 
 
     # save df to path:
