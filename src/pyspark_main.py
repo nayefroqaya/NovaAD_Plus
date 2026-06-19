@@ -142,7 +142,7 @@ def main():
     pd.set_option("display.max_colwidth", None)
 
     # ---------------- Project configuration ----------------
-    DATASET = 'TH_1G'
+    DATASET = 'TH_3G_ratio'
     DATASETS_FOLDER = 'datasets'
     round_id = '1'
     mode = 'X'
@@ -252,7 +252,8 @@ def main():
     # ✅ Load from Parquet
     #output_path = f'../{DATASETS_FOLDER}/{DATASET}/{round_id}_{DATASET}_Topic_sentiment_diff_semantic_df.parquet'  # round_id + '_' + DATASET + "_Topic_sentiment_diff_semantic_df.parquet"
     #output_path = "gs://sparkadls/Nova_Plus/datasets/SP_150MB_ratio/1_SP_150MB_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
-    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    #output_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
+    output_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_Topic_sentiment_diff_semantic_df.parquet"  # for cloud
 
     final_train_with_test_with_val = spark.read.parquet(output_path)
     final_train_with_test_with_val.count()
@@ -302,8 +303,8 @@ def main():
     #df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/SP_150MB_ratio/1_SP_150MB_ratio_df_full_train_labeled_features.parquet"
     #sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/SP_150MB_ratio/1_SP_150MB_ratio_sequences_df.parquet"
 
-    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_df_full_train_labeled_features.parquet"
-    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_1G/1_TH_1G_sequences_df.parquet"
+    df_full_train_labeled_features_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_df_full_train_labeled_features.parquet"
+    sequences_df_path = "gs://sparkadls/Nova_Plus/datasets/TH_3G_ratio/1_TH_3G_ratio_sequences_df.parquet"
 
 
     # save df to path:
