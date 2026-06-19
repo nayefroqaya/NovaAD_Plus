@@ -272,7 +272,7 @@ def main():
     #final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 20)
 
     # Scale factor
-    scale = 20
+    scale = 50
 
     # Choose enough partitions for the larger dataset
     num_partitions = scale * 20  # for 30x => 1200 partitions
