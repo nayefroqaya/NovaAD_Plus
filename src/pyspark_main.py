@@ -268,7 +268,7 @@ def main():
     def repeat_df(df, n):
         return reduce(lambda a, b: a.unionByName(b), [df] * n)
 
-    final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 25)
+    final_train_with_test_with_val = repeat_df(final_train_with_test_with_val, 20)
     # ---------------- Features Engineering ----------------
 
     start_agree_trans = time.time()
