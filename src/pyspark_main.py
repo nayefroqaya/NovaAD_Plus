@@ -275,7 +275,7 @@ def main():
     scale = 50
 
     # Choose enough partitions for the larger dataset
-    num_partitions = scale * 50  # for 30x => 1200 partitions
+    num_partitions = scale * 70  # for 30x => 1200 partitions
 
     # Small DataFrame: 0, 1, 2, ..., 29
     multiplier = spark.range(scale).selectExpr("id as repeat_id")
