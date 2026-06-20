@@ -1,4 +1,4 @@
-## SparkADLS (Submitted and accepted: The 30th European Conference on Advances in Databases and Information Systems 2026)
+## SparkADLS (Submitted and accepted: The 30th European Conference on Advances in Databases and Information Systems 2026) (adbis26)
 ## 📌 Description
 
 
