@@ -185,6 +185,15 @@ spark.executor.memory=20g,\
 spark.executor.memoryOverhead=3g,\
 spark.driver.memory=8g,\
 spark.sql.shuffle.partitions=32
+
+### Different command between the server and Cloud :
+
+- gcloud storage cp -r folder.parquet/  gs://sparkadls/Nova_Plus/datasets/BGL
+-  zip -r code.zip *.py -x "pyspark_main.py" "*.pyc"
+- gcloud storage cp pyspark_main.py gs://sparkadls/Nova_Plus/src/pyspark_main.py
+- gcloud storage cp code.zip gs://sparkadls/Nova_Plus/src/code.zip
+
+
 ## 📬 Contact
 We are happy to answer your questions:   
 
