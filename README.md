@@ -1,4 +1,4 @@
-## SparkADLS (Submitted : The 30th European Conference on Advances in Databases and Information Systems 2026)
+## SparkADLS (Submitted and accepted: The 30th European Conference on Advances in Databases and Information Systems 2026)
 ## 📌 Description
 
 
@@ -99,6 +99,92 @@ To apply the SparkADLS pipeline on log data. Before start running, you must spec
 -  Run the main function (`src/main.py`).
 -  The main function executes all stages as one pipeline: data preprocessing, anomaly detection, and evaluation.
 
+## 🚨 Create the Clusters:
+
+### Cluster (1)
+gcloud dataproc clusters create cluster-1w \
+  --region=europe-west1 \
+  --zone=europe-west1-b \
+  --master-machine-type=n4-standard-8 \
+  --worker-machine-type=n4-standard-8 \
+  --num-workers=2 \
+  --master-boot-disk-size=75 \
+  --worker-boot-disk-size=75 \
+  --image-version=2.2-debian12 \
+  --enable-component-gateway \
+  --initialization-actions=gs://sparkadls/Nova_Plus/init/install_packages_offline.sh
+
+### Submit Jobs :
+gcloud dataproc jobs submit pyspark \
+gs://sparkadls/Nova_Plus/src/pyspark_main.py \
+--cluster=cluster-1w \
+--region=europe-west1 \
+--py-files=gs://sparkadls/Nova_Plus/src/code.zip \
+--properties=spark.dynamicAllocation.enabled=false,\
+spark.executor.instances=2,\
+spark.executor.cores=6,\
+spark.executor.memory=20g,\
+spark.executor.memoryOverhead=3g,\
+spark.driver.memory=8g,\
+spark.sql.shuffle.partitions=32
+
+#———————————————————————————————————————
+
+### Cluster (2)
+gcloud dataproc clusters create cluster-2w \
+  --region=europe-west1 \
+  --zone=europe-west1-b \
+  --master-machine-type=n4-standard-8 \
+  --worker-machine-type=n4-standard-8 \
+  --num-workers=3 \
+  --master-boot-disk-size=40 \
+  --worker-boot-disk-size=40 \
+  --image-version=2.2-debian12 \
+  --enable-component-gateway \
+  --initialization-actions=gs://sparkadls/Nova_Plus/init/install_packages_offline.sh
+
+### Submit Jobs :
+
+ gcloud dataproc jobs submit pyspark \
+gs://sparkadls/Nova_Plus/src/pyspark_main.py \
+--cluster=cluster-2w \
+--region=europe-west1 \
+--py-files=gs://sparkadls/Nova_Plus/src/code.zip \
+--properties=spark.dynamicAllocation.enabled=false,\
+spark.executor.instances=3,\
+spark.executor.cores=6,\
+spark.executor.memory=20g,\
+spark.executor.memoryOverhead=3g,\
+spark.driver.memory=8g,\
+spark.sql.shuffle.partitions=32
+#———————————————————————————————
+
+### Cluster (3)
+gcloud dataproc clusters create cluster-3w \
+  --region=europe-west1 \
+  --zone=europe-west1-b \
+  --master-machine-type=n4-standard-8 \
+  --worker-machine-type=n4-standard-8 \
+  --num-workers=4 \
+  --master-boot-disk-size=30 \
+  --worker-boot-disk-size=30 \
+  --image-version=2.2-debian12 \
+  --enable-component-gateway \
+  --initialization-actions=gs://sparkadls/Nova_Plus/init/install_packages_offline.sh
+
+### Submit Jobs :
+ gcloud dataproc jobs submit pyspark \
+gs://sparkadls/Nova_Plus/src/pyspark_main.py \
+--cluster=cluster-3w \
+--region=europe-west1 \
+--py-files=gs://sparkadls/Nova_Plus/src/code.zip \
+--properties=spark.dynamicAllocation.enabled=false,\
+spark.executor.instances=4,\
+spark.executor.cores=6,\
+spark.executor.memory=20g,\
+spark.executor.memoryOverhead=3g,\
+spark.driver.memory=8g,\
+spark.sql.shuffle.partitions=32
 ## 📬 Contact
 We are happy to answer your questions:   
 
