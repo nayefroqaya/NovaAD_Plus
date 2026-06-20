@@ -157,7 +157,8 @@ spark.executor.memory=20g,\
 spark.executor.memoryOverhead=3g,\
 spark.driver.memory=8g,\
 spark.sql.shuffle.partitions=32
-#———————————————————————————————
+
+#———————————————————————————————————————
 
 ### Cluster (3)
 gcloud dataproc clusters create cluster-3w \
