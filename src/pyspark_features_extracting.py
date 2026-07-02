@@ -102,22 +102,6 @@ class FeaturesExtractor:
     def features_extracting_configuring_tuning(self, round_id,
                                                Dataset_name, pre_final_global_features_pkl_path, df_features, spark):
 
-        """
-        Main pipeline for feature extraction and configuration
-
-        Parameters:
-        -----------
-        features_extracting_obj : FeaturesExtractor instance
-        doc_topic_df_path : str, path to save document-topic dataframe
-        sentiment_df_path : str, path to save sentiment analysis results
-        Dataset_name : str, name of the dataset being processed
-        pre_final_global_features_pkl_path : str, path for intermediate feature storage
-        df_features : DataFrame, input data containing log messages
-
-        Returns:
-        --------
-        tuple: (number_of_components, best_topic_number)
-        """
 
         # ==================== DATA VALIDATION AND PREPARATION ====================
         print("[INFO] DataFrame schema and sample:")
@@ -332,15 +316,7 @@ class FeaturesExtractor:
 
     def features_extracted_different_features(self, Dataset_name, best_topic_number, mapped_df_topics_sentiment,
                                               pre_final_global_features_pkl_path, spark):
-        """
-        Extract additional features including temporal, statistical, and entropy features
 
-        Parameters:
-        -----------
-        best_topic_number : int, number of topics for feature naming
-        doc_topic_df_path : str, path to topic modeling results
-        pre_final_global_features_pkl_path : str, path to save enhanced features
-        """
 
         output_path = Dataset_name + "_Topic_sentiment_df.parquet"
         # ✅ Load from Parquet
